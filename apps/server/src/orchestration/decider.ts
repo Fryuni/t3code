@@ -1083,8 +1083,7 @@ export const decideOrchestrationCommand = Effect.fn("decideOrchestrationCommand"
         existing.stack !== null ||
         thread.pullRequests.some(
           (link) =>
-            link.host.toLowerCase() === key.host &&
-            link.repository.toLowerCase() === key.repository &&
+            threadPullRequestKeysEqual({ ...link, number: key.number }, key) &&
             link.stack?.layers.some((layer) => layer.number === key.number),
         );
       if (belongsToStack) {

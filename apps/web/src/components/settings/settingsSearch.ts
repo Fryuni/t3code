@@ -481,7 +481,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     title: "Source control",
     to: "/settings/source-control",
     searchTerms: [
-      "version control git github gitlab bitbucket azure devops hosting integrations credentials scan server environment",
+      "version control git github gitlab forgejo codeberg fj bitbucket azure devops hosting integrations credentials scan server environment",
     ],
   },
   {

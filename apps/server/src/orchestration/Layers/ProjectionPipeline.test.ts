@@ -690,7 +690,7 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-base-")))(
 it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull-requests-")))(
   "OrchestrationProjectionPipeline pull request links",
   (it) => {
-    it.effect("projects link, sync, unlink, legacy replay and delete into the link table", () =>
+    it.effect("projects Forgejo link lifecycle with a case-sensitive instance path", () =>
       Effect.gen(function* () {
         const projectionPipeline = yield* OrchestrationProjectionPipeline;
         const eventStore = yield* OrchestrationEventStore;
@@ -746,7 +746,10 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
             threadId,
             projectId,
             title: "Thread PR",
-            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5-codex" },
+            modelSelection: {
+              instanceId: ProviderInstanceId.make("codex"),
+              model: "gpt-5-codex",
+            },
             runtimeMode: "full-access",
             branch: null,
             worktreePath: null,
@@ -776,10 +779,10 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
           payload: {
             threadId,
             link: {
-              host: "github.com",
-              repository: "pingdotgg/t3code",
+              host: "git.example.test",
+              repository: "Forge/pingdotgg/t3code",
               number: 42,
-              url: "https://github.com/pingdotgg/t3code/pull/42",
+              url: "https://git.example.test/Forge/pingdotgg/t3code/pulls/42",
               source: "created",
               linkedAt: "2026-01-01T00:00:02.000Z",
               snapshot: null,
@@ -801,8 +804,8 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
             stackJson: null,
           },
           {
-            host: "github.com",
-            repository: "pingdotgg/t3code",
+            host: "git.example.test",
+            repository: "Forge/pingdotgg/t3code",
             number: 42,
             source: "created",
             linkedAt: "2026-01-01T00:00:02.000Z",
@@ -828,8 +831,8 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
           type: "thread.pull-request-synced",
           payload: {
             threadId,
-            host: "github.com",
-            repository: "pingdotgg/t3code",
+            host: "git.example.test",
+            repository: "Forge/pingdotgg/t3code",
             number: 42,
             snapshot,
             stack: null,
@@ -841,8 +844,8 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
           type: "thread.pull-request-synced",
           payload: {
             threadId,
-            host: "github.com",
-            repository: "pingdotgg/t3code",
+            host: "git.example.test",
+            repository: "Forge/pingdotgg/t3code",
             number: 99,
             snapshot,
             stack: null,
@@ -879,8 +882,8 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
           type: "thread.pull-request-unlinked",
           payload: {
             threadId,
-            host: "GitHub.COM",
-            repository: "PingDotGG/T3Code",
+            host: "Git.Example.Test",
+            repository: "Forge/PingDotGG/T3Code",
             number: 42,
             updatedAt: "2026-01-01T00:00:05.000Z",
           },
@@ -896,10 +899,10 @@ it.layer(Layer.fresh(makeProjectionPipelinePrefixedTestLayer("t3-projection-pull
           payload: {
             threadId,
             link: {
-              host: "github.com",
-              repository: "pingdotgg/t3code",
+              host: "git.example.test",
+              repository: "Forge/pingdotgg/t3code",
               number: 43,
-              url: "https://github.com/pingdotgg/t3code/pull/43",
+              url: "https://git.example.test/Forge/pingdotgg/t3code/pulls/43",
               source: "agent",
               linkedAt: "2026-01-01T00:00:06.000Z",
               snapshot: null,

@@ -375,6 +375,30 @@ describe("findProjectForChangeRequest", () => {
   const project = (identity: Record<string, unknown>) =>
     ({ id: "p1", repositoryIdentity: identity }) as never;
 
+  it("matches Forgejo instance paths by case", () => {
+    const projects = ["Forge", "forge"].map((path) =>
+      project({
+        canonicalKey: `git.example.test/${path}/owner/repo`,
+        provider: "forgejo",
+        displayName: `${path}/owner/repo`,
+      }),
+    );
+    expect(
+      findProjectForChangeRequest(projects, {
+        host: "git.example.test",
+        repository: "Forge/Owner/Repo",
+        number: 7,
+      }),
+    ).toBe(projects[0]);
+    expect(
+      findProjectForChangeRequest(projects, {
+        host: "git.example.test",
+        repository: "forge/Owner/Repo",
+        number: 7,
+      }),
+    ).toBe(projects[1]);
+  });
+
   it("matches a nested GitLab group by the whole path below the host", () => {
     // The server identifies a repository by `displayName`, which keeps every group segment; the
     // two-segment owner/name form would look for `t3tools/t3code` and find nothing.

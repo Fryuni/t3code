@@ -8,13 +8,16 @@ import type {
 
 import { pullRequestHostOf } from "@t3tools/contracts";
 import { parseChangeRequestUrl } from "./changeRequestUrl.ts";
-import { canonicalRepositoryKey, sourceControlRepositorySelector } from "./sourceControl.ts";
+import {
+  canonicalRepositoryKey,
+  normalizeSourceControlRepository,
+  sourceControlRepositorySelector,
+} from "./sourceControl.ts";
 
 /** Normalize stored link identity, including Azure's SSH and browser host aliases. */
 export function normalizeThreadPullRequestKey(key: ThreadPullRequestKey): ThreadPullRequestKey {
-  const canonical = canonicalRepositoryKey(
-    `${key.host.trim().toLowerCase()}/${key.repository.trim().toLowerCase()}`,
-  );
+  const host = key.host.trim().toLowerCase();
+  const canonical = canonicalRepositoryKey(`${host}/${key.repository.trim()}`);
   const separator = canonical.indexOf("/");
   return {
     host: canonical.slice(0, separator),
@@ -23,7 +26,7 @@ export function normalizeThreadPullRequestKey(key: ThreadPullRequestKey): Thread
   };
 }
 
-/** Legacy Azure selectors omit the organization and project; recover those from the PR URL. */
+/** Recover Azure host aliases and Forgejo instance paths from legacy links' URLs. */
 export function legacyThreadPullRequestKey(
   linked: Pick<ThreadLinkedPullRequest, "repository" | "number" | "url">,
   fallbackHost?: string,
@@ -31,7 +34,10 @@ export function legacyThreadPullRequestKey(
   const parsed = parseChangeRequestUrl(linked.url);
   if (parsed !== null && parsed.number === linked.number) {
     const canonical = canonicalRepositoryKey(`${parsed.host}/${parsed.repository}`);
-    if (canonical.startsWith("dev.azure.com/")) {
+    if (
+      canonical.startsWith("dev.azure.com/") ||
+      /\/pulls\/\d+(?:\/|$)/u.test(new URL(linked.url).pathname)
+    ) {
       return normalizeThreadPullRequestKey(parsed);
     }
   }
@@ -45,12 +51,12 @@ export function legacyThreadPullRequestKey(
   }
   return {
     host: host.trim().toLowerCase() || "unknown",
-    repository: linked.repository.trim().toLowerCase(),
+    repository: normalizeSourceControlRepository(linked.repository),
     number: linked.number,
   };
 }
 
-/** Identity comparison for links: host-level, case-insensitive on host and repository. */
+/** Compare normalized identities without folding case-sensitive instance paths. */
 export function threadPullRequestKeysEqual(
   left: ThreadPullRequestKey,
   right: ThreadPullRequestKey,
@@ -157,7 +163,8 @@ export function legacyLinkedPullRequestOf(
       }
       return (
         link.host.toLowerCase() === host.toLowerCase() &&
-        link.repository.toLowerCase() === repository.toLowerCase()
+        normalizeSourceControlRepository(link.repository, identity.provider) ===
+          normalizeSourceControlRepository(repository, identity.provider)
       );
     }),
   );
@@ -191,7 +198,7 @@ export function resolveThreadPullRequestChains(
   const nativeStacks = new Map<string, Array<ThreadPullRequestLink>>();
   for (const link of visible) {
     if (link.stack === null) continue;
-    const stackKey = `${link.host.toLowerCase()}/${link.repository.toLowerCase()}#stack:${link.stack.id}`;
+    const stackKey = `${link.host.toLowerCase()}/${normalizeSourceControlRepository(link.repository)}#stack:${link.stack.id}`;
     const members = nativeStacks.get(stackKey) ?? [];
     members.push(link);
     nativeStacks.set(stackKey, members);
@@ -205,7 +212,7 @@ export function resolveThreadPullRequestChains(
 
   const remaining = visible.filter((link) => !placed.has(threadPullRequestKeyOf(link)));
   const branchKey = (link: ThreadPullRequestLink, branch: string) =>
-    `${link.host.toLowerCase()}/${link.repository.toLowerCase()}:${branch}`;
+    `${link.host.toLowerCase()}/${normalizeSourceControlRepository(link.repository)}:${branch}`;
   // Reused head names cannot identify a parent unambiguously.
   const byHead = new Map<string, ThreadPullRequestLink | null>();
   for (const link of remaining) {

@@ -1,13 +1,13 @@
 import type { RepositoryIdentity, ThreadLinkedPullRequest } from "@t3tools/contracts";
-import { canonicalRepositoryKey } from "./sourceControl.ts";
+import { canonicalRepositoryKey, normalizeSourceControlRepository } from "./sourceControl.ts";
 
 /**
  * A change request named the way a thread link names one: the host below which the repository
  * is addressed, the repository path as that host writes it, and the number.
  *
  * The two strings are what `pullRequestHostOf` and the project's `repositoryIdentity` produce
- * from a git remote — lower case, no port, the full path below the host — because links are
- * matched against those. Anything else matches nothing.
+ * from a git remote: the full path below the host. Forgejo retains its web port and instance
+ * path's case because different ports or paths can serve different instances.
  */
 export interface ChangeRequestLink {
   readonly host: string;
@@ -49,12 +49,15 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   // GitHub, and any Enterprise install: /{owner}/{repo}/pull/{n}
   if (isHostOf(host, "github.com", "github")) {
     const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
+    if (match) return claim(host, match);
   }
   // GitLab, self-hosted included: /{group}/[{subgroup}/...]{repo}/-/merge_requests/{n}. The `/-/`
   // separator is GitLab's own, so the hostname is not asked about.
   const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
   if (gitlab) return claim(host, gitlab);
+  // Forgejo uses /pulls/ on arbitrary instance hosts, optionally below a subpath.
+  const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
+  if (forgejo) return claim(url.host.toLowerCase(), forgejo, "forgejo");
   // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
   if (isHostOf(host, "bitbucket.org", "bitbucket")) {
     const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
@@ -69,26 +72,58 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   return null;
 }
 
-function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink | null {
+function claim(
+  host: string,
+  match: RegExpExecArray | null,
+  kind?: string,
+): ChangeRequestLink | null {
   const repository = match?.[1];
   const number = Number(match?.[2]);
   return repository && Number.isSafeInteger(number) && number > 0
-    ? { host, repository: repository.toLowerCase(), number }
+    ? {
+        host,
+        repository:
+          kind === "forgejo"
+            ? normalizeSourceControlRepository(repository, kind)
+            : repository.toLowerCase(),
+        number,
+      }
     : null;
 }
 
-/** The web URL a host writes for a change request; null when the host shape is unknown. */
+/**
+ * The web URL a host writes for a change request; null when its shape is unknown.
+ * A matching HTTP remote preserves a Forgejo instance's web scheme.
+ */
 export function changeRequestUrlFor(
   kind: string | null | undefined,
   host: string,
   repository: string,
   number: number,
+  repositoryRemoteUrl?: string,
 ): string | null {
   switch (kind) {
     case "github":
       return `https://${host}/${repository}/pull/${number}`;
     case "gitlab":
       return `https://${host}/${repository}/-/merge_requests/${number}`;
+    case "forgejo": {
+      let origin = `https://${host}`;
+      if (repositoryRemoteUrl) {
+        try {
+          const remote = new URL(repositoryRemoteUrl);
+          if (
+            (remote.protocol === "http:" || remote.protocol === "https:") &&
+            remote.host.toLowerCase() === host.toLowerCase()
+          ) {
+            origin = remote.origin;
+          }
+        } catch {
+          // SSH remotes do not establish a web scheme; use the canonical web host.
+        }
+      }
+      return `${origin}/${repository}/pulls/${number}`;
+    }
     case "bitbucket":
       return `https://${host}/${repository}/pull-requests/${number}`;
     case "azure-devops":
@@ -185,7 +220,8 @@ export function changeRequestRepositoryUrl(targetUrl: string): string | null {
   const url = new URL(targetUrl);
   const repositoryPath =
     /^(.*?)\/-\/merge_requests\/\d+(?:\/|$)/iu.exec(url.pathname)?.[1] ??
-    /^(.*?)(?:\/pull\/\d+|\/-\/merge_requests\/\d+|\/pull-requests\/\d+|\/pullrequest\/\d+)(?:\/|$)/iu.exec(
+    /^(.*)\/pulls\/\d+(?:\/|$)/iu.exec(url.pathname)?.[1] ??
+    /^(.*?)(?:\/pulls?\/\d+|\/-\/merge_requests\/\d+|\/pull-requests\/\d+|\/pullrequest\/\d+)(?:\/|$)/iu.exec(
       url.pathname,
     )?.[1];
   if (!repositoryPath) return null;
@@ -199,7 +235,7 @@ export function siblingPullRequestUrl(url: string, number: number): string | nul
   const reference = parseChangeRequestUrl(url);
   if (reference === null || !Number.isSafeInteger(number) || number < 1) return null;
   const sibling = new URL(url);
-  const route = /^\/(-\/merge_requests|pull|pull-requests|pullrequest)\/\d+(?:\/|$)/u.exec(
+  const route = /^\/(-\/merge_requests|pulls?|pull-requests|pullrequest)\/\d+(?:\/|$)/u.exec(
     sibling.pathname.slice(reference.repository.length + 1),
   )?.[1];
   if (route === undefined) return null;

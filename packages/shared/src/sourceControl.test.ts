@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  canonicalRepositoryKey,
+  normalizeSourceControlRepository,
   sourceControlRepositorySelector,
   detectSourceControlProviderFromRemoteUrl,
   getChangeRequestTerminologyForKind,
@@ -8,7 +10,38 @@ import {
   resolveChangeRequestPresentation,
 } from "./sourceControl.ts";
 
+it("normalizes repository names without losing Forgejo instance path case", () => {
+  expect(canonicalRepositoryKey("GIT.EXAMPLE.TEST/Forge/Owner/Repo", "forgejo")).toBe(
+    "git.example.test/Forge/owner/repo",
+  );
+  expect(canonicalRepositoryKey("GIT.EXAMPLE.TEST/forge/Owner/Repo", "forgejo")).toBe(
+    "git.example.test/forge/owner/repo",
+  );
+  expect(normalizeSourceControlRepository("Group/Subgroup/Repo", "gitlab")).toBe(
+    "group/subgroup/repo",
+  );
+  expect(canonicalRepositoryKey("SSH.DEV.AZURE.COM/v3/Org/Project/Repo")).toBe(
+    "dev.azure.com/org/project/_git/repo",
+  );
+});
+
 describe("source control presentation", () => {
+  it("uses Forgejo pull request terminology and fj checkout instructions", () => {
+    expect(
+      resolveChangeRequestPresentation({
+        kind: "forgejo",
+        name: "Forgejo",
+        baseUrl: "https://git.example.test",
+      }),
+    ).toMatchObject({
+      icon: "forgejo",
+      providerName: "Forgejo",
+      shortName: "PR",
+      longName: "pull request",
+      checkoutCommandExample: "fj pr checkout 123",
+    });
+  });
+
   it("uses merge request terminology for GitLab", () => {
     expect(getChangeRequestTerminologyForKind("gitlab")).toEqual({
       shortLabel: "MR",

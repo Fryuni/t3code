@@ -100,9 +100,11 @@ export function linkedPullRequestSnapshotStatus(
     ? "gitlab"
     : link.url.includes("/pullrequest/")
       ? "azure-devops"
-      : link.url.includes("/pull-requests/")
-        ? "bitbucket"
-        : "github";
+      : link.url.includes("/pulls/")
+        ? "forgejo"
+        : link.url.includes("/pull-requests/")
+          ? "bitbucket"
+          : "github";
   return {
     pr: {
       number: link.number,

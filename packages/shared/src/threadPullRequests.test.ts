@@ -46,6 +46,31 @@ function link(
 }
 
 describe("threadPullRequestKeysEqual", () => {
+  it("keeps instance paths case-sensitive while folding owner and repository names", () => {
+    const upper = { host: "Git.Example.Test", repository: "Forge/Owner/Repo", number: 1 };
+    expect(
+      threadPullRequestKeysEqual(upper, {
+        ...upper,
+        host: "git.example.test",
+        repository: "Forge/owner/repo",
+      }),
+    ).toBe(true);
+    expect(threadPullRequestKeysEqual(upper, { ...upper, repository: "forge/owner/repo" })).toBe(
+      false,
+    );
+    const links = [
+      link(1, { ...upper, snapshot: snapshot({ headBranch: "first" }) }),
+      link(2, {
+        host: upper.host,
+        repository: "forge/owner/repo",
+        snapshot: snapshot({ baseBranch: "first" }),
+      }),
+    ];
+    expect(resolveThreadPullRequestChains(links).map((chain) => chain.layers.length)).toEqual([
+      1, 1,
+    ]);
+  });
+
   it("ignores host and repository case", () => {
     expect(
       threadPullRequestKeysEqual(

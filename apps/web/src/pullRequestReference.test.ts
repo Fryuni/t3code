@@ -3,6 +3,16 @@ import { describe, expect, it } from "vite-plus/test";
 import { parsePullRequestReference } from "./pullRequestReference";
 
 describe("parsePullRequestReference", () => {
+  it("accepts Forgejo URLs on any instance and fj checkout commands", () => {
+    for (const url of [
+      "https://codeberg.org/owner/repo/pulls/42",
+      "http://git.example.test:3000/forge/owner/repo/pulls/42#discussion",
+    ]) {
+      expect(parsePullRequestReference(url)).toBe(url);
+    }
+    expect(parsePullRequestReference("fj pr checkout 42")).toBe("42");
+  });
+
   it("accepts GitHub pull request URLs", () => {
     expect(parsePullRequestReference("https://github.com/pingdotgg/t3code/pull/42")).toBe(
       "https://github.com/pingdotgg/t3code/pull/42",

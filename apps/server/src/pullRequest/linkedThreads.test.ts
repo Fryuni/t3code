@@ -18,6 +18,20 @@ it.effect(
     `;
       const fixtures = [
         {
+          id: "upper-instance",
+          host: "git.example.test",
+          repository: "Forge/acme/web",
+          number: 7,
+          source: "manual",
+        },
+        {
+          id: "lower-instance",
+          host: "git.example.test",
+          repository: "forge/acme/web",
+          number: 7,
+          source: "manual",
+        },
+        {
           id: "azure",
           host: "dev.azure.com",
           repository: "org/project/_git/web",
@@ -94,6 +108,18 @@ it.effect(
           number: 7,
         })).threads.map((thread) => thread.id),
       ).toEqual(["azure"]);
+      for (const [path, id] of [
+        ["Forge", "upper-instance"],
+        ["forge", "lower-instance"],
+      ]) {
+        expect(
+          (yield* listLinkedPullRequestThreads({
+            host: "git.example.test",
+            repository: `${path}/ACME/WEB`,
+            number: 7,
+          })).threads.map((thread) => thread.id),
+        ).toEqual([id]);
+      }
       const result = yield* listLinkedPullRequestThreads({
         host: "GitHub.Com",
         repository: "ACME/WEB",

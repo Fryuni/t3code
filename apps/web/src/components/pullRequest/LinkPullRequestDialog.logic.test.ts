@@ -70,6 +70,34 @@ describe("resolveLinkPullRequestInput", () => {
     ).toBeNull();
   });
 
+  it("resolves a bare Forgejo number using the project's HTTP origin", () => {
+    expect(
+      resolveLinkPullRequestInput({
+        reference: "#42",
+        project: {
+          host: "forge.example.test:3000",
+          repository: "owner/repo",
+          webUrl: (number) =>
+            changeRequestWebUrl(
+              "forgejo",
+              "forge.example.test:3000",
+              "owner/repo",
+              number,
+              "http://forge.example.test:3000/owner/repo.git",
+            ),
+        },
+        hasProject: () => true,
+      }),
+    ).toEqual({
+      link: {
+        host: "forge.example.test:3000",
+        repository: "owner/repo",
+        number: 42,
+        url: "http://forge.example.test:3000/owner/repo/pulls/42",
+      },
+    });
+  });
+
   it("resolves a bare number against the thread's own repository", () => {
     expect(
       resolveLinkPullRequestInput({ reference: "#42", project, hasProject: () => true }),
@@ -127,7 +155,7 @@ describe("resolveLinkPullRequestInput", () => {
 });
 
 describe("changeRequestWebUrl", () => {
-  it("knows the four hosts and nothing else", () => {
+  it("builds known provider routes and rejects unknown kinds", () => {
     expect(changeRequestWebUrl("gitlab", "gitlab.com", "g/sub/repo", 5)).toBe(
       "https://gitlab.com/g/sub/repo/-/merge_requests/5",
     );

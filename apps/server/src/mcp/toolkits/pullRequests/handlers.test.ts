@@ -265,6 +265,68 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("links Forgejo URLs and repository inputs using the canonical web instance", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "forge.example.test:8443/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "ssh://git@ssh.example.test:2222/Owner/Repo.git",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+        }),
+      });
+      const byRepository = yield* harness.call("link_pull_request", {
+        repository: "Owner/Repo",
+        number: 42,
+      });
+      expect(byRepository).toMatchObject({
+        host: "forge.example.test:8443",
+        repository: "owner/repo",
+        number: 42,
+        url: "https://forge.example.test:8443/owner/repo/pulls/42",
+      });
+      const byUrl = yield* harness.call("link_pull_request", {
+        url: "https://forge.example.test:9443/Owner/Repo/pulls/43",
+      });
+      expect(byUrl).toMatchObject({
+        host: "forge.example.test:9443",
+        repository: "owner/repo",
+        number: 43,
+      });
+    }),
+  );
+
+  it.effect("preserves an HTTP Forgejo origin for repository-and-number links", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "forge.example.test:3000/Forge/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "http://forge.example.test:3000/Forge/Owner/Repo.git",
+          },
+          provider: "forgejo",
+          displayName: "Forge/Owner/Repo",
+        }),
+      });
+      const result = yield* harness.call("link_pull_request", {
+        repository: "Forge/Owner/Other",
+        number: 42,
+      });
+      expect(result).toMatchObject({
+        host: "forge.example.test:3000",
+        repository: "Forge/owner/other",
+        number: 42,
+        url: "http://forge.example.test:3000/Forge/owner/other/pulls/42",
+      });
+    }),
+  );
+
   it.effect("rejects a target that names neither a URL nor repository and number", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();

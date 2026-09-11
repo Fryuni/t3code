@@ -5,7 +5,7 @@ import type {
 } from "@t3tools/contracts";
 
 export interface ChangeRequestPresentation {
-  readonly icon: "github" | "gitlab" | "azure-devops" | "bitbucket" | "change-request";
+  readonly icon: "github" | "gitlab" | "forgejo" | "azure-devops" | "bitbucket" | "change-request";
   readonly providerName: string;
   readonly shortName: string;
   readonly longName: string;
@@ -58,6 +58,17 @@ const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   urlExample: "https://dev.azure.com/org/project/_git/repo/pullrequest/42",
 };
 
+const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
+  icon: "forgejo",
+  providerName: "Forgejo",
+  shortName: "PR",
+  longName: "pull request",
+  pluralLongName: "pull requests",
+  providerLongName: "Forgejo pull request",
+  checkoutCommandExample: "fj pr checkout 123",
+  urlExample: "https://codeberg.org/owner/repo/pulls/42",
+};
+
 const BITBUCKET_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   icon: "bitbucket",
   providerName: "Bitbucket",
@@ -87,6 +98,8 @@ export function resolveChangeRequestPresentation(
       return GITHUB_CHANGE_REQUEST_PRESENTATION;
     case "gitlab":
       return GITLAB_CHANGE_REQUEST_PRESENTATION;
+    case "forgejo":
+      return FORGEJO_CHANGE_REQUEST_PRESENTATION;
     case "azure-devops":
       return AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION;
     case "bitbucket":
@@ -267,7 +280,26 @@ export function sourceControlRepositorySelector(
   return identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
 }
 
-export function canonicalRepositoryKey(key: string): string {
+/** Instance paths can be case-sensitive. Without a known provider, only fold owner/name. */
+export function normalizeSourceControlRepository(repository: string, kind?: string | null): string {
+  if (kind != null && kind !== "unknown" && kind !== "forgejo")
+    return repository.trim().toLowerCase();
+  const segments = repository.trim().split("/");
+  return segments
+    .map((segment, index) => (index >= segments.length - 2 ? segment.toLowerCase() : segment))
+    .join("/");
+}
+
+export function canonicalRepositoryKey(key: string, kind?: string | null): string {
+  const separator = key.indexOf("/");
+  if (separator >= 0) {
+    const host = key.slice(0, separator).toLowerCase();
+    const provider =
+      host === "dev.azure.com" || host.endsWith(".visualstudio.com") || host === "ssh.dev.azure.com"
+        ? "azure-devops"
+        : kind;
+    key = `${host}/${normalizeSourceControlRepository(key.slice(separator + 1), provider)}`;
+  }
   return key
     .replace(
       /^(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com)\/v3\/([^/]+)\/([^/]+)\/([^/]+)$/u,

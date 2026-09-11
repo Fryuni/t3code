@@ -6,6 +6,7 @@ import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/cont
 import { parseChangeRequestUrl, type ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
 import {
   canonicalRepositoryKey,
+  normalizeSourceControlRepository,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
 
@@ -59,7 +60,8 @@ export function findProjectForChangeRequest(
       (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null);
     return (
       repository !== null &&
-      repository.toLowerCase() === link.repository.toLowerCase() &&
+      normalizeSourceControlRepository(repository, kind) ===
+        normalizeSourceControlRepository(link.repository, kind) &&
       pullRequestHostOf(identity, kind) === link.host.toLowerCase()
     );
   });

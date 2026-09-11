@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { useAtomValue } from "@effect/atom-react";
 import {
   createLinkedPullRequestSummaryAtomFamily,
@@ -60,7 +61,7 @@ export function useSharedPullRequestSummary(
           environmentId,
           reference.projectId,
           reference.host?.toLowerCase() ?? null,
-          reference.repository.toLowerCase(),
+          normalizeSourceControlRepository(reference.repository),
           reference.number,
         ]);
   const atom = observedPullRequestSummaryAtom(key);
