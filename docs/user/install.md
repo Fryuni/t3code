@@ -105,9 +105,11 @@ machine. Set **Binary path** if it is not on the server's `PATH`. T3 Code launch
 `omp acp` using the CLI's existing credentials; remote and mobile clients use that
 same environment.
 
-Start a thread with **OhMyPi default** to use the model configured in OhMyPi. The
-session supplies available models and thinking levels to the model picker. You
-can switch models, stop turns, and continue a saved session after reconnecting.
+Available models and thinking levels load from OhMyPi before you start a thread.
+Refresh provider status after changing your OhMyPi credentials or model configuration.
+Choose **OhMyPi default** to use the model configured in OhMyPi, or select a model
+from the picker. You can switch models, stop turns, and continue a saved session
+after reconnecting.
 OhMyPi's native slash commands appear once a session has started in that workspace.
 
 **Auto** uses the same approval policy as **Supervised**. **Auto-accept edits**

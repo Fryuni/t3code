@@ -20,7 +20,7 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeOhMyPiAdapter } from "../Layers/OhMyPiAdapter.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
-import { makeOhMyPiAcpRuntime, ohMyPiModelsFromConfig } from "../acp/OhMyPiAcpSupport.ts";
+import { ohMyPiModelsFromConfig } from "../acp/OhMyPiAcpSupport.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -35,6 +35,7 @@ import {
   providerModelsFromSettings,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
+import { probeOhMyPiModels } from "./OhMyPiModels.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
 
 const DRIVER = ProviderDriverKind.make("ohMyPi");
@@ -59,7 +60,6 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
   create: ({ instanceId, displayName, accentColor, environment, enabled, config }) =>
     Effect.gen(function* () {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-      const crypto = yield* Crypto.Crypto;
       const serverConfig = yield* ServerConfig;
       const eventLoggers = yield* ProviderEventLoggers;
       const effectiveConfig = { ...config, enabled };
@@ -120,19 +120,8 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         });
       const checkProvider = Effect.gen(function* () {
         if (!enabled) return yield* getSnapshot;
-        const result = yield* Effect.gen(function* () {
-          const runtime = yield* makeOhMyPiAcpRuntime({
-            ohMyPiSettings: effectiveConfig,
-            childProcessSpawner: spawner,
-            environment: processEnv,
-            cwd: serverConfig.cwd,
-            clientInfo: { name: "t3-code", version: "0.0.0" },
-          });
-          return yield* runtime.initialize();
-        }).pipe(
-          Effect.provideService(Crypto.Crypto, crypto),
-          Effect.scoped,
-          Effect.timeout("30 seconds"),
+        const result = yield* probeOhMyPiModels(effectiveConfig, processEnv, serverConfig.cwd).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
           Effect.result,
         );
         const checkedAt = DateTime.formatIso(yield* DateTime.now);
@@ -141,7 +130,12 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
             return {
               ...draft,
               installed: true,
-              version: result.success.agentInfo?.version ?? null,
+              version: result.success.version,
+              models: providerModelsFromSettings(
+                [...initial.models.filter((model) => !model.isCustom), ...result.success.models],
+                config.customModels,
+                capabilities,
+              ),
               status: "ready",
               checkedAt,
               message:
@@ -149,7 +143,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
             };
           }
           const cause = result.failure;
-          const missing = cause._tag === "AcpSpawnError" && isCommandMissingCause(cause.cause);
+          const missing = isCommandMissingCause(cause);
           return {
             ...draft,
             installed: !missing,
@@ -157,7 +151,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
             checkedAt,
             message: missing
               ? "OhMyPi CLI (omp) is not installed or not on PATH."
-              : "OhMyPi's ACP health check failed. Check the binary path and run omp acp on the server.",
+              : "Could not load OhMyPi models. Check the binary path and run omp models --json on the server. The previous model list is unchanged.",
           };
         });
         return yield* getSnapshot;
