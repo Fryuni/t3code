@@ -7,16 +7,17 @@ import {
   type SourceControlUnknownRemoteRefinementInput,
 } from "./SourceControlProviderDiscovery.ts";
 
-/** `fj auth list` prints one authenticated authority per line, without tokens. */
+/** `fj auth list` prints each instance's authority and optional base path, without tokens. */
 export function parseForgejoAuthHosts(input: SourceControlAuthProbeInput): ReadonlyArray<string> {
   if (input.exitCode !== 0) return [];
   const hosts = new Set<string>();
   for (const line of input.stdout.split(/\r?\n/u)) {
-    const host = line.trim().toLowerCase();
-    if (!/^(?:[a-z0-9][a-z0-9.-]*|\[[a-f0-9:]+\])(?::\d+)?$/u.test(host)) continue;
+    const host = line.trim();
+    if (!/^(?:[a-z0-9][a-z0-9.-]*|\[[a-f0-9:]+\])(?::\d+)?(?:\/[^\s?#@\\]*)?$/iu.test(host))
+      continue;
     try {
       const url = new URL(`https://${host}`);
-      hosts.add(url.host);
+      hosts.add(`${url.host}${url.pathname.replace(/\/+$/u, "")}`);
     } catch {
       // A malformed line is not evidence that a host runs Forgejo.
     }
@@ -27,8 +28,15 @@ export function parseForgejoAuthHosts(input: SourceControlAuthProbeInput): Reado
 function refineUnknownForgejoRemote(input: SourceControlUnknownRemoteRefinementInput) {
   const hosts = parseForgejoAuthHosts(input.auth);
   const remote = new URL(input.context.provider.baseUrl);
-  let host = hosts.find((candidate) => candidate === remote.host.toLowerCase());
-  if (!host && isSshRemoteUrl(input.context.remoteUrl)) {
+  const isSsh = isSshRemoteUrl(input.context.remoteUrl);
+  let instance = remote.host.toLowerCase();
+  if (!isSsh) {
+    const url = new URL(input.context.remoteUrl);
+    const basePath = url.pathname.split("/").filter(Boolean).slice(0, -2).join("/");
+    instance = `${url.host}${basePath ? `/${basePath}` : ""}`;
+  }
+  let host = hosts.find((candidate) => candidate === instance);
+  if (!host && isSsh) {
     // SSH and the web API can listen on different ports. Only infer that mapping
     // when fj knows exactly one web authority for this hostname.
     const matchingHosts = hosts.filter(

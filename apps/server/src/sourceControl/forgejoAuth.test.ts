@@ -71,6 +71,30 @@ it("keeps ports and HTTP origins distinct, and maps an unambiguous SSH host", ()
   );
 });
 
+it("preserves instance paths and distinguishes instances on the same authority", () => {
+  const hosts = "GIT.EXAMPLE.TEST:3000/Forge\ngit.example.test:3000/other";
+  assert.deepStrictEqual(parseForgejoAuthHosts(auth(hosts)), [
+    "git.example.test:3000/Forge",
+    "git.example.test:3000/other",
+  ]);
+  assert.deepStrictEqual(refine("http://git.example.test:3000/Forge/owner/repo.git", hosts), {
+    kind: "forgejo",
+    name: "Forgejo",
+    baseUrl: "http://git.example.test:3000/Forge",
+  });
+  assert.isNull(refine("https://git.example.test:3000/forge/owner/repo.git", hosts));
+  assert.isNull(refine("https://git.example.test:3000/owner/repo.git", hosts));
+  assert.isNull(refine("ssh://git@git.example.test:2222/owner/repo.git", hosts));
+  assert.deepStrictEqual(
+    refine("ssh://git@git.example.test:2222/owner/repo.git", hosts.split("\n")[0]!),
+    {
+      kind: "forgejo",
+      name: "Forgejo",
+      baseUrl: "https://git.example.test:3000/Forge",
+    },
+  );
+});
+
 it("does not classify unauthenticated hosts or trust failed probes and stderr", () => {
   assert.strictEqual(refine("https://other.example.test/owner/repo", "git.example.test"), null);
   assert.strictEqual(refine("https://git.example.test/owner/repo", "git.example.test", 1), null);

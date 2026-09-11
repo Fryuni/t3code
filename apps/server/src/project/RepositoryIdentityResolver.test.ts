@@ -79,9 +79,8 @@ it.layer(
     },
   );
 
-  it.effect(
-    "unifies SSH and HTTPS identities when Forgejo advertises a separate SSH hostname",
-    () =>
+  for (const basePath of ["", "/Forge"]) {
+    it.effect(`unifies Forgejo SSH and HTTPS identities with instance path '${basePath}'`, () =>
       Effect.gen(function* () {
         let remoteUrl = "ssh://git@ssh.example.test:2222/Owner/Repo.git";
         const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
@@ -89,7 +88,7 @@ it.layer(
             Effect.succeed({
               stdout:
                 input.command === "fj"
-                  ? "git.example.test:8443"
+                  ? `git.example.test:8443${basePath}`
                   : input.args.includes("rev-parse")
                     ? "/repo"
                     : `origin\t${remoteUrl} (fetch)`,
@@ -126,13 +125,20 @@ it.layer(
           Effect.provideService(ForgejoCli.ForgejoCli, fj),
         );
         const sshIdentity = yield* resolver.resolve("/repo");
-        remoteUrl = "https://git.example.test:8443/Owner/Repo.git";
+        remoteUrl = `https://git.example.test:8443${basePath}/Owner/Repo.git`;
         const httpsIdentity = yield* resolver.resolve("/repo", { refresh: true });
         expect(sshIdentity?.provider).toBe("forgejo");
-        expect(sshIdentity?.canonicalKey).toBe("git.example.test:8443/owner/repo");
+        expect(sshIdentity?.canonicalKey).toBe(
+          `git.example.test:8443${basePath.toLowerCase()}/owner/repo`,
+        );
         expect(httpsIdentity?.canonicalKey).toBe(sshIdentity?.canonicalKey);
+        expect(sshIdentity?.displayName).toBe(`${basePath}/owner/repo`.replace(/^\//u, ""));
+        expect(httpsIdentity?.displayName).toBe(sshIdentity?.displayName);
+        expect(sshIdentity?.owner).toBe("owner");
+        expect(httpsIdentity?.owner).toBe("owner");
       }),
-  );
+    );
+  }
 
   it.effect("refreshes the Git root only when requested", () => {
     const calls: Array<ReadonlyArray<string>> = [];

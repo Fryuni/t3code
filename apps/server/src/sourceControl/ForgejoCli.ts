@@ -219,7 +219,9 @@ export const make = Effect.gen(function* () {
       return yield* fail(input, "Invalid Forgejo instance URL or API path.");
     }
     const url = `${base.href.replace(/\/+$/u, "")}/api/v1${input.path}`;
-    let credentials = yield* readCredentials(input, base.host);
+    // fj's host_name key includes the instance path, so two instances can share an authority.
+    const credentialHost = `${base.host}${base.pathname.replace(/\/+$/u, "")}`;
+    let credentials = yield* readCredentials(input, credentialHost);
 
     const request = (token: string | undefined) => {
       let request = HttpClientRequest.get(url).pipe(
@@ -241,10 +243,10 @@ export const make = Effect.gen(function* () {
       // cannot spend the same refresh token twice.
       credentials = yield* refreshLock.withPermits(1)(
         Effect.gen(function* () {
-          const current = yield* readCredentials(input, base.host);
+          const current = yield* readCredentials(input, credentialHost);
           if (current?.token !== expiredToken) return current;
           yield* execute({ ...input, host: base.href, args: ["whoami"] });
-          return yield* readCredentials(input, base.host);
+          return yield* readCredentials(input, credentialHost);
         }),
       );
       response = yield* request(credentials?.token);

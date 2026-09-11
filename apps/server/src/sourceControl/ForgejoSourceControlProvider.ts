@@ -221,6 +221,8 @@ export const make = Effect.gen(function* () {
       do {
         const query = new URLSearchParams({
           state: input.state === "merged" ? "closed" : input.state,
+          // Forgejo's list endpoint compares head_branch literally. Unlike PR creation,
+          // it does not accept owner:branch; filter the fork's owner/repository below.
           head: branch,
           sort: "recentupdate",
           limit: "50",

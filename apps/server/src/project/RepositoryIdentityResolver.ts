@@ -160,13 +160,21 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
     context: { ...remote, provider },
     auth: { stdout: auth.value.stdout, stderr: auth.value.stderr, exitCode: auth.value.code },
   });
-  return refined
-    ? {
-        ...identity,
-        provider: refined.kind,
-        canonicalKey: `${new URL(refined.baseUrl).host}/${identity.canonicalKey.split("/").slice(1).join("/")}`,
-      }
-    : identity;
+  if (!refined) return identity;
+  const instance = new URL(refined.baseUrl);
+  const repository = identity.canonicalKey.split("/").slice(-2).join("/");
+  const owner = repository.split("/")[0];
+  const displayName = `${instance.pathname.replace(/^\/+|\/+$/gu, "")}/${repository}`.replace(
+    /^\//u,
+    "",
+  );
+  return {
+    ...identity,
+    provider: refined.kind,
+    canonicalKey: `${instance.host}/${displayName}`.toLowerCase(),
+    displayName,
+    ...(owner ? { owner } : {}),
+  };
 });
 
 export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (

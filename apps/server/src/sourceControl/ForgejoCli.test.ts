@@ -68,7 +68,8 @@ it.effect("reads REST metadata using only the selected instance's token", () =>
         encodeJson({
           hosts: {
             "git.example.test:3000": { type: "Application", token: "first-instance-token" },
-            "git.example.test:4000": { type: "Application", token: "second-instance-token" },
+            "git.example.test:4000": { type: "Application", token: "root-instance-token" },
+            "git.example.test:4000/forge": { type: "Application", token: "second-instance-token" },
           },
         }),
       response: (request) => {
@@ -98,42 +99,45 @@ it.effect("reads REST metadata using only the selected instance's token", () =>
   }),
 );
 
-it.effect("lets fj refresh expired OAuth credentials and retries with the saved replacement", () =>
-  Effect.gen(function* () {
-    let token = "expired";
-    const commands: VcsProcess.VcsProcessInput[] = [];
-    const tokens: Array<string | undefined> = [];
-    const cli = yield* makeCli({
-      credentials: () => encodeJson({ hosts: { "git.example.test": { type: "OAuth", token } } }),
-      response: (request) => {
-        tokens.push(request.headers.authorization);
-        return request.headers.authorization === "token expired"
-          ? new Response(null, { status: 401 })
-          : Response.json({ login: "alice" });
-      },
-      execute: (request) => {
-        commands.push(request);
-        token = "refreshed";
-      },
-    });
-    yield* cli.read({
-      cwd: "/repo",
-      operation: "getViewer",
-      baseUrl: "https://git.example.test",
-      path: "/user",
-    });
-    assert.deepStrictEqual(tokens, ["token expired", "token refreshed"]);
-    assert.deepStrictEqual(commands[0]?.args, [
-      "--style",
-      "minimal",
-      "--host",
-      "https://git.example.test/",
-      "whoami",
-    ]);
-    assert.strictEqual(commands[0]?.command, "fj");
-    assert.strictEqual(commands[0]?.cwd, "/repo");
-  }),
-);
+for (const basePath of ["", "/Forge"]) {
+  it.effect(`lets fj refresh expired OAuth credentials for the instance at '${basePath}'`, () =>
+    Effect.gen(function* () {
+      let token = "expired";
+      const commands: VcsProcess.VcsProcessInput[] = [];
+      const tokens: Array<string | undefined> = [];
+      const cli = yield* makeCli({
+        credentials: () =>
+          encodeJson({ hosts: { [`git.example.test${basePath}`]: { type: "OAuth", token } } }),
+        response: (request) => {
+          tokens.push(request.headers.authorization);
+          return request.headers.authorization === "token expired"
+            ? new Response(null, { status: 401 })
+            : Response.json({ login: "alice" });
+        },
+        execute: (request) => {
+          commands.push(request);
+          token = "refreshed";
+        },
+      });
+      yield* cli.read({
+        cwd: "/repo",
+        operation: "getViewer",
+        baseUrl: `https://git.example.test${basePath}/`,
+        path: "/user",
+      });
+      assert.deepStrictEqual(tokens, ["token expired", "token refreshed"]);
+      assert.deepStrictEqual(commands[0]?.args, [
+        "--style",
+        "minimal",
+        "--host",
+        `https://git.example.test${basePath}/`,
+        "whoami",
+      ]);
+      assert.strictEqual(commands[0]?.command, "fj");
+      assert.strictEqual(commands[0]?.cwd, "/repo");
+    }),
+  );
+}
 
 it.effect("does not expose tokens or raw responses in credential and JSON errors", () =>
   Effect.gen(function* () {
@@ -191,8 +195,8 @@ it.effect("uses fj's saved SSH aliases without probing unrelated hosts", () =>
     const cli = yield* makeCli({
       credentials: () =>
         encodeJson({
-          hosts: { "git.example.test:8443": { type: "Application", token: "saved-token" } },
-          aliases: { "ssh.example.test:2222": "git.example.test:8443" },
+          hosts: { "git.example.test:8443/Forge": { type: "Application", token: "saved-token" } },
+          aliases: { "ssh.example.test:2222": "git.example.test:8443/Forge" },
         }),
       response: () => {
         throw new Error("No HTTP request expected for a saved alias");
@@ -202,10 +206,10 @@ it.effect("uses fj's saved SSH aliases without probing unrelated hosts", () =>
       yield* cli.refineUnknownRemote(
         refinement(
           "ssh://git@ssh.example.test:2222/Owner/Repo.git",
-          "codeberg.org\nssh.example.test:2222\ngit.example.test:8443",
+          "codeberg.org\nssh.example.test:2222\ngit.example.test:8443/Forge",
         ),
       ),
-      { kind: "forgejo", name: "Forgejo", baseUrl: "https://git.example.test:8443" },
+      { kind: "forgejo", name: "Forgejo", baseUrl: "https://git.example.test:8443/Forge" },
     );
   }),
 );
@@ -217,7 +221,7 @@ it.effect("maps a separate SSH hostname using clone metadata and caches instance
       credentials: () =>
         encodeJson({
           hosts: {
-            "git.example.test:8443": { type: "Application", token: "first-token" },
+            "git.example.test:8443/Forge": { type: "Application", token: "first-token" },
             "other.example.test": { type: "Application", token: "second-token" },
           },
         }),
@@ -232,13 +236,13 @@ it.effect("maps a separate SSH hostname using clone metadata and caches instance
     });
     const input = refinement(
       "ssh://git@ssh.example.test:2222/Owner/Repo.git",
-      "other.example.test\ngit.example.test:8443",
+      "other.example.test\ngit.example.test:8443/Forge",
     );
     const provider = yield* cli.refineUnknownRemote(input);
     assert.deepStrictEqual(provider, {
       kind: "forgejo",
       name: "Forgejo",
-      baseUrl: "https://git.example.test:8443",
+      baseUrl: "https://git.example.test:8443/Forge",
     });
     assert.deepStrictEqual(yield* cli.refineUnknownRemote(input), provider);
     assert.strictEqual(requests.length, 2);
@@ -246,7 +250,7 @@ it.effect("maps a separate SSH hostname using clone metadata and caches instance
       requests.map((request) => [request.url, request.headers.authorization]),
       [
         ["https://other.example.test/api/v1/repos/Owner/Repo", "token second-token"],
-        ["https://git.example.test:8443/api/v1/repos/Owner/Repo", "token first-token"],
+        ["https://git.example.test:8443/Forge/api/v1/repos/Owner/Repo", "token first-token"],
       ],
     );
   }),
