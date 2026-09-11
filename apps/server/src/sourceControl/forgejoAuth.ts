@@ -37,6 +37,8 @@ function refineUnknownForgejoRemote(input: SourceControlUnknownRemoteRefinementI
     if (matchingHosts.length === 1) host = matchingHosts[0];
   }
   if (!host) return null;
+  // fj 0.6 saves host names and aliases without a scheme (src/keys.rs and host_name in
+  // src/main.rs). Like fj, SSH defaults to HTTPS; HTTP requires an explicit web remote.
   const protocol = input.context.remoteUrl.startsWith("http://") ? "http:" : "https:";
   return { kind: "forgejo", name: "Forgejo", baseUrl: `${protocol}//${host}` } as const;
 }

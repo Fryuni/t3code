@@ -40,6 +40,9 @@ advertise a different hostname or port for SSH. When cloning or publishing,
 enter `host/owner/repo` or the full repository URL to choose the instance. T3 Code uses your saved
 `fj` credentials; no separate token configuration is needed.
 
+For an HTTP-only instance, use its full `http://` repository URL as the Git remote. SSH remotes
+assume HTTPS because `fj` 0.6 does not remember whether an instance uses HTTP.
+
 You can create and check out Forgejo pull requests from a thread's Git actions. Use the instance's
 website to review and merge them. Commit or stash local changes before checking out a pull request.
 
