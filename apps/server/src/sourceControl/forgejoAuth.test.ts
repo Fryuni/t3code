@@ -97,6 +97,16 @@ it("preserves instance paths and distinguishes instances on the same authority",
 
 it("maps git-protocol remotes to an unambiguous authenticated web authority", () => {
   expectGitRemote(
+    "  GIT://git.example.test:9418/Owner/Repo.git  ",
+    "git.example.test:8443/Forge",
+    "https://git.example.test:8443/Forge",
+  );
+  expectGitRemote(
+    "  HTTP://git.example.test:3000/Forge/Owner/Repo.git  ",
+    "git.example.test:3000/Forge",
+    "http://git.example.test:3000/Forge",
+  );
+  expectGitRemote(
     "git://git.example.test/Owner/Repo.git",
     "git.example.test",
     "https://git.example.test",

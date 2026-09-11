@@ -16,7 +16,7 @@ import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/unstable/
 
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
-import { discovery, parseForgejoAuthHosts } from "./forgejoAuth.ts";
+import { discovery, normalizeForgejoRemoteUrl, parseForgejoAuthHosts } from "./forgejoAuth.ts";
 import type { SourceControlUnknownRemoteRefinementInput } from "./SourceControlProviderDiscovery.ts";
 
 interface ForgejoOperation {
@@ -322,7 +322,14 @@ export const make = Effect.gen(function* () {
   );
 
   return ForgejoCli.of({
-    refineUnknownRemote: (input) => {
+    refineUnknownRemote: (original) => {
+      const input = {
+        ...original,
+        context: {
+          ...original.context,
+          remoteUrl: normalizeForgejoRemoteUrl(original.context.remoteUrl),
+        },
+      };
       const direct = discovery.refineUnknownRemote(input);
       const hosts = parseForgejoAuthHosts(input.auth);
       return hosts.length === 0 || !isSshRemoteUrl(input.context.remoteUrl)

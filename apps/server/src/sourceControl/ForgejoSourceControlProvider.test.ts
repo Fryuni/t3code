@@ -114,7 +114,13 @@ it.effect("accepts remote-first repository URLs with web ports and subpaths", ()
   }),
 );
 
-for (const remoteUrl of [context.remoteUrl, "git://git.example.test:9418/Owner/Repo.git"]) {
+for (const remoteUrl of [
+  context.remoteUrl,
+  "git://git.example.test:9418/Owner/Repo.git",
+  "  git://git.example.test:9418/Owner/Repo.git  ",
+  "GIT://git.example.test:9418/Owner/Repo.git",
+  "  SSH://git@ssh.example.test:2222/Owner/Repo.git  ",
+]) {
   it.effect(`resolves ${remoteUrl} to its web instance before reading metadata`, () =>
     Effect.gen(function* () {
       const provider = yield* makeProvider({
@@ -167,7 +173,10 @@ it.effect("preserves fork identity, draft state and timestamps when reading a PR
         return Effect.succeed({ body: pullRequest, hasNextPage: false });
       },
     });
-    const pr = yield* provider.getChangeRequest({ cwd: "/repo", reference: pullRequest.html_url });
+    const pr = yield* provider.getChangeRequest({
+      cwd: "/repo",
+      reference: `  ${pullRequest.html_url.replace("https:", "HTTPS:")}  `,
+    });
     assert.deepStrictEqual(pr, {
       provider: "forgejo",
       number: 42,

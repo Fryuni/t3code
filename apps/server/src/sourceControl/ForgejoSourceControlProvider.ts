@@ -12,7 +12,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as ForgejoCli from "./ForgejoCli.ts";
 import * as SourceControlProvider from "./SourceControlProvider.ts";
-import { discovery } from "./forgejoAuth.ts";
+import { discovery, normalizeForgejoRemoteUrl } from "./forgejoAuth.ts";
 
 export const makeDiscovery = Effect.gen(function* () {
   const fj = yield* ForgejoCli.ForgejoCli;
@@ -50,8 +50,7 @@ interface RepositoryLocator {
 
 /** Keep the web authority separate from the repository, including nonstandard ports/subpaths. */
 function parseRepository(value: string, baseUrl?: string): RepositoryLocator | null {
-  const trimmed = value
-    .trim()
+  const trimmed = normalizeForgejoRemoteUrl(value)
     .replace(/\/+$/u, "")
     .replace(/\.git$/u, "");
   let url: URL;
@@ -148,12 +147,13 @@ export const make = Effect.gen(function* () {
     },
     operation: string,
   ) {
-    const remote =
+    const remoteValue =
       input.repository ??
       input.context?.remoteUrl ??
       (yield* git
         .readConfigValue(input.cwd, "remote.origin.url")
         .pipe(Effect.orElseSucceed(() => null)));
+    const remote = remoteValue === null ? null : normalizeForgejoRemoteUrl(remoteValue);
     let baseUrl = input.context?.provider.baseUrl;
     if (
       remote &&
@@ -271,7 +271,7 @@ export const make = Effect.gen(function* () {
     },
     operation: string,
   ) {
-    const reference = input.reference.trim();
+    const reference = normalizeForgejoRemoteUrl(input.reference);
     const urlMatch = /^(https?:\/\/.+)\/pulls\/(\d+)(?:[/?#].*)?$/u.exec(reference);
     const locator = yield* resolveRepository(
       { ...input, ...(urlMatch ? { repository: urlMatch[1] } : {}) },
@@ -285,10 +285,11 @@ export const make = Effect.gen(function* () {
 
   const getChangeRequest: SourceControlProvider.SourceControlProvider["Service"]["getChangeRequest"] =
     Effect.fn("ForgejoSourceControlProvider.getChangeRequest")(function* (input) {
-      if (!/^#?\d+$/u.test(input.reference) && !/^https?:\/\//u.test(input.reference)) {
+      const reference = normalizeForgejoRemoteUrl(input.reference);
+      if (!/^#?\d+$/u.test(reference) && !/^https?:\/\//u.test(reference)) {
         const [pr] = yield* listChangeRequests({
           ...input,
-          headSelector: input.reference,
+          headSelector: reference,
           state: "all",
           limit: 1,
         });

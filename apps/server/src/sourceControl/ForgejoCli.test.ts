@@ -205,7 +205,7 @@ it.effect("uses fj's saved SSH aliases without probing unrelated hosts", () =>
     assert.deepStrictEqual(
       yield* cli.refineUnknownRemote(
         refinement(
-          "ssh://git@ssh.example.test:2222/Owner/Repo.git",
+          "  SSH://git@ssh.example.test:2222/Owner/Repo.git  ",
           "codeberg.org\nssh.example.test:2222\ngit.example.test:8443/Forge",
         ),
       ),

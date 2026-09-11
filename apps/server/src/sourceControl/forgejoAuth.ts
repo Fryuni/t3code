@@ -7,6 +7,11 @@ import {
   type SourceControlUnknownRemoteRefinementInput,
 } from "./SourceControlProviderDiscovery.ts";
 
+/** URL schemes are case-insensitive; repository paths and branch names are not. */
+export function normalizeForgejoRemoteUrl(value: string): string {
+  return value.trim().replace(/^[a-z][a-z\d+.-]*(?=:\/\/)/iu, (scheme) => scheme.toLowerCase());
+}
+
 /** `fj auth list` prints each instance's authority and optional base path, without tokens. */
 export function parseForgejoAuthHosts(input: SourceControlAuthProbeInput): ReadonlyArray<string> {
   if (input.exitCode !== 0) return [];
@@ -27,12 +32,12 @@ export function parseForgejoAuthHosts(input: SourceControlAuthProbeInput): Reado
 
 function refineUnknownForgejoRemote(input: SourceControlUnknownRemoteRefinementInput) {
   const hosts = parseForgejoAuthHosts(input.auth);
+  const remoteUrl = normalizeForgejoRemoteUrl(input.context.remoteUrl);
   const remote = new URL(input.context.provider.baseUrl);
-  const isGitTransport =
-    isSshRemoteUrl(input.context.remoteUrl) || input.context.remoteUrl.startsWith("git://");
+  const isGitTransport = isSshRemoteUrl(remoteUrl) || remoteUrl.startsWith("git://");
   let instance = remote.host.toLowerCase();
   if (!isGitTransport) {
-    const url = new URL(input.context.remoteUrl);
+    const url = new URL(remoteUrl);
     const basePath = url.pathname.split("/").filter(Boolean).slice(0, -2).join("/");
     instance = `${url.host}${basePath ? `/${basePath}` : ""}`;
   }
@@ -48,7 +53,7 @@ function refineUnknownForgejoRemote(input: SourceControlUnknownRemoteRefinementI
   if (!host) return null;
   // fj 0.6 saves host names and aliases without a scheme (src/keys.rs and host_name in
   // src/main.rs). Like fj, SSH defaults to HTTPS; HTTP requires an explicit web remote.
-  const protocol = input.context.remoteUrl.startsWith("http://") ? "http:" : "https:";
+  const protocol = remoteUrl.startsWith("http://") ? "http:" : "https:";
   return { kind: "forgejo", name: "Forgejo", baseUrl: `${protocol}//${host}` } as const;
 }
 
