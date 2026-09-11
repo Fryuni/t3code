@@ -18,8 +18,11 @@ import type {
 } from "@t3tools/contracts";
 
 import * as ProjectionSnapshotQuery from "../orchestration/Services/ProjectionSnapshotQuery.ts";
+import * as ForgejoCli from "../sourceControl/ForgejoCli.ts";
+import * as ForgejoSourceControlProvider from "../sourceControl/ForgejoSourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as SourceControlRateLimit from "../sourceControl/SourceControlRateLimit.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import {
   PullRequestProviderError,
   type ProviderChangeRequest,
@@ -183,12 +186,16 @@ function makeService(input: {
   readonly projects: ReadonlyArray<OrchestrationProjectShell>;
   readonly providers: ReadonlyArray<PullRequestProviderApi>;
   readonly resolveHandle?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["resolveHandle"];
+  readonly getSourceControlProvider?: SourceControlProviderRegistry.SourceControlProviderRegistry["Service"]["get"];
 }) {
   return PullRequestService.make.pipe(
     Effect.provide(
       Layer.mergeAll(
         Layer.succeed(PullRequestProviderRegistry, fromProviders(input.providers)),
         Layer.mock(SourceControlProviderRegistry.SourceControlProviderRegistry)({
+          get:
+            input.getSourceControlProvider ??
+            (() => Effect.die("Unexpected source control lookup")),
           resolveHandle:
             input.resolveHandle ?? (() => Effect.die("Unexpected provider refinement")),
         }),
@@ -209,6 +216,118 @@ function makeService(input: {
         ),
       ),
     ),
+  );
+}
+
+for (const checkout of [
+  {
+    host: "git.example.test:8443",
+    repository: "acme/web",
+    remoteUrl: "ssh://git@ssh.example.test:2222/acme/web.git",
+    baseUrl: "https://git.example.test:8443",
+  },
+  {
+    host: "git.example.test:3000",
+    repository: "forge/acme/web",
+    remoteUrl: "http://git.example.test:3000/forge/acme/web.git",
+    baseUrl: "http://git.example.test:3000/forge",
+  },
+]) {
+  it.effect(`syncs linked Forgejo summaries through REST for ${checkout.remoteUrl}`, () =>
+    Effect.gen(function* () {
+      let merged = false;
+      const reads: Array<{ baseUrl: string; path: string }> = [];
+      const url = `${checkout.baseUrl}/acme/web/pulls/7`;
+      const provider = yield* ForgejoSourceControlProvider.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(ForgejoCli.ForgejoCli)({
+              read: (input) =>
+                Effect.sync(() => {
+                  reads.push({ baseUrl: input.baseUrl, path: input.path });
+                  return {
+                    body: {
+                      number: 7,
+                      title: "Support Forgejo",
+                      html_url: url,
+                      state: merged ? "closed" : "open",
+                      merged,
+                      draft: !merged,
+                      base: { ref: "main", repo: { full_name: "acme/web" } },
+                      head: { ref: "feature/forgejo", repo: { full_name: "acme/web" } },
+                      updated_at: merged ? "2026-09-11T12:00:00Z" : "2026-09-11T00:00:00Z",
+                      closed_at: merged ? "2026-09-11T12:00:00Z" : null,
+                      merged_at: merged ? "2026-09-11T12:00:00Z" : null,
+                    },
+                    hasNextPage: false,
+                  };
+                }),
+            }),
+            Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+          ),
+        ),
+      );
+      const service = yield* makeService({
+        projects: [
+          project({
+            id: "forgejo",
+            title: "Forgejo",
+            workspaceRoot: "/forgejo",
+            provider: "forgejo",
+            ...checkout,
+          }),
+        ],
+        providers: [],
+        getSourceControlProvider: (kind) => {
+          assert.strictEqual(kind, "forgejo");
+          return Effect.succeed(provider);
+        },
+      });
+      const ref = {
+        projectId: "forgejo" as ProjectId,
+        host: checkout.host,
+        repository: checkout.repository,
+        number: 7,
+      };
+      const summary = yield* service.summary(ref, { recoverTransientFailure: false });
+      assert.deepStrictEqual(summary, {
+        provider: "forgejo",
+        projectId: ref.projectId,
+        repository: checkout.repository,
+        number: 7,
+        title: "Support Forgejo",
+        url,
+        state: "open",
+        isDraft: true,
+        headBranch: "feature/forgejo",
+        baseBranch: "main",
+        closedAt: null,
+        mergedAt: null,
+        updatedAt: "2026-09-11T00:00:00.000Z",
+      });
+      assert.isNull(yield* service.stack(ref, { includeDetails: false }));
+      yield* service.summary(ref, { recoverTransientFailure: false });
+      assert.strictEqual(reads.length, 1);
+      merged = true;
+      yield* service.invalidate({ reference: ref });
+      const refreshed = yield* service.summary(ref, { recoverTransientFailure: false });
+      assert.strictEqual(refreshed.state, "merged");
+      assert.strictEqual(refreshed.isDraft, false);
+      assert.strictEqual(refreshed.mergedAt, "2026-09-11T12:00:00Z");
+      assert.strictEqual(refreshed.closedAt, "2026-09-11T12:00:00Z");
+      assert.strictEqual(refreshed.updatedAt, "2026-09-11T12:00:00.000Z");
+      assert.deepStrictEqual(reads, [
+        { baseUrl: checkout.baseUrl, path: "/repos/acme/web/pulls/7" },
+        { baseUrl: checkout.baseUrl, path: "/repos/acme/web/pulls/7" },
+      ]);
+      const detailError = yield* service.detail(ref).pipe(Effect.flip);
+      assert.strictEqual(detailError._tag, "PullRequestUnavailableError");
+      const wrongHost = yield* service
+        .summary({ ...ref, host: "other.example.test" })
+        .pipe(Effect.flip);
+      assert.strictEqual(wrongHost._tag, "PullRequestUnavailableError");
+      assert.strictEqual(reads.length, 2);
+    }),
   );
 }
 

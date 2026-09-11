@@ -2,6 +2,7 @@ import {
   canonicalRepositoryKey,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
+import { changeRequestUrlFor } from "@t3tools/shared/changeRequestUrl";
 import * as Cache from "effect/Cache";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -253,11 +254,19 @@ const ACTION_ACCESS_REFUSALS: Record<PullRequestAction, string> = {
 const REVIEWER_REQUEST_REFUSAL = "You need write access on this repository to ask for a review.";
 const LABEL_CHANGE_REFUSAL = "You need triage access on this repository to change its labels.";
 
+/** Status synchronization uses a smaller interface than the full review page. */
+type SummaryProvider = Pick<
+  PullRequestProviderApi,
+  "kind" | "getChangeRequestSummary" | "getChangeRequestStack"
+> & {
+  readonly getChangeRequest: NonNullable<PullRequestProviderApi["getChangeRequestSummary"]>;
+};
+
 /** A project this page can read: its remote is on a host with an implementation. */
-interface SupportedProject {
+interface SupportedProject<Api = PullRequestProviderApi> {
   readonly cursorKey: string;
   readonly project: OrchestrationProjectShell;
-  readonly api: PullRequestProviderApi;
+  readonly api: Api;
   readonly repository: string;
   /** The host the repository lives on, which is the account boundary rather than the kind. */
   readonly host: string;
@@ -268,8 +277,8 @@ interface SupportedProject {
  * implementation are counted rather than dropped, so their projects are explained in the
  * provider list instead of quietly missing from the page.
  */
-interface WorkspaceProjects {
-  readonly supported: ReadonlyArray<SupportedProject>;
+interface WorkspaceProjects<Api = PullRequestProviderApi> {
+  readonly supported: ReadonlyArray<SupportedProject<Api>>;
   /** Keyed by host, as the readable ones are: an unimplemented host is its own switcher entry. */
   readonly unimplemented: ReadonlyMap<
     string,
@@ -600,9 +609,14 @@ export const make = Effect.gen(function* () {
     ).pipe(Effect.map((resolved) => new Map(resolved)));
   };
 
-  const listWorkspaceProjects = (
+  const listWorkspaceProjectsWith = <Api>(
     filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
-  ): Effect.Effect<WorkspaceProjects, PullRequestError> =>
+    providerFor: (
+      kind: SourceControlProviderKind,
+      host: string,
+      project: OrchestrationProjectShell,
+    ) => Api | null,
+  ): Effect.Effect<WorkspaceProjects<Api>, PullRequestError> =>
     projections.getShellSnapshot().pipe(
       Effect.mapError(
         (error) =>
@@ -618,7 +632,7 @@ export const make = Effect.gen(function* () {
         ),
       ),
       Effect.map(({ refinedKinds, snapshot }) => {
-        const supported: SupportedProject[] = [];
+        const supported: SupportedProject<Api>[] = [];
         const unimplemented = new Map<
           string,
           { kind: SourceControlProviderKind; projectCount: number }
@@ -641,7 +655,7 @@ export const make = Effect.gen(function* () {
           }
           const host = pullRequestHostOf(identity, kind);
           if (filter.host !== undefined && host !== filter.host.toLowerCase()) continue;
-          const api = registry.get(kind);
+          const api = providerFor(kind, host, project);
           // Recorded before the de-duplication below, so the viewer lookup keeps the alternates
           // the listing is about to drop.
           if (api !== null) {
@@ -664,7 +678,7 @@ export const make = Effect.gen(function* () {
           supported.push({
             cursorKey: key,
             project,
-            api: withRateLimitBackoff(api, host, rateLimits),
+            api,
             repository,
             host,
           });
@@ -673,6 +687,84 @@ export const make = Effect.gen(function* () {
       }),
     );
 
+  const reviewProviderFor = (kind: SourceControlProviderKind, host: string) => {
+    const api = registry.get(kind);
+    return api === null ? null : withRateLimitBackoff(api, host, rateLimits);
+  };
+
+  // Linked status only needs metadata. Keep Forgejo out of the full review interface until
+  // it implements that interface's listing, permissions, diffs, and review actions.
+  const summaryProviderFor = (
+    kind: SourceControlProviderKind,
+    host: string,
+    project: OrchestrationProjectShell,
+  ): SummaryProvider | null =>
+    reviewProviderFor(kind, host) ??
+    (kind === "forgejo"
+      ? {
+          kind,
+          getChangeRequest: Effect.fn("PullRequestService.forgejoSummary")(function* (input) {
+            const reference = changeRequestUrlFor(
+              kind,
+              input.host,
+              input.repository,
+              input.number,
+              project.repositoryIdentity?.locator.remoteUrl,
+            );
+            if (reference === null) {
+              return yield* new PullRequestProviderError({
+                provider: kind,
+                operation: "getChangeRequestSummary",
+                reason: "failed",
+                detail: "The Forgejo pull request URL could not be resolved.",
+              });
+            }
+            const read = Effect.gen(function* () {
+              const provider = yield* sourceControlProviders.get(kind);
+              return yield* provider.getChangeRequest({
+                cwd: input.cwd,
+                reference,
+              });
+            });
+            const changeRequest = yield* read.pipe(
+              Effect.mapError(
+                (cause) =>
+                  new PullRequestProviderError({
+                    provider: kind,
+                    operation: "getChangeRequestSummary",
+                    reason: "failed",
+                    detail: cause.detail,
+                    cause,
+                  }),
+              ),
+            );
+            return {
+              number: changeRequest.number,
+              title: changeRequest.title,
+              url: changeRequest.url,
+              state: changeRequest.state,
+              ...(changeRequest.isDraft === undefined ? {} : { isDraft: changeRequest.isDraft }),
+              closedAt: changeRequest.closedAt ?? null,
+              mergedAt: changeRequest.mergedAt ?? null,
+              headBranch: changeRequest.headRefName,
+              baseBranch: changeRequest.baseRefName,
+              updatedAt: Option.match(changeRequest.updatedAt, {
+                // Missing timestamps must stay stable across polls.
+                onNone: () => "1970-01-01T00:00:00.000Z",
+                onSome: DateTime.formatIso,
+              }),
+            };
+          }),
+        }
+      : null);
+
+  const listWorkspaceProjects = (
+    filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
+  ) => listWorkspaceProjectsWith(filter, reviewProviderFor);
+  const listSummaryProjects = (
+    filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
+  ) => listWorkspaceProjectsWith(filter, summaryProviderFor);
+
   /**
    * The project whose checkout and credentials serve a reference. The project's own
    * repository is the default; a reference that names a `host` may instead point at any
@@ -680,9 +772,14 @@ export const make = Effect.gen(function* () {
    * targeting can fall back to another checkout on the host. Azure derives its organization
    * from the checkout, so it requires a matching repository.
    */
-  const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
-    listWorkspaceProjects({ projectId: ref.projectId }).pipe(
-      Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
+  const requireProjectWith = <Api extends Pick<PullRequestProviderApi, "kind">>(
+    ref: PullRequestRef,
+    listProjects: (
+      filter: Pick<PullRequestListInput, "projectId" | "host">,
+    ) => Effect.Effect<WorkspaceProjects<Api>, PullRequestError>,
+  ): Effect.Effect<SupportedProject<Api>, PullRequestError> =>
+    listProjects({ projectId: ref.projectId }).pipe(
+      Effect.flatMap(({ supported }): Effect.Effect<SupportedProject<Api>, PullRequestError> => {
         const own = supported[0];
         const repository = ref.repository.trim();
         const host = ref.host?.trim().toLowerCase();
@@ -707,9 +804,7 @@ export const make = Effect.gen(function* () {
         const repositoryKey = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase());
         // Azure SSH and legacy clone hosts differ from the browser URL's host. Compare
         // the complete repository identity before narrowing those checkouts by host.
-        return listWorkspaceProjects(
-          repositoryKey.startsWith("dev.azure.com/") ? {} : { host },
-        ).pipe(
+        return listProjects(repositoryKey.startsWith("dev.azure.com/") ? {} : { host }).pipe(
           Effect.flatMap(({ supported }) => {
             const onHost = supported.filter((candidate) => candidate.host === host);
             const route =
@@ -739,6 +834,10 @@ export const make = Effect.gen(function* () {
         );
       }),
     );
+
+  const requireProject = (ref: PullRequestRef) => requireProjectWith(ref, listWorkspaceProjects);
+  const requireSummaryProject = (ref: PullRequestRef) =>
+    requireProjectWith(ref, listSummaryProjects);
 
   /**
    * What the signed-in account may do with this change request, asked of the host itself. Every
@@ -1283,7 +1382,7 @@ export const make = Effect.gen(function* () {
     resolveViewers([project], new Map()).pipe(Effect.map(([resolved]) => resolved?.viewer ?? null));
 
   const summaryUncached: PullRequestService["Service"]["summary"] = (input) =>
-    requireProject(input).pipe(
+    requireSummaryProject(input).pipe(
       Effect.flatMap((project) => {
         const providerInput = {
           cwd: project.project.workspaceRoot,
@@ -1336,7 +1435,7 @@ export const make = Effect.gen(function* () {
     );
 
   const stackUncached: PullRequestService["Service"]["stack"] = (input, options) =>
-    requireProject(input).pipe(
+    requireSummaryProject(input).pipe(
       Effect.flatMap((project) => {
         const read = project.api.getChangeRequestStack;
         if (read === undefined) return Effect.succeed(null);
@@ -2341,7 +2440,7 @@ export const make = Effect.gen(function* () {
     codec: Schema.Codec<A, string>,
     read: Effect.Effect<A, PullRequestError>,
   ) {
-    const project = yield* requireProject(input);
+    const project = yield* requireSummaryProject(input);
     const key = [
       operation,
       project.api.kind,
