@@ -39,7 +39,13 @@ import {
   GlobeIcon,
 } from "lucide-react";
 import { Radio as RadioPrimitive } from "@base-ui/react/radio";
-import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon } from "~/components/Icons";
+import {
+  AzureDevOpsIcon,
+  BitbucketIcon,
+  ForgejoIcon,
+  GitHubIcon,
+  GitLabIcon,
+} from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
 import { toggleVariants } from "~/components/ui/toggle";
@@ -123,7 +129,7 @@ interface PendingDefaultBranchAction {
 
 type PublishProviderKind = Extract<
   SourceControlProviderKind,
-  "github" | "gitlab" | "bitbucket" | "azure-devops"
+  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
 >;
 
 type GitActionToastId = ReturnType<typeof toastManager.add>;
@@ -178,6 +184,14 @@ const PUBLISH_PROVIDER_OPTIONS = [
     host: "github.com",
     pathPlaceholder: "owner/repo",
     Icon: GitHubIcon,
+  },
+  {
+    value: "forgejo",
+    label: "Forgejo",
+    description: "Your Forgejo instance",
+    host: "",
+    pathPlaceholder: "host/owner/repo",
+    Icon: ForgejoIcon,
   },
   {
     value: "gitlab",
@@ -425,6 +439,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     const accounts: Record<PublishProviderKind, string | null> = {
       github: null,
       gitlab: null,
+      forgejo: null,
       bitbucket: null,
       "azure-devops": null,
     };
@@ -668,7 +683,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
               <div className="flex items-stretch overflow-hidden rounded-md border border-input bg-background focus-within:outline-2 focus-within:-outline-offset-1 focus-within:outline-ring">
                 <span className="flex shrink-0 items-center gap-1.5 border-r border-input bg-muted/50 px-2.5 font-mono text-xs text-muted-foreground">
                   <currentPublishProvider.Icon className="size-3.5" />
-                  {publishHost}/
+                  {publishHost ? `${publishHost}/` : "Forgejo"}
                 </span>
                 <input
                   id="publish-repository-path"

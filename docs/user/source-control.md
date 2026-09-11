@@ -1,6 +1,6 @@
 # Source control
 
-T3 Code integrates with GitHub, GitLab, Bitbucket, and Azure DevOps to clone and publish
+T3 Code integrates with GitHub, GitLab, Forgejo, Bitbucket, and Azure DevOps to clone and publish
 repositories, create pull requests, and review changes.
 
 ## Connect an account
@@ -24,6 +24,24 @@ Install [GitLab CLI](https://gitlab.com/gitlab-org/cli), then sign in:
 ```bash
 glab auth login
 ```
+
+### Forgejo
+
+Install [Forgejo CLI (`fj`)](https://codeberg.org/forgejo-contrib/forgejo-cli), then sign in to each
+instance you use:
+
+```bash
+fj --host codeberg.org auth login
+fj --host git.example.com auth login
+```
+
+T3 Code recognizes remotes on the instances listed by `fj auth list`, including instances that
+advertise a different hostname or port for SSH. When cloning or publishing,
+enter `host/owner/repo` or the full repository URL to choose the instance. T3 Code uses your saved
+`fj` credentials; no separate token configuration is needed.
+
+You can create and check out Forgejo pull requests from a thread's Git actions. Use the instance's
+website to review and merge them. Commit or stash local changes before checking out a pull request.
 
 ### Bitbucket
 

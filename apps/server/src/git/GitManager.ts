@@ -217,14 +217,18 @@ export function pullRequestRepositoryKey(value: string): string | null {
   try {
     const url = new URL(value);
     const match =
-      /^(.*)(?:\/pull\/|\/-\/merge_requests\/|\/pull-requests\/|\/pullrequest\/)\d+(?:\/.*)?$/iu.exec(
+      /^(.*)\/(pull|pulls|-\/merge_requests|pull-requests|pullrequest)\/\d+(?:\/.*)?$/iu.exec(
         url.pathname,
       );
     if (match?.[1] === undefined) return null;
     url.pathname = match[1];
     url.search = "";
     url.hash = "";
-    return normalizeGitRemoteUrl(url.toString());
+    const key = normalizeGitRemoteUrl(url.toString());
+    // Forgejo's web authority identifies the instance independently of SSH.
+    return match[2]?.toLowerCase() === "pulls"
+      ? `${url.host.toLowerCase()}/${key.split("/").slice(1).join("/")}`
+      : key;
   } catch {
     return null;
   }
@@ -1262,7 +1266,15 @@ export const make = Effect.gen(function* () {
       (yield* readConfigValueNullable(cwd, `remote.${preferredRemoteName}.url`)) ??
       (yield* readConfigValueNullable(cwd, "remote.origin.url"));
 
-    return remoteUrl ? detectSourceControlProviderFromGitRemoteUrl(remoteUrl) : null;
+    const provider = remoteUrl ? detectSourceControlProviderFromGitRemoteUrl(remoteUrl) : null;
+    if (!remoteUrl || !provider || provider.kind !== "unknown") return provider;
+    const handle = yield* sourceControlProviders
+      .resolveHandle({
+        cwd,
+        context: { provider, remoteName: preferredRemoteName, remoteUrl },
+      })
+      .pipe(Effect.orElseSucceed(() => null));
+    return handle?.context?.provider ?? provider;
   });
 
   const resolveRemoteRepositoryContext = Effect.fn("resolveRemoteRepositoryContext")(function* (

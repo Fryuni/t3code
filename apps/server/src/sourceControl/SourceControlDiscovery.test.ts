@@ -12,6 +12,8 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as BitbucketApi from "./BitbucketApi.ts";
 import * as GitHubCli from "./GitHubCli.ts";
+import * as ForgejoCli from "./ForgejoCli.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as GitLabCli from "./GitLabCli.ts";
 import * as SourceControlDiscovery from "./SourceControlDiscovery.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
@@ -30,6 +32,8 @@ const sourceControlProviderRegistryTestLayer = (input: {
         Layer.mock(BitbucketApi.BitbucketApi)(input.bitbucket),
         Layer.mock(GitHubCli.GitHubCli)({}),
         Layer.mock(GitLabCli.GitLabCli)({}),
+        Layer.mock(ForgejoCli.ForgejoCli)({}),
+        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
         Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({}),
         Layer.mock(VcsProcess.VcsProcess)(input.process),
       ),
@@ -144,6 +148,12 @@ it.effect("reports implemented tools separately from locally available executabl
           account: Option.some("juliusmarminge"),
         },
         {
+          kind: "forgejo",
+          status: "missing",
+          auth: "unknown",
+          account: Option.none(),
+        },
+        {
           kind: "gitlab",
           status: "missing",
           auth: "unknown",
@@ -175,6 +185,10 @@ it.effect("probes provider authentication without exposing token details", () =>
       if (input.args[0] === "--version") {
         return Effect.succeed(processOutput(`${input.command} version test\n`));
       }
+      if (input.command === "fj" && input.args.join(" ") === "version")
+        return Effect.succeed(processOutput("fj v0.6.0"));
+      if (input.command === "fj" && input.args.join(" ") === "auth list")
+        return Effect.succeed(processOutput("codeberg.org\ngit.example.test"));
       if (input.command === "gh" && input.args.join(" ") === "auth status --json hosts") {
         return Effect.succeed(
           processOutput(
@@ -257,6 +271,12 @@ Logged in to gitlab.com as gitlab-user
           kind: "github",
           auth: "authenticated",
           account: Option.some("octocat"),
+          detail: Option.none(),
+        },
+        {
+          kind: "forgejo",
+          auth: "authenticated",
+          account: Option.none(),
           detail: Option.none(),
         },
         {

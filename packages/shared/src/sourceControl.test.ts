@@ -9,6 +9,22 @@ import {
 } from "./sourceControl.ts";
 
 describe("source control presentation", () => {
+  it("uses Forgejo pull request terminology and fj checkout instructions", () => {
+    expect(
+      resolveChangeRequestPresentation({
+        kind: "forgejo",
+        name: "Forgejo",
+        baseUrl: "https://git.example.test",
+      }),
+    ).toMatchObject({
+      icon: "forgejo",
+      providerName: "Forgejo",
+      shortName: "PR",
+      longName: "pull request",
+      checkoutCommandExample: "fj pr checkout 123",
+    });
+  });
+
   it("uses merge request terminology for GitLab", () => {
     expect(getChangeRequestTerminologyForKind("gitlab")).toEqual({
       shortLabel: "MR",

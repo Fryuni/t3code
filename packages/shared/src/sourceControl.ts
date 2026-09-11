@@ -5,7 +5,7 @@ import type {
 } from "@t3tools/contracts";
 
 export interface ChangeRequestPresentation {
-  readonly icon: "github" | "gitlab" | "azure-devops" | "bitbucket" | "change-request";
+  readonly icon: "github" | "gitlab" | "forgejo" | "azure-devops" | "bitbucket" | "change-request";
   readonly providerName: string;
   readonly shortName: string;
   readonly longName: string;
@@ -58,6 +58,17 @@ const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   urlExample: "https://dev.azure.com/org/project/_git/repo/pullrequest/42",
 };
 
+const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
+  icon: "forgejo",
+  providerName: "Forgejo",
+  shortName: "PR",
+  longName: "pull request",
+  pluralLongName: "pull requests",
+  providerLongName: "Forgejo pull request",
+  checkoutCommandExample: "fj pr checkout 123",
+  urlExample: "https://codeberg.org/owner/repo/pulls/42",
+};
+
 const BITBUCKET_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   icon: "bitbucket",
   providerName: "Bitbucket",
@@ -87,6 +98,8 @@ export function resolveChangeRequestPresentation(
       return GITHUB_CHANGE_REQUEST_PRESENTATION;
     case "gitlab":
       return GITLAB_CHANGE_REQUEST_PRESENTATION;
+    case "forgejo":
+      return FORGEJO_CHANGE_REQUEST_PRESENTATION;
     case "azure-devops":
       return AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION;
     case "bitbucket":

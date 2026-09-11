@@ -107,6 +107,8 @@ export function pullRequestCheckoutCommand(
       return `gh pr checkout ${number}`;
     case "gitlab":
       return `glab mr checkout ${number}`;
+    case "forgejo":
+      return `fj pr checkout ${number}`;
     case "azure-devops":
       return `az repos pr checkout --id ${number}`;
     case "bitbucket": {

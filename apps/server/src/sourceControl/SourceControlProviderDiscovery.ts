@@ -37,7 +37,7 @@ export type SourceControlCliDiscoverySpec = SourceControlDiscoverySpecBase & {
   readonly parseAuth: (input: SourceControlAuthProbeInput) => SourceControlProviderAuth;
   readonly refineUnknownRemote?: (
     input: SourceControlUnknownRemoteRefinementInput,
-  ) => SourceControlProviderInfo | null;
+  ) => SourceControlProviderInfo | null | Effect.Effect<SourceControlProviderInfo | null>;
 };
 
 export type SourceControlApiDiscoverySpec = SourceControlDiscoverySpecBase & {
@@ -288,8 +288,8 @@ export const refineUnknownRemoteProvider = Effect.fn("refineUnknownRemoteProvide
     }
     const context = input.context;
 
-    const providers = yield* Effect.forEach(input.specs.filter(isCliRemoteRefinementSpec), (spec) =>
-      input.process
+    for (const spec of input.specs.filter(isCliRemoteRefinementSpec)) {
+      const provider = yield* input.process
         .run({
           operation: "source-control.discovery.refine-unknown-remote",
           command: spec.executable,
@@ -301,18 +301,18 @@ export const refineUnknownRemoteProvider = Effect.fn("refineUnknownRemoteProvide
           appendTruncationMarker: true,
         })
         .pipe(
-          Effect.map((auth) =>
-            spec.refineUnknownRemote({
+          Effect.flatMap((auth) => {
+            const result = spec.refineUnknownRemote({
               cwd: input.cwd,
               context,
               auth,
-            }),
-          ),
+            });
+            return Effect.isEffect(result) ? result : Effect.succeed(result);
+          }),
           Effect.orElseSucceed(() => null),
-        ),
-    );
-    const provider = providers.find((candidate) => candidate !== null);
-
-    return provider ? { ...context, provider } : context;
+        );
+      if (provider) return { ...context, provider };
+    }
+    return context;
   },
 );
