@@ -1,5 +1,6 @@
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
+import * as Data from "effect/Data";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
@@ -28,6 +29,15 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 
 const PROVIDER_DETECTION_CACHE_CAPACITY = 2_048;
 const PROVIDER_DETECTION_CACHE_TTL = Duration.seconds(5);
+const REMOTE_REFINEMENT_CACHE_TTL = Duration.minutes(1);
+
+class RemoteRefinementKey extends Data.Class<{
+  readonly cwd: string;
+  readonly remoteName: string;
+  readonly remoteUrl: string;
+  readonly providerName: string;
+  readonly baseUrl: string;
+}> {}
 
 export interface SourceControlProviderRegistration {
   readonly kind: SourceControlProviderKind;
@@ -210,6 +220,43 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
     const get: SourceControlProviderRegistry["Service"]["get"] = (kind) =>
       Effect.succeed(providers.get(kind) ?? unsupportedProvider(kind));
 
+    const remoteRefinementCache = yield* Cache.makeWith(
+      (key: RemoteRefinementKey) =>
+        refineUnknownRemoteProvider({
+          specs: discoverySpecs,
+          process,
+          cwd: key.cwd,
+          context: {
+            remoteName: key.remoteName,
+            remoteUrl: key.remoteUrl,
+            provider: { kind: "unknown", name: key.providerName, baseUrl: key.baseUrl },
+          },
+        }),
+      {
+        capacity: PROVIDER_DETECTION_CACHE_CAPACITY,
+        timeToLive: () => REMOTE_REFINEMENT_CACHE_TTL,
+      },
+    );
+
+    // Status supplies a fresh context on every read. Cache by its values so both
+    // that path and default-remote discovery share the CLI authentication probe.
+    const refineContext = (
+      cwd: string,
+      context: SourceControlProvider.SourceControlProviderContext | null,
+    ) =>
+      context?.provider.kind === "unknown"
+        ? Cache.get(
+            remoteRefinementCache,
+            new RemoteRefinementKey({
+              cwd,
+              remoteName: context.remoteName,
+              remoteUrl: context.remoteUrl,
+              providerName: context.provider.name,
+              baseUrl: context.provider.baseUrl,
+            }),
+          )
+        : Effect.succeed(context);
+
     const detectProviderContext = Effect.fn("SourceControlProviderRegistry.detectProviderContext")(
       function* (cwd: string) {
         const handle = yield* vcsRegistry.resolve({ cwd }).pipe(
@@ -238,12 +285,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
         );
         const context = selectProviderContext(remotes.remotes);
 
-        return yield* refineUnknownRemoteProvider({
-          specs: discoverySpecs,
-          process,
-          cwd,
-          context,
-        });
+        return yield* refineContext(cwd, context);
       },
     );
 
@@ -259,12 +301,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
     const resolveHandle: SourceControlProviderRegistry["Service"]["resolveHandle"] = (input) =>
       (input.context === undefined
         ? Cache.get(providerContextCache, input.cwd)
-        : refineUnknownRemoteProvider({
-            specs: discoverySpecs,
-            process,
-            cwd: input.cwd,
-            context: input.context,
-          })
+        : refineContext(input.cwd, input.context)
       ).pipe(
         Effect.map((context) => {
           const kind = context?.provider.kind ?? "unknown";

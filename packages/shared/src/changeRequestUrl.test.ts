@@ -1,13 +1,33 @@
 import { describe, expect, it } from "vite-plus/test";
+import { ProjectId } from "@t3tools/contracts";
 
 import {
   changeRequestUrlFor,
+  changeRequestRepositoryUrl,
+  matchesLinkedPullRequestUrl,
   parseChangeRequestUrl,
   pullRequestCandidateUrlFromReferenceAutolink,
   siblingPullRequestUrl,
 } from "./changeRequestUrl.ts";
 
 describe("parseChangeRequestUrl", () => {
+  it.each([
+    ["https://codeberg.org/Owner/Repo/pulls/42", "codeberg.org", "owner/repo"],
+    ["https://git.fryuni.dev/Owner/Repo/pulls/42/files?w=1", "git.fryuni.dev", "owner/repo"],
+    [
+      "http://forge.example.test:3000/forge/Owner/Repo/pulls/42",
+      "forge.example.test:3000",
+      "forge/owner/repo",
+    ],
+    [
+      "https://github.example.test:8443/Owner/Repo/pulls/42",
+      "github.example.test:8443",
+      "owner/repo",
+    ],
+  ])("reads the Forgejo instance and repository from %s", (url, host, repository) => {
+    expect(parseChangeRequestUrl(url)).toEqual({ host, repository, number: 42 });
+  });
+
   it("reads a GitHub pull request, lower-casing the repository", () => {
     expect(parseChangeRequestUrl("https://github.com/T3Tools/T3Code/pull/123")).toEqual({
       host: "github.com",
@@ -83,6 +103,9 @@ describe("parseChangeRequestUrl", () => {
       "https://blog.example.test/2026/updates/pull/3",
       "javascript:alert(1)//github.com/t3tools/t3code/pull/1",
       "not a url",
+      "https://git.fryuni.dev/Owner/Repo/pulls/0",
+      "https://git.fryuni.dev/Owner/Repo/pulls/9007199254740992",
+      "https://git.fryuni.dev/Owner/Repo/pulls/not-a-number",
     ]) {
       expect(parseChangeRequestUrl(link), link).toBeNull();
     }
@@ -91,6 +114,14 @@ describe("parseChangeRequestUrl", () => {
 
 describe("siblingPullRequestUrl", () => {
   it.each([
+    [
+      "https://git.fryuni.dev/Owner/Repo/pulls/42/files#note",
+      "https://git.fryuni.dev/owner/repo/pulls/43",
+    ],
+    [
+      "http://forge.example.test:3000/forge/Owner/Repo/pulls/42",
+      "http://forge.example.test:3000/forge/owner/repo/pulls/43",
+    ],
     ["https://github.com/pull/1/pull/42/files", "https://github.com/pull/1/pull/43"],
     [
       "https://git.acme.test/team/merge_requests/1/repo/-/merge_requests/42/diffs",
@@ -125,6 +156,15 @@ describe("siblingPullRequestUrl", () => {
 });
 
 describe("changeRequestUrlFor", () => {
+  it("builds Forgejo links on the canonical web port", () => {
+    const url = changeRequestUrlFor("forgejo", "forge.example.test:8443", "owner/repo", 42);
+    expect(url).toBe("https://forge.example.test:8443/owner/repo/pulls/42");
+    expect(parseChangeRequestUrl(url!)).toEqual({
+      host: "forge.example.test:8443",
+      repository: "owner/repo",
+      number: 42,
+    });
+  });
   it.each([
     ["ssh.dev.azure.com", "v3/org/project/web"],
     ["vs-ssh.visualstudio.com", "v3/org/project/web"],
@@ -138,5 +178,45 @@ describe("changeRequestUrlFor", () => {
       repository: "org/project/_git/web",
       number: 42,
     });
+  });
+});
+
+describe("Forgejo repository and stored links", () => {
+  it.each([
+    [
+      "http://forge.example.test:3000/forge/Owner/Repo/pulls/42/files?w=1#note",
+      "http://forge.example.test:3000/forge/Owner/Repo",
+    ],
+    [
+      "https://forge.example.test/forge/pull/123/Owner/Repo/pulls/42",
+      "https://forge.example.test/forge/pull/123/Owner/Repo",
+    ],
+    [
+      "https://gitlab.example.test/group/sub/pulls/123/repo/-/merge_requests/42",
+      "https://gitlab.example.test/group/sub/pulls/123/repo",
+    ],
+  ])("extracts the repository root from %s", (url, repositoryUrl) => {
+    expect(changeRequestRepositoryUrl(url)).toBe(repositoryUrl);
+  });
+
+  it("matches stored Forgejo links without conflating instances on different ports", () => {
+    const linked = {
+      projectId: ProjectId.make("project-1"),
+      repository: "owner/repo",
+      number: 42,
+      url: "https://forge.example.test:8443/Owner/Repo/pulls/42",
+    };
+    expect(
+      matchesLinkedPullRequestUrl(
+        linked,
+        "https://forge.example.test:8443/owner/repo/pulls/42/files",
+      ),
+    ).toBe(true);
+    expect(
+      matchesLinkedPullRequestUrl(linked, "https://forge.example.test:9443/owner/repo/pulls/42"),
+    ).toBe(false);
+    expect(
+      matchesLinkedPullRequestUrl(linked, "https://forge.example.test:8443/owner/repo/pulls/43"),
+    ).toBe(false);
   });
 });
