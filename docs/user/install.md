@@ -67,14 +67,15 @@ and enable the provider you want. Installation, login, and configuration belong
 to that environment's machine, even when you connect from a phone or another
 computer.
 
-| Provider    | Install and authenticate                                                                     |
-| ----------- | -------------------------------------------------------------------------------------------- |
-| Codex       | Install [Codex CLI](https://developers.openai.com/codex/cli), then run `codex login`.        |
-| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`. |
-| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                        |
-| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                           |
-| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                     |
-| Antigravity | Install and sign in with Google from T3 Code's provider settings.                            |
+| Provider    | Install and authenticate                                                                      |
+| ----------- | --------------------------------------------------------------------------------------------- |
+| Codex       | Install [Codex CLI](https://developers.openai.com/codex/cli), then run `codex login`.         |
+| Claude      | Install [Claude Code](https://claude.com/product/claude-code), then run `claude auth login`.  |
+| Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                         |
+| Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                            |
+| OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                      |
+| OhMyPi      | Install [OhMyPi](https://omp.sh), then run `omp` to select a model and configure credentials. |
+| Antigravity | Install and sign in with Google from T3 Code's provider settings.                             |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
@@ -96,6 +97,23 @@ their original values.
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
 [Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), and
 [Antigravity](./providers-antigravity.md).
+
+### OhMyPi
+
+Enable OhMyPi in **Settings → Providers** after configuring `omp` on the environment's
+machine. Set **Binary path** if it is not on the server's `PATH`. T3 Code launches
+`omp acp` using the CLI's existing credentials; remote and mobile clients use that
+same environment.
+
+Start a thread with **OhMyPi default** to use the model configured in OhMyPi. The
+session supplies available models and thinking levels to the model picker. You
+can switch models, stop turns, and continue a saved session after reconnecting.
+OhMyPi's native slash commands appear once a session has started in that workspace.
+
+**Auto** uses the same approval policy as **Supervised**. **Auto-accept edits**
+allows workspace writes, and **Full access** allows all tool tiers. OhMyPi's
+structured question dialogs, conversation rollback, and background title, branch,
+commit, and PR generation are not currently supported in T3 Code.
 
 ## Next steps
 
