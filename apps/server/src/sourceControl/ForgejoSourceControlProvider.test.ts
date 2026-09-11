@@ -114,23 +114,47 @@ it.effect("accepts remote-first repository URLs with web ports and subpaths", ()
   }),
 );
 
-it.effect("resolves SSH clone inputs to their web instance before reading metadata", () =>
+for (const remoteUrl of [context.remoteUrl, "git://git.example.test:9418/Owner/Repo.git"]) {
+  it.effect(`resolves ${remoteUrl} to its web instance before reading metadata`, () =>
+    Effect.gen(function* () {
+      const provider = yield* makeProvider({
+        read: (input) => {
+          assert.strictEqual(input.baseUrl, context.provider.baseUrl);
+          return Effect.succeed({ body: repository, hasNextPage: false });
+        },
+      });
+      assert.strictEqual(
+        (yield* provider.getRepositoryCloneUrls({ cwd: "/repo", repository: remoteUrl })).url,
+        repository.clone_url,
+      );
+      const unknown = yield* makeProvider({ refineUnknownRemote: () => Effect.succeed(null) });
+      const error = yield* unknown
+        .getRepositoryCloneUrls({ cwd: "/repo", repository: remoteUrl })
+        .pipe(Effect.flip);
+      assert.include(error.detail, "HTTPS repository URL");
+    }),
+  );
+}
+
+it.effect("reads PR metadata from a git-protocol checkout using its refined web instance", () =>
   Effect.gen(function* () {
     const provider = yield* makeProvider({
       read: (input) => {
         assert.strictEqual(input.baseUrl, context.provider.baseUrl);
-        return Effect.succeed({ body: repository, hasNextPage: false });
+        assert.strictEqual(input.path, "/repos/Owner/Repo/pulls/42");
+        return Effect.succeed({ body: pullRequest, hasNextPage: false });
       },
     });
-    assert.strictEqual(
-      (yield* provider.getRepositoryCloneUrls({ cwd: "/repo", repository: context.remoteUrl })).url,
-      repository.clone_url,
-    );
-    const unknown = yield* makeProvider({ refineUnknownRemote: () => Effect.succeed(null) });
-    const error = yield* unknown
-      .getRepositoryCloneUrls({ cwd: "/repo", repository: context.remoteUrl })
-      .pipe(Effect.flip);
-    assert.include(error.detail, "HTTPS repository URL");
+    const pr = yield* provider.getChangeRequest({
+      cwd: "/repo",
+      reference: "42",
+      context: {
+        ...context,
+        remoteUrl: "git://git.example.test:9418/Owner/Repo.git",
+      },
+    });
+    assert.strictEqual(pr.number, 42);
+    assert.strictEqual(pr.url, pullRequest.html_url);
   }),
 );
 

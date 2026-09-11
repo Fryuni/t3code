@@ -28,16 +28,17 @@ export function parseForgejoAuthHosts(input: SourceControlAuthProbeInput): Reado
 function refineUnknownForgejoRemote(input: SourceControlUnknownRemoteRefinementInput) {
   const hosts = parseForgejoAuthHosts(input.auth);
   const remote = new URL(input.context.provider.baseUrl);
-  const isSsh = isSshRemoteUrl(input.context.remoteUrl);
+  const isGitTransport =
+    isSshRemoteUrl(input.context.remoteUrl) || input.context.remoteUrl.startsWith("git://");
   let instance = remote.host.toLowerCase();
-  if (!isSsh) {
+  if (!isGitTransport) {
     const url = new URL(input.context.remoteUrl);
     const basePath = url.pathname.split("/").filter(Boolean).slice(0, -2).join("/");
     instance = `${url.host}${basePath ? `/${basePath}` : ""}`;
   }
   let host = hosts.find((candidate) => candidate === instance);
-  if (!host && isSsh) {
-    // SSH and the web API can listen on different ports. Only infer that mapping
+  if (!host && isGitTransport) {
+    // Git transports and the web API can listen on different ports. Only infer that mapping
     // when fj knows exactly one web authority for this hostname.
     const matchingHosts = hosts.filter(
       (candidate) => new URL(`https://${candidate}`).hostname === remote.hostname.toLowerCase(),

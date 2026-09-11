@@ -59,9 +59,9 @@ function parseRepository(value: string, baseUrl?: string): RepositoryLocator | n
     const scp = /^[^@/]+@([^:/]+):(.+)$/u.exec(trimmed);
     if (scp) {
       url = new URL(`${baseUrl ?? `https://${scp[1]}`}/${scp[2]}`);
-    } else if (/^(?:https?|ssh):\/\//u.test(trimmed)) {
+    } else if (/^(?:https?|ssh|git):\/\//u.test(trimmed)) {
       url = new URL(trimmed);
-      if (url.protocol === "ssh:") {
+      if (url.protocol === "ssh:" || url.protocol === "git:") {
         url = new URL(url.pathname.replace(/^\//u, ""), `${baseUrl ?? `https://${url.host}`}/`);
       }
     } else if (trimmed.split("/").length === 2 && baseUrl) {
@@ -155,7 +155,11 @@ export const make = Effect.gen(function* () {
         .readConfigValue(input.cwd, "remote.origin.url")
         .pipe(Effect.orElseSucceed(() => null)));
     let baseUrl = input.context?.provider.baseUrl;
-    if (remote && isSshRemoteUrl(remote) && (input.repository || !baseUrl)) {
+    if (
+      remote &&
+      (isSshRemoteUrl(remote) || remote.startsWith("git://")) &&
+      (input.repository || !baseUrl)
+    ) {
       const provider = detectSourceControlProviderFromRemoteUrl(remote);
       const stdout = yield* fj.execute({ cwd: input.cwd, operation, args: discovery.authArgs });
       const refined = provider
@@ -169,7 +173,7 @@ export const make = Effect.gen(function* () {
         return yield* fail(
           operation,
           input.cwd,
-          "Could not match this SSH remote to a Forgejo instance. Sign in with fj or use the HTTPS repository URL.",
+          "Could not match this Git remote to a Forgejo instance. Sign in with fj or use the HTTPS repository URL.",
         );
       baseUrl = refined.baseUrl;
     }

@@ -95,6 +95,29 @@ it("preserves instance paths and distinguishes instances on the same authority",
   );
 });
 
+it("maps git-protocol remotes to an unambiguous authenticated web authority", () => {
+  expectGitRemote(
+    "git://git.example.test/Owner/Repo.git",
+    "git.example.test",
+    "https://git.example.test",
+  );
+  expectGitRemote(
+    "git://git.example.test:9418/Owner/Repo.git",
+    "git.example.test:8443/Forge",
+    "https://git.example.test:8443/Forge",
+  );
+  assert.isNull(
+    refine(
+      "git://git.example.test:9418/Owner/Repo.git",
+      "git.example.test:3000\ngit.example.test:4000",
+    ),
+  );
+});
+
+function expectGitRemote(remote: string, hosts: string, baseUrl: string) {
+  assert.deepStrictEqual(refine(remote, hosts), { kind: "forgejo", name: "Forgejo", baseUrl });
+}
+
 it("does not classify unauthenticated hosts or trust failed probes and stderr", () => {
   assert.strictEqual(refine("https://other.example.test/owner/repo", "git.example.test"), null);
   assert.strictEqual(refine("https://git.example.test/owner/repo", "git.example.test", 1), null);
