@@ -80,20 +80,39 @@ function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink |
     : null;
 }
 
-/** The web URL a host writes for a change request; null when the host shape is unknown. */
+/**
+ * The web URL a host writes for a change request; null when its shape is unknown.
+ * A matching HTTP remote preserves a Forgejo instance's web scheme.
+ */
 export function changeRequestUrlFor(
   kind: string | null | undefined,
   host: string,
   repository: string,
   number: number,
+  repositoryRemoteUrl?: string,
 ): string | null {
   switch (kind) {
     case "github":
       return `https://${host}/${repository}/pull/${number}`;
     case "gitlab":
       return `https://${host}/${repository}/-/merge_requests/${number}`;
-    case "forgejo":
-      return `https://${host}/${repository}/pulls/${number}`;
+    case "forgejo": {
+      let origin = `https://${host}`;
+      if (repositoryRemoteUrl) {
+        try {
+          const remote = new URL(repositoryRemoteUrl);
+          if (
+            (remote.protocol === "http:" || remote.protocol === "https:") &&
+            remote.host.toLowerCase() === host.toLowerCase()
+          ) {
+            origin = remote.origin;
+          }
+        } catch {
+          // SSH remotes do not establish a web scheme; use the canonical web host.
+        }
+      }
+      return `${origin}/${repository}/pulls/${number}`;
+    }
     case "bitbucket":
       return `https://${host}/${repository}/pull-requests/${number}`;
     case "azure-devops":

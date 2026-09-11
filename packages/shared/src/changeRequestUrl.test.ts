@@ -156,6 +156,19 @@ describe("siblingPullRequestUrl", () => {
 });
 
 describe("changeRequestUrlFor", () => {
+  it.each([
+    ["http://token@forge.example.test:3000/forge/owner/repo.git", "http"],
+    ["https://forge.example.test:3000/forge/owner/repo.git", "https"],
+    ["ssh://git@ssh.example.test:2222/owner/repo.git", "https"],
+    ["git@ssh.example.test:owner/repo.git", "https"],
+    ["http://other.example.test:3000/owner/repo.git", "https"],
+    ["http://forge.example.test:4000/owner/repo.git", "https"],
+  ])("uses the matching Forgejo web origin from %s", (remoteUrl, scheme) => {
+    expect(
+      changeRequestUrlFor("forgejo", "forge.example.test:3000", "forge/owner/other", 42, remoteUrl),
+    ).toBe(`${scheme}://forge.example.test:3000/forge/owner/other/pulls/42`);
+  });
+
   it("builds Forgejo links on the canonical web port", () => {
     const url = changeRequestUrlFor("forgejo", "forge.example.test:8443", "owner/repo", 42);
     expect(url).toBe("https://forge.example.test:8443/owner/repo/pulls/42");

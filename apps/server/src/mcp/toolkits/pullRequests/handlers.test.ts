@@ -300,6 +300,33 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("preserves an HTTP Forgejo origin for repository-and-number links", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "forge.example.test:3000/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "http://forge.example.test:3000/Owner/Repo.git",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+        }),
+      });
+      const result = yield* harness.call("link_pull_request", {
+        repository: "Owner/Other",
+        number: 42,
+      });
+      expect(result).toMatchObject({
+        host: "forge.example.test:3000",
+        repository: "owner/other",
+        number: 42,
+        url: "http://forge.example.test:3000/owner/other/pulls/42",
+      });
+    }),
+  );
+
   it.effect("rejects a target that names neither a URL nor repository and number", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness();
