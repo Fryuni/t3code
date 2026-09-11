@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
@@ -524,7 +525,8 @@ export function PullRequestDetailPanel({
   const pullRequestKey = `${reference.projectId}:${reference.host ?? ""}:${reference.repository}#${reference.number}`;
   const matchingListEntry =
     listEntry?.projectId === reference.projectId &&
-    listEntry.repository.toLowerCase() === reference.repository.toLowerCase() &&
+    normalizeSourceControlRepository(listEntry.repository) ===
+      normalizeSourceControlRepository(reference.repository) &&
     listEntry.number === reference.number
       ? listEntry
       : null;

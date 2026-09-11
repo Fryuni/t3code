@@ -1,5 +1,6 @@
 import {
   canonicalRepositoryKey,
+  normalizeSourceControlRepository,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
 import { changeRequestUrlFor } from "@t3tools/shared/changeRequestUrl";
@@ -335,8 +336,8 @@ function parseListCursor(raw: string): ListCursor | null {
  * How a listing tells two repositories apart. The host is part of it because the same
  * `owner/repo` exists on github.com and on an Enterprise install, and they are two repositories.
  */
-function listCursorKey(host: string, repository: string): string {
-  return `${host} ${repository.toLowerCase()}`;
+function listCursorKey(host: string, repository: string, kind: SourceControlProviderKind): string {
+  return `${host} ${normalizeSourceControlRepository(repository, kind)}`;
 }
 
 /**
@@ -666,6 +667,7 @@ export const make = Effect.gen(function* () {
           const key = listCursorKey(
             host,
             kind === "azure-devops" ? identity.canonicalKey : repository,
+            kind,
           );
           if (seen.has(key)) continue;
           seen.add(key);
@@ -783,7 +785,11 @@ export const make = Effect.gen(function* () {
         const own = supported[0];
         const repository = ref.repository.trim();
         const host = ref.host?.trim().toLowerCase();
-        if (own !== undefined && own.repository.toLowerCase() === repository.toLowerCase()) {
+        if (
+          own !== undefined &&
+          normalizeSourceControlRepository(own.repository, own.api.kind) ===
+            normalizeSourceControlRepository(repository, own.api.kind)
+        ) {
           // Hostless references only ever meant the project's own repository, and a hosted one
           // naming it still is; either way the project serves itself.
           if (host === undefined || host === own.host) return Effect.succeed(own);
@@ -819,7 +825,8 @@ export const make = Effect.gen(function* () {
               onHost.find(
                 (candidate) =>
                   candidate.api.kind !== "azure-devops" &&
-                  candidate.repository.toLowerCase() === repository.toLowerCase(),
+                  normalizeSourceControlRepository(candidate.repository, candidate.api.kind) ===
+                    normalizeSourceControlRepository(repository, candidate.api.kind),
               ) ??
               onHost.find((candidate) => candidate.api.kind !== "azure-devops");
             if (route === undefined) {
@@ -2365,7 +2372,7 @@ export const make = Effect.gen(function* () {
   const refEpochs = new Map<string, number>();
   const REF_EPOCH_CAPACITY = 2_048;
   const refScope = (ref: PullRequestRef) =>
-    `${ref.projectId} ${ref.host?.toLowerCase() ?? ""} ${ref.repository.toLowerCase()} ${ref.number}`;
+    `${ref.projectId} ${ref.host?.toLowerCase() ?? ""} ${normalizeSourceControlRepository(ref.repository)} ${ref.number}`;
   const refEpoch = (ref: PullRequestRef) =>
     Math.max(turnRefreshEpoch, refEpochs.get(refScope(ref)) ?? 0);
   // Keys carry the reference back out of the cache loader, so the slot layout is shared with
@@ -2375,7 +2382,7 @@ export const make = Effect.gen(function* () {
       refEpoch(ref),
       ref.projectId,
       ref.host?.toLowerCase() ?? null,
-      ref.repository.toLowerCase(),
+      normalizeSourceControlRepository(ref.repository),
       ref.number,
     ]);
   const refOfCacheKey = (key: string): PullRequestRef => {
@@ -2445,7 +2452,7 @@ export const make = Effect.gen(function* () {
       operation,
       project.api.kind,
       project.host.toLowerCase(),
-      project.repository.toLowerCase(),
+      normalizeSourceControlRepository(project.repository, project.api.kind),
       project.project.id,
       project.project.workspaceRoot,
       String(input.number),
@@ -2698,7 +2705,7 @@ export const make = Effect.gen(function* () {
       refEpoch(input),
       input.projectId,
       input.host?.toLowerCase() ?? null,
-      input.repository.toLowerCase(),
+      normalizeSourceControlRepository(input.repository),
       input.number,
       input.cursor ?? null,
       input.commit ?? null,

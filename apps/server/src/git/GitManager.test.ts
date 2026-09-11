@@ -1676,6 +1676,7 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
     ],
     ["https://bitbucket.org/team/repository/pull-requests/42", "bitbucket.org/team/repository"],
     ["https://git.example.test/Owner/Repo/pulls/42", "git.example.test/owner/repo"],
+    ["https://git.example.test/Forge/Owner/Repo/pulls/42", "git.example.test/Forge/owner/repo"],
     ["https://git.example.test:8443/Owner/Repo/pulls/42/files", "git.example.test:8443/owner/repo"],
     [
       "https://dev.azure.com/org/project/_git/repository/pullrequest/42",

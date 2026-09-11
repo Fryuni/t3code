@@ -1,13 +1,13 @@
 import type { RepositoryIdentity, ThreadLinkedPullRequest } from "@t3tools/contracts";
-import { canonicalRepositoryKey } from "./sourceControl.ts";
+import { canonicalRepositoryKey, normalizeSourceControlRepository } from "./sourceControl.ts";
 
 /**
  * A change request named the way a thread link names one: the host below which the repository
  * is addressed, the repository path as that host writes it, and the number.
  *
  * The two strings are what `pullRequestHostOf` and the project's `repositoryIdentity` produce
- * from a git remote: lower case and the full path below the host. Forgejo retains its web
- * port because different ports can serve different instances.
+ * from a git remote: the full path below the host. Forgejo retains its web port and instance
+ * path's case because different ports or paths can serve different instances.
  */
 export interface ChangeRequestLink {
   readonly host: string;
@@ -57,7 +57,7 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   if (gitlab) return claim(host, gitlab);
   // Forgejo uses /pulls/ on arbitrary instance hosts, optionally below a subpath.
   const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (forgejo) return claim(url.host.toLowerCase(), forgejo);
+  if (forgejo) return claim(url.host.toLowerCase(), forgejo, "forgejo");
   // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
   if (isHostOf(host, "bitbucket.org", "bitbucket")) {
     const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
@@ -72,11 +72,22 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   return null;
 }
 
-function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink | null {
+function claim(
+  host: string,
+  match: RegExpExecArray | null,
+  kind?: string,
+): ChangeRequestLink | null {
   const repository = match?.[1];
   const number = Number(match?.[2]);
   return repository && Number.isSafeInteger(number) && number > 0
-    ? { host, repository: repository.toLowerCase(), number }
+    ? {
+        host,
+        repository:
+          kind === "forgejo"
+            ? normalizeSourceControlRepository(repository, kind)
+            : repository.toLowerCase(),
+        number,
+      }
     : null;
 }
 

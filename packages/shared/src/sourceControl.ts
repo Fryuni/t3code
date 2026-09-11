@@ -280,7 +280,26 @@ export function sourceControlRepositorySelector(
   return identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
 }
 
-export function canonicalRepositoryKey(key: string): string {
+/** Instance paths can be case-sensitive. Without a known provider, only fold owner/name. */
+export function normalizeSourceControlRepository(repository: string, kind?: string | null): string {
+  if (kind != null && kind !== "unknown" && kind !== "forgejo")
+    return repository.trim().toLowerCase();
+  const segments = repository.trim().split("/");
+  return segments
+    .map((segment, index) => (index >= segments.length - 2 ? segment.toLowerCase() : segment))
+    .join("/");
+}
+
+export function canonicalRepositoryKey(key: string, kind?: string | null): string {
+  const separator = key.indexOf("/");
+  if (separator >= 0) {
+    const host = key.slice(0, separator).toLowerCase();
+    const provider =
+      host === "dev.azure.com" || host.endsWith(".visualstudio.com") || host === "ssh.dev.azure.com"
+        ? "azure-devops"
+        : kind;
+    key = `${host}/${normalizeSourceControlRepository(key.slice(separator + 1), provider)}`;
+  }
   return key
     .replace(
       /^(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com)\/v3\/([^/]+)\/([^/]+)\/([^/]+)$/u,

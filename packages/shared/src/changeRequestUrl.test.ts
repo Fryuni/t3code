@@ -13,6 +13,7 @@ import {
 describe("parseChangeRequestUrl", () => {
   it.each([
     ["https://codeberg.org/Owner/Repo/pulls/42", "codeberg.org", "owner/repo"],
+    ["https://git.example.test/Forge/Owner/Repo/pulls/42", "git.example.test", "Forge/owner/repo"],
     ["https://git.fryuni.dev/Owner/Repo/pulls/42/files?w=1", "git.fryuni.dev", "owner/repo"],
     [
       "http://forge.example.test:3000/forge/Owner/Repo/pulls/42",
@@ -114,6 +115,10 @@ describe("parseChangeRequestUrl", () => {
 
 describe("siblingPullRequestUrl", () => {
   it.each([
+    [
+      "https://git.example.test/Forge/Owner/Repo/pulls/42",
+      "https://git.example.test/Forge/owner/repo/pulls/43",
+    ],
     [
       "https://git.fryuni.dev/Owner/Repo/pulls/42/files#note",
       "https://git.fryuni.dev/owner/repo/pulls/43",

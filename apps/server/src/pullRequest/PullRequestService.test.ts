@@ -331,6 +331,69 @@ for (const checkout of [
   );
 }
 
+it.effect("routes and caches Forgejo summaries separately for case-distinct instance paths", () =>
+  Effect.gen(function* () {
+    const requests: Array<{ cwd: string; baseUrl: string }> = [];
+    const provider = yield* ForgejoSourceControlProvider.make.pipe(
+      Effect.provide(
+        Layer.mergeAll(
+          Layer.mock(ForgejoCli.ForgejoCli)({
+            read: (input) =>
+              Effect.sync(() => {
+                requests.push({ cwd: input.cwd, baseUrl: input.baseUrl });
+                const upper = input.baseUrl.endsWith("/Forge");
+                return {
+                  body: {
+                    number: 7,
+                    title: upper ? "Upper" : "Lower",
+                    html_url: `${input.baseUrl}/acme/web/pulls/7`,
+                    state: upper ? "open" : "closed",
+                    merged: !upper,
+                    base: { ref: "main", repo: null },
+                    head: { ref: "feature", repo: null },
+                    updated_at: "2026-09-11T00:00:00Z",
+                  },
+                  hasNextPage: false,
+                };
+              }),
+          }),
+          Layer.mock(GitVcsDriver.GitVcsDriver)({}),
+        ),
+      ),
+    );
+    const service = yield* makeService({
+      projects: ["Forge", "forge"].map((path) =>
+        project({
+          id: path,
+          title: path,
+          workspaceRoot: `/${path}`,
+          provider: "forgejo",
+          host: "git.example.test",
+          repository: `${path}/acme/web`,
+        }),
+      ),
+      providers: [],
+      getSourceControlProvider: () => Effect.succeed(provider),
+    });
+    const ref = {
+      projectId: "Forge" as ProjectId,
+      host: "git.example.test",
+      repository: "Forge/ACME/WEB",
+      number: 7,
+    };
+    assert.strictEqual((yield* service.summary(ref)).title, "Upper");
+    assert.strictEqual(
+      (yield* service.summary({ ...ref, repository: "forge/acme/web" })).title,
+      "Lower",
+    );
+    assert.strictEqual((yield* service.summary(ref)).state, "open");
+    assert.deepStrictEqual(requests, [
+      { cwd: "/Forge", baseUrl: "https://git.example.test/Forge" },
+      { cwd: "/forge", baseUrl: "https://git.example.test/forge" },
+    ]);
+  }),
+);
+
 it.effect("refines unknown self-hosted GitLab projects before listing merge requests", () =>
   Effect.gen(function* () {
     let refinementCalls = 0;

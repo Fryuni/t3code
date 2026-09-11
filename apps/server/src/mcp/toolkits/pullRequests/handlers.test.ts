@@ -304,25 +304,25 @@ describe("pull request toolkit handlers", () => {
     Effect.gen(function* () {
       const harness = yield* makeHarness({
         project: makeProject({
-          canonicalKey: "forge.example.test:3000/owner/repo",
+          canonicalKey: "forge.example.test:3000/Forge/owner/repo",
           locator: {
             source: "git-remote",
             remoteName: "origin",
-            remoteUrl: "http://forge.example.test:3000/Owner/Repo.git",
+            remoteUrl: "http://forge.example.test:3000/Forge/Owner/Repo.git",
           },
           provider: "forgejo",
-          displayName: "Owner/Repo",
+          displayName: "Forge/Owner/Repo",
         }),
       });
       const result = yield* harness.call("link_pull_request", {
-        repository: "Owner/Other",
+        repository: "Forge/Owner/Other",
         number: 42,
       });
       expect(result).toMatchObject({
         host: "forge.example.test:3000",
-        repository: "owner/other",
+        repository: "Forge/owner/other",
         number: 42,
-        url: "http://forge.example.test:3000/owner/other/pulls/42",
+        url: "http://forge.example.test:3000/Forge/owner/other/pulls/42",
       });
     }),
   );

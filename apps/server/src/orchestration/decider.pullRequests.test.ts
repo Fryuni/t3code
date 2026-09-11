@@ -115,6 +115,50 @@ const snapshot: ThreadPullRequestSnapshot = {
 };
 
 it.layer(NodeServices.layer)("pull request link decider", (it) => {
+  it.effect(
+    "links PRs from case-distinct Forgejo instances without replacing or unlinking each other",
+    () =>
+      Effect.gen(function* () {
+        const upper = makeLink({
+          host: "git.example.test",
+          repository: "Forge/acme/web",
+          url: "https://git.example.test/Forge/acme/web/pulls/42",
+        });
+        const model = makeReadModel([upper]);
+        const command = yield* decodeCommand({
+          type: "thread.pull-request.link",
+          commandId: "link",
+          threadId: THREAD_ID,
+          host: upper.host,
+          repository: "forge/ACME/WEB",
+          number: 42,
+          url: "https://git.example.test/forge/acme/web/pulls/42",
+          source: "manual",
+        });
+        const event = expectSingleEvent(
+          yield* decideOrchestrationCommand({ readModel: model, command }),
+          "thread.pull-request-linked",
+        );
+        expect(event.payload.link.repository).toBe("forge/acme/web");
+        const unlink = yield* decodeCommand({
+          type: "thread.pull-request.unlink",
+          commandId: "unlink",
+          threadId: THREAD_ID,
+          host: upper.host,
+          repository: "Forge/ACME/WEB",
+          number: 42,
+        });
+        const unlinked = expectSingleEvent(
+          yield* decideOrchestrationCommand({
+            readModel: makeReadModel([upper, event.payload.link]),
+            command: unlink,
+          }),
+          "thread.pull-request-unlinked",
+        );
+        expect(unlinked.payload.repository).toBe("Forge/acme/web");
+      }),
+  );
+
   it.effect("legacy unlink cannot remove a newer cross-host link", () =>
     Effect.gen(function* () {
       const own = makeLink();

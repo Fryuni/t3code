@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import * as Schema from "effect/Schema";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 
@@ -1055,7 +1056,7 @@ const pullRequestDetailSnapshotKey = (
   reference: PullRequestDetailSnapshotRef,
 ) =>
   reference.host
-    ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), reference.repository.toLowerCase(), reference.number])}`
+    ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), normalizeSourceControlRepository(reference.repository), reference.number])}`
     : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`;
 
 const decodeDetailSnapshot = Schema.decodeUnknownOption(PullRequestDetail);
@@ -1110,7 +1111,8 @@ export function resolveDisplayedPullRequestDetail(input: {
   if (
     input.cached !== null &&
     input.cached.projectId === input.reference.projectId &&
-    input.cached.repository.toLowerCase() === input.reference.repository.toLowerCase() &&
+    normalizeSourceControlRepository(input.cached.repository) ===
+      normalizeSourceControlRepository(input.reference.repository) &&
     input.cached.number === input.reference.number &&
     (input.reference.host === undefined ||
       parseChangeRequestUrl(input.cached.url)?.host === input.reference.host.toLowerCase())

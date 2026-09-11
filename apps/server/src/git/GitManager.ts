@@ -43,6 +43,7 @@ import {
 import {
   getChangeRequestTerminologyForKind,
   isSshRemoteUrl,
+  normalizeSourceControlRepository,
   type ChangeRequestTerminology,
 } from "@t3tools/shared/sourceControl";
 
@@ -227,7 +228,7 @@ export function pullRequestRepositoryKey(value: string): string | null {
     const key = normalizeGitRemoteUrl(url.toString());
     // Forgejo's web authority identifies the instance independently of SSH.
     return match[2]?.toLowerCase() === "pulls"
-      ? `${url.host.toLowerCase()}/${key.split("/").slice(1).join("/")}`
+      ? `${url.host.toLowerCase()}/${normalizeSourceControlRepository(match[1].replace(/^\//u, ""), "forgejo")}`
       : key;
   } catch {
     return null;

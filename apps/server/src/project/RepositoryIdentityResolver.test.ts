@@ -79,7 +79,7 @@ it.layer(
     },
   );
 
-  for (const basePath of ["", "/Forge"]) {
+  for (const basePath of ["", "/Forge", "/forge"]) {
     it.effect(`unifies Forgejo SSH and HTTPS identities with instance path '${basePath}'`, () =>
       Effect.gen(function* () {
         let remoteUrl = "ssh://git@ssh.example.test:2222/Owner/Repo.git";
@@ -128,9 +128,7 @@ it.layer(
         remoteUrl = `https://git.example.test:8443${basePath}/Owner/Repo.git`;
         const httpsIdentity = yield* resolver.resolve("/repo", { refresh: true });
         expect(sshIdentity?.provider).toBe("forgejo");
-        expect(sshIdentity?.canonicalKey).toBe(
-          `git.example.test:8443${basePath.toLowerCase()}/owner/repo`,
-        );
+        expect(sshIdentity?.canonicalKey).toBe(`git.example.test:8443${basePath}/owner/repo`);
         expect(httpsIdentity?.canonicalKey).toBe(sshIdentity?.canonicalKey);
         expect(sshIdentity?.displayName).toBe(`${basePath}/owner/repo`.replace(/^\//u, ""));
         expect(httpsIdentity?.displayName).toBe(sshIdentity?.displayName);

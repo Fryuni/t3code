@@ -20,7 +20,7 @@ export const listLinkedPullRequestThreads = Effect.fn("listLinkedPullRequestThre
       FROM projection_thread_pull_requests AS link
       JOIN projection_threads AS t ON t.thread_id = link.thread_id
       WHERE link.host = ${key.host.toLowerCase()}
-        AND link.repository = ${key.repository.toLowerCase()}
+        AND link.repository = ${key.repository}
         AND link.number = ${key.number}
         AND link.source != 'stack-dismissed'
         AND t.deleted_at IS NULL

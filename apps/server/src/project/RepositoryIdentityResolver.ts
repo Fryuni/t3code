@@ -171,7 +171,7 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   return {
     ...identity,
     provider: refined.kind,
-    canonicalKey: `${instance.host}/${displayName}`.toLowerCase(),
+    canonicalKey: `${instance.host}/${displayName}`,
     displayName,
     ...(owner ? { owner } : {}),
   };
