@@ -1,10 +1,13 @@
 import {
   DEFAULT_SERVER_SETTINGS,
+  EventId,
+  GitCommandError,
   ProjectId,
   ProviderInstanceId,
   PullRequestOperationError,
   ThreadId,
   type OrchestrationCommand,
+  type OrchestrationEvent,
   type OrchestrationProjectShell,
   type OrchestrationShellSnapshot,
   type OrchestrationThreadShell,
@@ -19,6 +22,7 @@ import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as PubSub from "effect/PubSub";
 import * as Queue from "effect/Queue";
 import * as Ref from "effect/Ref";
@@ -26,6 +30,7 @@ import * as Stream from "effect/Stream";
 import { TestClock } from "effect/testing";
 
 import { GitManager, type GitBranchPullRequest } from "../git/GitManager.ts";
+import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import {
   PullRequestService,
   type PullRequestMergeEvent,
@@ -110,6 +115,22 @@ function makeSnapshot(
   };
 }
 
+function settledEvent(threadId: ThreadId): OrchestrationEvent {
+  return {
+    type: "thread.settled",
+    sequence: 2,
+    eventId: EventId.make(`settled:${threadId}`),
+    aggregateKind: "thread",
+    aggregateId: threadId,
+    occurredAt: NOW,
+    commandId: null,
+    causationEventId: null,
+    correlationId: null,
+    metadata: {},
+    payload: { threadId, settledAt: NOW, updatedAt: NOW },
+  };
+}
+
 function makePullRequestSummary(input: {
   readonly projectId: ProjectId;
   readonly repository: string;
@@ -157,6 +178,9 @@ interface HarnessOptions {
   readonly branchPullRequest?: GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
+  readonly canonicalPaths?: Readonly<Record<string, string>>;
+  readonly removeWorktree?: GitWorkflowService["Service"]["removeWorktree"];
+  readonly publishSettlements?: boolean;
   readonly onDispatch?: (
     command: AutoSettleCommand,
   ) => Effect.Effect<void, OrchestrationCommandInvariantError>;
@@ -171,6 +195,10 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
   const settingsReads = yield* Queue.unbounded<ServerSettings>();
   const settingsChanges = yield* PubSub.unbounded<ServerSettings>();
   const mergedPullRequests = yield* PubSub.unbounded<PullRequestMergeEvent>();
+  const domainEvents = yield* PubSub.unbounded<OrchestrationEvent>();
+  const removedWorktrees = yield* Ref.make<
+    Array<Parameters<GitWorkflowService["Service"]["removeWorktree"]>[0]>
+  >([]);
   const commands = yield* Ref.make<ReadonlyArray<AutoSettleCommand>>([]);
   const branchCalls = yield* Ref.make<
     ReadonlyArray<{ readonly cwd: string; readonly branch: string }>
@@ -221,9 +249,21 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     }
     return Ref.update(commands, (recorded) => [...recorded, command]).pipe(
       Effect.andThen(options.onDispatch?.(command) ?? Effect.void),
+      Effect.tap(() => (options.publishSettlements ? settle(command.threadId) : Effect.void)),
       Effect.as({ sequence: 1 }),
     );
   };
+
+  const publishEvent = (event: OrchestrationEvent) => PubSub.publish(domainEvents, event);
+  const settle = (threadId: ThreadId) =>
+    Ref.update(snapshots, (snapshot) => ({
+      ...snapshot,
+      threads: snapshot.threads.map((thread) =>
+        thread.id === threadId
+          ? { ...thread, settledOverride: "settled" as const, settledAt: NOW }
+          : thread,
+      ),
+    })).pipe(Effect.andThen(publishEvent(settledEvent(threadId))));
 
   const serverSettings = ServerSettingsService.of({
     start: Effect.void,
@@ -248,6 +288,12 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       branchPullRequest,
       invalidateStatus: (cwd) => Ref.update(invalidatedCwds, (cwds) => [...cwds, cwd]),
     }),
+    Layer.mock(GitWorkflowService)({
+      removeWorktree: (input) =>
+        Ref.update(removedWorktrees, (calls) => [...calls, input]).pipe(
+          Effect.andThen(options.removeWorktree?.(input) ?? Effect.void),
+        ),
+    }),
     Layer.mock(PullRequestService)({
       summary: pullRequestSummary,
       subscribeMerges: PubSub.subscribe(mergedPullRequests).pipe(
@@ -258,6 +304,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       readEvents: () => Stream.empty,
       dispatch,
       streamDomainEvents: Stream.empty,
+      subscribeDomainEvents: PubSub.subscribe(domainEvents).pipe(
+        Effect.map((subscription) => Stream.fromSubscription(subscription)),
+      ),
       latestSequence: Effect.succeed(0),
     }),
     Layer.succeed(ServerSettingsService, serverSettings),
@@ -265,7 +314,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     Layer.succeed(Crypto.Crypto, testCrypto),
     FileSystem.layerNoop({
       exists: (path) => Effect.succeed(options.existingWorktreePaths?.includes(path) ?? false),
+      realPath: (path) => Effect.succeed(options.canonicalPaths?.[path] ?? path),
     }),
+    Path.layer,
   );
 
   return {
@@ -279,6 +330,9 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     summaryCalls,
     summaryRecovery,
     invalidatedCwds,
+    removedWorktrees,
+    publishEvent,
+    settle,
     updateSettings,
     publishMerge: PubSub.publish(mergedPullRequests, {
       projectId: PROJECT_ID,
@@ -302,6 +356,231 @@ const startHarness = Effect.fn("startThreadSettlementHarness")(function* (
 });
 
 describe("ThreadSettlementReactor", () => {
+  const worktreePath = "/workspace/feature";
+  const cleanupSettings = {
+    ...DEFAULT_SERVER_SETTINGS,
+    sidebarAutoSettleAfterDays: null,
+    sidebarAutoSettleOnMerge: false,
+  };
+
+  it.effect.each([
+    { name: "main worktree", path: null, others: [], removed: false },
+    { name: "explicit project root", path: "/workspace/project/.", others: [], removed: false },
+    { name: "project root alias", path: "/workspace/root-alias", others: [], removed: false },
+    { name: "unused worktree", path: worktreePath, others: [], removed: true },
+    {
+      name: "another active thread",
+      path: worktreePath,
+      others: [makeThread("other", { worktreePath })],
+      removed: false,
+    },
+    {
+      name: "active thread through an alias",
+      path: worktreePath,
+      others: [makeThread("other", { worktreePath: "/workspace/feature-alias" })],
+      removed: false,
+    },
+    {
+      name: "active thread in another project root",
+      path: worktreePath,
+      others: [makeThread("other", { projectId: LINKED_PROJECT_ID })],
+      removed: false,
+    },
+    {
+      name: "another settled thread",
+      path: worktreePath,
+      others: [makeThread("other", { worktreePath, settledOverride: "settled", settledAt: NOW })],
+      removed: true,
+    },
+    {
+      name: "archived thread",
+      path: worktreePath,
+      others: [makeThread("other", { worktreePath, archivedAt: NOW })],
+      removed: true,
+    },
+    {
+      name: "active thread in a different worktree",
+      path: worktreePath,
+      others: [makeThread("other", { worktreePath: "/workspace/different" })],
+      removed: true,
+    },
+  ])("cleans up manual settlement with $name", ({ path, others, removed }) =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = makeThread("manual", { worktreePath: path, branch: "feature" });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot(
+            [thread, ...others],
+            [makeProject(), makeProject(LINKED_PROJECT_ID, worktreePath)],
+          ),
+          settings: cleanupSettings,
+          canonicalPaths: {
+            "/workspace/root-alias": "/workspace/project",
+            "/workspace/feature-alias": worktreePath,
+          },
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* reactor.start();
+          yield* Deferred.succeed(fixture.activation, undefined);
+          yield* fixture.settle(thread.id);
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          assert.deepStrictEqual(
+            yield* Ref.get(fixture.removedWorktrees),
+            removed ? [{ cwd: "/workspace/project", path: worktreePath }] : [],
+          );
+          const current = (yield* Ref.get(fixture.snapshots)).threads[0]!;
+          assert.strictEqual(current.branch, "feature");
+          assert.strictEqual(current.worktreePath, path);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("cleans up after a merged pull request automatically settles a thread", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        yield* TestClock.setTime(Date.parse(NOW));
+        const removed = yield* Deferred.make<void>();
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([
+            makeThread("merged", {
+              worktreePath,
+              branch: "feature",
+              latestUserMessageAt: "2026-08-27T00:00:00.000Z",
+            }),
+          ]),
+          settings: { ...cleanupSettings, sidebarAutoSettleOnMerge: true },
+          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
+          publishSettlements: true,
+          removeWorktree: () => Deferred.succeed(removed, undefined).pipe(Effect.asVoid),
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+          yield* Deferred.await(removed);
+          yield* reactor.drain;
+          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), [
+            { cwd: "/workspace/project", path: worktreePath },
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("waits for the last thread sharing a worktree to settle and stop its session", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const first = makeThread("first", { worktreePath });
+        const second = makeThread("second", {
+          worktreePath,
+          session: {
+            threadId: ThreadId.make("second"),
+            status: "ready",
+            providerName: "codex",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: NOW,
+          },
+        });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([first, second]),
+          settings: cleanupSettings,
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* reactor.start();
+          yield* Deferred.succeed(fixture.activation, undefined);
+          for (const thread of [first, second]) {
+            yield* fixture.settle(thread.id);
+            yield* Queue.take(fixture.snapshotReads);
+            yield* reactor.drain;
+            assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), []);
+          }
+          const session = { ...second.session!, status: "stopped" as const };
+          yield* Ref.update(fixture.snapshots, (snapshot) => ({
+            ...snapshot,
+            threads: snapshot.threads.map((thread) =>
+              thread.id === second.id ? { ...thread, session } : thread,
+            ),
+          }));
+          yield* fixture.publishEvent({
+            ...settledEvent(second.id),
+            type: "thread.session-set",
+            payload: { threadId: second.id, session },
+          });
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), [
+            { cwd: "/workspace/project", path: worktreePath },
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("skips a settlement event when the thread has already been reactivated", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const thread = makeThread("reopened", { worktreePath, settledOverride: "active" });
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([thread]),
+          settings: cleanupSettings,
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* reactor.start();
+          yield* Deferred.succeed(fixture.activation, undefined);
+          yield* fixture.publishEvent(settledEvent(thread.id));
+          yield* Queue.take(fixture.snapshotReads);
+          yield* reactor.drain;
+          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), []);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
+  it.effect("continues cleanup after Git refuses a worktree removal", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        const fixture = yield* makeHarness({
+          snapshot: makeSnapshot([
+            makeThread("dirty", { worktreePath }),
+            makeThread("clean", { worktreePath: "/workspace/clean" }),
+          ]),
+          settings: cleanupSettings,
+          removeWorktree: (input) =>
+            input.path === worktreePath
+              ? Effect.fail(
+                  new GitCommandError({
+                    operation: "removeWorktree",
+                    cwd: input.cwd,
+                    command: "git worktree remove",
+                    detail: "worktree has changes",
+                  }),
+                )
+              : Effect.void,
+        });
+        yield* Effect.gen(function* () {
+          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+          yield* reactor.start();
+          yield* Deferred.succeed(fixture.activation, undefined);
+          for (const id of ["dirty", "clean"]) {
+            yield* fixture.settle(ThreadId.make(id));
+            yield* Queue.take(fixture.snapshotReads);
+            yield* reactor.drain;
+          }
+          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), [
+            { cwd: "/workspace/project", path: worktreePath },
+            { cwd: "/workspace/project", path: "/workspace/clean" },
+          ]);
+        }).pipe(Effect.provide(fixture.layer));
+      }),
+    ),
+  );
+
   it.effect(
     "settles all-terminal links from snapshots and keeps open or unsynced links active",
     () =>

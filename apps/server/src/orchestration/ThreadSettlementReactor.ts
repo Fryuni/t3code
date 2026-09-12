@@ -1,5 +1,5 @@
 import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
-import { CommandId } from "@t3tools/contracts";
+import { CommandId, type ThreadId } from "@t3tools/contracts";
 import { makeDrainableWorker } from "@t3tools/shared/DrainableWorker";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -8,11 +8,13 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
+import * as Path from "effect/Path";
 import * as Schedule from "effect/Schedule";
 import type * as Scope from "effect/Scope";
 import * as Stream from "effect/Stream";
 
 import * as GitManager from "../git/GitManager.ts";
+import { GitWorkflowService } from "../git/GitWorkflowService.ts";
 import * as PullRequestService from "../pullRequest/PullRequestService.ts";
 import * as ServerSettings from "../serverSettings.ts";
 import { forkParked } from "../serverActivation.ts";
@@ -42,6 +44,68 @@ export const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
+  const path = yield* Path.Path;
+  const gitWorkflow = yield* GitWorkflowService;
+
+  const cleanupWorktree = Effect.fn("ThreadSettlementReactor.cleanupWorktree")(function* (
+    threadId: ThreadId,
+  ) {
+    const snapshot = yield* snapshots.getShellSnapshot();
+    const thread = snapshot.threads.find((thread) => thread.id === threadId);
+    if (
+      thread === undefined ||
+      thread.worktreePath === null ||
+      (thread.settledOverride !== "settled" && thread.settledAt === null) ||
+      (thread.session !== null && thread.session.status !== "stopped")
+    )
+      return;
+    const projects = new Map(snapshot.projects.map((project) => [project.id, project]));
+    const project = projects.get(thread.projectId);
+    if (project === undefined) return;
+
+    const canonicalPaths = new Map<string, string>();
+    const canonicalize = Effect.fn("ThreadSettlementReactor.canonicalize")(function* (cwd: string) {
+      const normalized = path.resolve(cwd);
+      const cached = canonicalPaths.get(normalized);
+      if (cached !== undefined) return cached;
+      const canonical = yield* fileSystem
+        .realPath(normalized)
+        .pipe(Effect.orElseSucceed(() => normalized));
+      canonicalPaths.set(normalized, canonical);
+      return canonical;
+    });
+    const worktreePath = yield* canonicalize(thread.worktreePath);
+    if (worktreePath === (yield* canonicalize(project.workspaceRoot))) return;
+
+    for (const other of snapshot.threads) {
+      if (other.id === threadId || other.archivedAt !== null) continue;
+      // A settled thread can still be shutting down its provider session.
+      if (
+        (other.settledOverride === "settled" || other.settledAt !== null) &&
+        (other.session === null || other.session.status === "stopped")
+      )
+        continue;
+      const cwd = other.worktreePath ?? projects.get(other.projectId)?.workspaceRoot;
+      if (cwd !== undefined && (yield* canonicalize(cwd)) === worktreePath) return;
+    }
+
+    // Git preserves the branch and refuses to remove a main or dirty worktree.
+    yield* gitWorkflow.removeWorktree({ cwd: project.workspaceRoot, path: worktreePath });
+    yield* git.invalidateStatus(project.workspaceRoot);
+    yield* git.invalidateStatus(worktreePath);
+  });
+  const cleanupWorker = yield* makeDrainableWorker((threadId: ThreadId) =>
+    cleanupWorktree(threadId).pipe(
+      Effect.catchCause((cause) =>
+        Cause.hasInterruptsOnly(cause)
+          ? Effect.failCause(cause)
+          : Effect.logWarning("settled thread worktree cleanup failed", {
+              threadId,
+              cause: Cause.pretty(cause),
+            }),
+      ),
+    ),
+  );
 
   const sweep = Effect.fn("ThreadSettlementReactor.sweep")(function* (
     mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
@@ -253,6 +317,15 @@ export const make = Effect.gen(function* () {
   const start: ThreadSettlementReactor["Service"]["start"] = Effect.fn(
     "ThreadSettlementReactor.start",
   )(function* () {
+    const events = yield* engine.subscribeDomainEvents;
+    yield* forkParked(
+      Stream.runForEach(events, (event) =>
+        event.type === "thread.settled" ||
+        (event.type === "thread.session-set" && event.payload.session.status === "stopped")
+          ? cleanupWorker.enqueue(event.payload.threadId)
+          : Effect.void,
+      ),
+    );
     const settingsChanges = yield* settingsService.subscribeChanges;
     const mergedPullRequests = yield* pullRequests.subscribeMerges;
     const initialSettings = yield* settingsService.getSettings.pipe(Effect.orDie);
@@ -280,7 +353,10 @@ export const make = Effect.gen(function* () {
     yield* forkParked(Stream.runForEach(mergedPullRequests, runSweep));
   });
 
-  return { start, drain: worker.drain } satisfies ThreadSettlementReactor["Service"];
+  return {
+    start,
+    drain: worker.drain.pipe(Effect.andThen(cleanupWorker.drain)),
+  } satisfies ThreadSettlementReactor["Service"];
 });
 
 export const layer = Layer.effect(ThreadSettlementReactor, make);
