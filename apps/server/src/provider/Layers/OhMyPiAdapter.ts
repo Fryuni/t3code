@@ -737,8 +737,7 @@ export function makeOhMyPiAdapter(
     const sendTurn: OhMyPiAdapterShape["sendTurn"] = (input) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(input.threadId);
-        // OMP cancels an in-flight prompt before queuing a steer. Keep both
-        // prompt RPCs under the same T3 turn until the last one settles.
+        // Keep a steering prompt under the active T3 turn until both RPCs settle.
         const steeringTurnId = ctx.promptsInFlight > 0 ? ctx.activeTurnId : undefined;
         const turnId = steeringTurnId ?? TurnId.make(yield* randomUUIDv4);
         // Count this prompt immediately so a superseded in-flight prompt
@@ -837,6 +836,15 @@ export function makeOhMyPiAdapter(
               operation: "sendTurn",
               issue: "Turn requires non-empty text or attachments.",
             });
+          }
+
+          if (steeringTurnId !== undefined) {
+            yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
+            yield* ctx.acp.cancel.pipe(
+              Effect.mapError((error) =>
+                mapAcpToAdapterError(PROVIDER, input.threadId, "session/cancel", error),
+              ),
+            );
           }
 
           // ACP has no system-message field; keep runtime context separate from the user's text.

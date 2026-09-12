@@ -327,6 +327,8 @@ function fallbackTextGenerationProvider(settings: ServerSettings): ServerSetting
   // (codex enabled) when the Providers UI has only written providerInstances.
   const fallbackEntry = Object.entries(settings.providers).find(([driver, provider]) => {
     const instance = settings.providerInstances[ProviderInstanceId.make(driver)];
+    // OhMyPi supports conversation turns only, not background text generation.
+    if ((instance?.driver ?? driver) === "ohMyPi") return false;
     return instance === undefined ? provider.enabled : resolveProviderInstanceEnabled(instance);
   });
   const fallback = fallbackEntry ? ProviderDriverKind.make(fallbackEntry[0]) : undefined;

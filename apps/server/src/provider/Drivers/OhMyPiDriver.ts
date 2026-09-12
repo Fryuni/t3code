@@ -32,7 +32,6 @@ import { makeManualOnlyProviderMaintenanceCapabilities } from "../providerMainte
 import {
   buildServerProvider,
   isCommandMissingCause,
-  providerModelsFromSettings,
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { probeOhMyPiModels } from "./OhMyPiModels.ts";
@@ -80,19 +79,15 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           presentation: { displayName: "OhMyPi", showInteractionModeToggle: true },
           enabled,
           checkedAt: DateTime.formatIso(yield* DateTime.now),
-          models: providerModelsFromSettings(
-            [
-              {
-                slug: OH_MY_PI_DEFAULT_MODEL,
-                name: "OhMyPi default",
-                isDefault: true,
-                isCustom: false,
-                capabilities,
-              },
-            ],
-            config.customModels,
-            capabilities,
-          ),
+          models: [
+            {
+              slug: OH_MY_PI_DEFAULT_MODEL,
+              name: "OhMyPi default",
+              isDefault: true,
+              isCustom: false,
+              capabilities,
+            },
+          ],
           probe: {
             installed: false,
             version: null,
@@ -114,7 +109,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           return models.length > 0
             ? {
                 ...draft,
-                models: providerModelsFromSettings(models, config.customModels, capabilities),
+                models,
               }
             : draft;
         });
@@ -131,11 +126,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
               ...draft,
               installed: true,
               version: result.success.version,
-              models: providerModelsFromSettings(
-                [...initial.models.filter((model) => !model.isCustom), ...result.success.models],
-                config.customModels,
-                capabilities,
-              ),
+              models: [...initial.models, ...result.success.models],
               status: "ready",
               checkedAt,
               message:

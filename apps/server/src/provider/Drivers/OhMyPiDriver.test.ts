@@ -59,7 +59,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
   );
 
   it.effect(
-    "refreshes the CLI catalog, preserves custom models, and retains models on discovery errors",
+    "refreshes the CLI catalog, excludes custom models, and retains models on discovery errors",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
@@ -101,7 +101,6 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         expect(first.models.map((model) => model.slug)).toEqual([
           OH_MY_PI_DEFAULT_MODEL,
           "openai/gpt",
-          "custom/model",
         ]);
         expect(first.models[1]?.capabilities?.optionDescriptors).toMatchObject([
           {
@@ -119,11 +118,84 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         yield* fs.writeFileString(catalogFile, '{"models":[]}');
         const empty = yield* instance.snapshot.refresh;
         expect(empty.status).toBe("ready");
-        expect(empty.models.map((model) => model.slug)).toEqual([
-          OH_MY_PI_DEFAULT_MODEL,
-          "custom/model",
-        ]);
+        expect(empty.models.map((model) => model.slug)).toEqual([OH_MY_PI_DEFAULT_MODEL]);
       }).pipe(Effect.scoped),
+  );
+
+  it.effect("cancels an active ACP prompt before steering within the same turn", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const logPath = path.join(directory, "steering.jsonl");
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-steering-mock",
+          env: {
+            T3_ACP_REQUEST_LOG_PATH: logPath,
+            T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL: "1",
+          },
+          source: execScriptSource({
+            scriptPath: NodeURL.fileURLToPath(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+          }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      yield* instance.adapter.streamEvents.pipe(
+        Stream.runForEach((event) => Queue.offer(events, event)),
+        Effect.forkChild,
+      );
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      const first = yield* instance.adapter
+        .sendTurn({ threadId, input: "long task" })
+        .pipe(Effect.forkChild);
+      const seen: ProviderRuntimeEvent[] = [];
+      // The mock emits a tool event only after receiving the first prompt, then
+      // waits for cancellation. No timer or premature approval releases it.
+      while (true) {
+        const event = yield* Queue.take(events);
+        seen.push(event);
+        if (event.type === "item.updated" && event.payload.itemType === "command_execution") break;
+      }
+      const steered = yield* instance.adapter.sendTurn({ threadId, input: "do this instead" });
+      const original = yield* Fiber.join(first);
+      while (true) {
+        const event = yield* Queue.take(events);
+        seen.push(event);
+        if (event.type === "turn.completed") break;
+      }
+      expect(steered.turnId).toBe(original.turnId);
+      expect(seen.filter((event) => event.type === "turn.started")).toHaveLength(1);
+      expect(seen.filter((event) => event.type === "turn.completed")).toMatchObject([
+        { turnId: original.turnId, payload: { state: "completed" } },
+      ]);
+      const requests = (yield* fs.readFileString(logPath))
+        .trim()
+        .split("\n")
+        .map((line) => JSON.parse(line) as { method: string });
+      expect(
+        requests
+          .filter(
+            (request) => request.method === "session/prompt" || request.method === "session/cancel",
+          )
+          .map((request) => request.method),
+      ).toEqual(["session/prompt", "session/cancel", "session/prompt"]);
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
   );
 
   it.effect.skipIf(process.env.T3_OH_MY_PI_MODELS_PROBE !== "1")(

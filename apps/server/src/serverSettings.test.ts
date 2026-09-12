@@ -674,6 +674,25 @@ it.layer(NodeServices.layer)("server settings", (it) => {
     }).pipe(Effect.provide(makeServerSettingsLayer())),
   );
 
+  for (const useInstances of [false, true]) {
+    it.effect(`excludes OhMyPi from text generation fallback (instances: ${useInstances})`, () =>
+      Effect.gen(function* () {
+        const serverConfig = yield* ServerConfig.ServerConfig;
+        const fileSystem = yield* FileSystem.FileSystem;
+        const serverSettings = yield* ServerSettingsModule.ServerSettingsService;
+        yield* fileSystem.writeFileString(
+          serverConfig.settingsPath,
+          useInstances
+            ? '{"providerInstances":{"codex":{"driver":"codex","enabled":false,"config":{}},"claudeAgent":{"driver":"claudeAgent","enabled":false,"config":{}},"ohMyPi":{"driver":"ohMyPi","enabled":true,"config":{}},"opencode":{"driver":"opencode","enabled":true,"config":{}}}}'
+            : '{"providers":{"codex":{"enabled":false},"claudeAgent":{"enabled":false},"ohMyPi":{"enabled":true},"opencode":{"enabled":true}}}',
+        );
+
+        const settings = yield* serverSettings.getSettings;
+        assert.equal(settings.textGenerationModelSelection.instanceId, "opencode");
+      }).pipe(Effect.provide(makeServerSettingsLayer())),
+    );
+  }
+
   it.effect("keeps unused providers disabled in existing sparse settings files", () =>
     Effect.gen(function* () {
       const serverConfig = yield* ServerConfig.ServerConfig;
