@@ -78,6 +78,10 @@ and prevents automatic settlement until new activity resumes the usual rules.
 Manually settling an idle thread dismisses unanswered async questions without
 sending an answer or restarting the agent.
 
+Settling also removes the thread's worktree once no active threads use it. The main
+worktree, branches, and worktrees with uncommitted changes are preserved. Starting
+a new turn in a settled thread recreates a removed worktree from its saved branch.
+
 By default, environments settle inactive threads after three days and settle
 threads whose pull request merged. A closed pull request can also settle an idle
 thread. Work in progress, pending questions or approvals, and live background work
