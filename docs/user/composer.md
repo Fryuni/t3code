@@ -29,6 +29,14 @@ Use `--base-dir <t3-home>` to select a server using a different T3 home. Inside 
 linked worktree, discovery checks the worktree's `.t3` first, then `T3CODE_HOME`
 or the default T3 home.
 
+Agent processes launched by T3 Code receive `T3CODE_THREAD_ID`, the ID of their
+T3 thread. Scripts and child commands can read it from their environment instead
+of accepting a thread ID argument. The value is set when the provider session
+starts or resumes; already-running processes need a session restart to receive it.
+This does not apply to externally managed OpenCode servers, whose process
+environment T3 Code does not control. Custom provider environment filters may
+also restrict which variables reach tools.
+
 ## Attach files
 
 Attach up to eight files per message. Images can be up to 10 MB; other files can

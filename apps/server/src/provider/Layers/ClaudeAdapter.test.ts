@@ -385,6 +385,31 @@ describe("ClaudeAdapterLive", () => {
     );
   });
 
+  it.effect("isolates the thread environment across sessions and resumes", () => {
+    const environment = { ...process.env, T3CODE_THREAD_ID: "inherited-thread" };
+    const harness = makeHarness({ environment });
+    return Effect.gen(function* () {
+      const adapter = yield* ClaudeAdapter;
+      yield* adapter.startSession({ threadId: THREAD_ID, runtimeMode: "full-access" });
+      const firstEnvironment = harness.getLastCreateQueryInput()?.options.env;
+      assert.equal(firstEnvironment?.T3CODE_THREAD_ID, THREAD_ID);
+      yield* adapter.startSession({ threadId: RESUME_THREAD_ID, runtimeMode: "full-access" });
+      assert.equal(
+        harness.getLastCreateQueryInput()?.options.env?.T3CODE_THREAD_ID,
+        RESUME_THREAD_ID,
+      );
+      assert.equal(firstEnvironment?.T3CODE_THREAD_ID, THREAD_ID);
+      yield* adapter.stopSession(THREAD_ID);
+      yield* adapter.startSession({
+        threadId: THREAD_ID,
+        runtimeMode: "full-access",
+        resumeCursor: { sessionId: "claude-native-session" },
+      });
+      assert.equal(harness.getLastCreateQueryInput()?.options.env?.T3CODE_THREAD_ID, THREAD_ID);
+      assert.equal(environment.T3CODE_THREAD_ID, "inherited-thread");
+    }).pipe(Effect.provide(harness.layer));
+  });
+
   it.effect("derives bypass permission mode from full-access runtime policy", () => {
     const harness = makeHarness();
     return Effect.gen(function* () {

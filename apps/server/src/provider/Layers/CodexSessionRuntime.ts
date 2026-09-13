@@ -1312,10 +1312,17 @@ export const makeCodexSessionRuntime = (
     const resolvedHomePath = options.homePath ? expandHomePath(options.homePath) : undefined;
     const env = {
       ...options.environment,
+      T3CODE_THREAD_ID: options.threadId,
       ...(resolvedHomePath ? { CODEX_HOME: resolvedHomePath } : {}),
     };
     const extendEnv = options.environment === undefined;
-    const appServerArgs = codexSessionAppServerArgs(options.appServerArgs, options.launchArgs);
+    // Keep the thread ID available to shell tools even with inherit = "core" or "none".
+    const appServerArgs = [
+      ...codexSessionAppServerArgs(options.appServerArgs, options.launchArgs),
+      "-c",
+      // @effect-diagnostics-next-line preferSchemaOverJson:off - Encode a TOML basic string in a CLI argument, not a JSON payload.
+      `shell_environment_policy.set.T3CODE_THREAD_ID=${JSON.stringify(options.threadId)}`,
+    ];
     const spawnCommand = yield* resolveSpawnCommand(options.binaryPath, appServerArgs, {
       env,
       extendEnv,
