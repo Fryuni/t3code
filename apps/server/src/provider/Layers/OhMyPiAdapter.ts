@@ -88,12 +88,6 @@ export interface OhMyPiAdapterLiveOptions {
    * Defaults to the legacy built-in instance id (`ohMyPi`).
    */
   readonly instanceId?: ProviderInstanceId;
-  readonly onSessionStarted?: (
-    started: AcpSessionRuntime.AcpSessionRuntimeStartResult,
-  ) => Effect.Effect<void>;
-  readonly onConfigOptionsUpdated?: (
-    options: ReadonlyArray<EffectAcpSchema.SessionConfigOption>,
-  ) => Effect.Effect<void>;
   readonly onAvailableCommands?: (
     commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
     cwd: string,
@@ -539,7 +533,6 @@ export function makeOhMyPiAdapter(
             ),
           );
 
-          yield* options?.onSessionStarted?.(started) ?? Effect.void;
           yield* applyRequestedSessionConfiguration({
             runtime: acp,
             runtimeMode: input.runtimeMode,
@@ -588,7 +581,6 @@ export function makeOhMyPiAdapter(
                     yield* Deferred.succeed(event.acknowledge, undefined);
                     return;
                   case "ConfigOptionsUpdated":
-                    yield* options?.onConfigOptionsUpdated?.(event.configOptions) ?? Effect.void;
                     return;
                   case "AvailableCommandsUpdated":
                     yield* (

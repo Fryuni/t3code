@@ -20,7 +20,6 @@ import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { makeOhMyPiAdapter } from "../Layers/OhMyPiAdapter.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
-import { ohMyPiModelsFromConfig } from "../acp/OhMyPiAcpSupport.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
   defaultProviderContinuationIdentity,
@@ -103,16 +102,6 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
       } satisfies ServerProviderDraft;
       const metadata = yield* SubscriptionRef.make<ServerProviderDraft>(initial);
       const getSnapshot = SubscriptionRef.get(metadata).pipe(Effect.map(stampIdentity));
-      const onConfigOptionsUpdated = (options: Parameters<typeof ohMyPiModelsFromConfig>[0]) =>
-        SubscriptionRef.update(metadata, (draft) => {
-          const models = ohMyPiModelsFromConfig(options);
-          return models.length > 0
-            ? {
-                ...draft,
-                models,
-              }
-            : draft;
-        });
       const checkProvider = Effect.gen(function* () {
         if (!enabled) return yield* getSnapshot;
         const result = yield* probeOhMyPiModels(effectiveConfig, processEnv, serverConfig.cwd).pipe(
@@ -180,9 +169,6 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         instanceId,
         environment: processEnv,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
-        onSessionStarted: (started) =>
-          onConfigOptionsUpdated(started.sessionSetupResult.configOptions ?? []),
-        onConfigOptionsUpdated,
         onAvailableCommands: (commands, cwd) =>
           SubscriptionRef.update(metadata, (draft) => ({
             ...draft,

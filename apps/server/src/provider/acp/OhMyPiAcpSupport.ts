@@ -4,9 +4,7 @@ import {
   type ProviderApprovalDecision,
   type ProviderOptionSelection,
   type RuntimeMode,
-  type ServerProviderModel,
 } from "@t3tools/contracts";
-import { createModelCapabilities } from "@t3tools/shared/model";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
@@ -71,49 +69,6 @@ export function selectOhMyPiPermissionOption(
   );
 }
 
-export function ohMyPiModelsFromConfig(
-  options: ReadonlyArray<AcpSchema.SessionConfigOption>,
-): ReadonlyArray<ServerProviderModel> {
-  const model = options.find((option) => option.category === "model" || option.id === "model");
-  if (model?.type !== "select") return [];
-  const thinking = options.find((option) => option.category === "thought_level");
-  const capabilities = createModelCapabilities({
-    optionDescriptors:
-      thinking?.type === "select"
-        ? [
-            {
-              id: thinking.id,
-              label: thinking.name,
-              type: "select",
-              currentValue: thinking.currentValue,
-              options: thinking.options
-                .flatMap((entry) => ("value" in entry ? [entry] : entry.options))
-                .map((entry) => ({ id: entry.value, label: entry.name })),
-            },
-          ]
-        : [],
-  });
-  const seen = new Set<string>();
-  return model.options
-    .flatMap((entry) => ("value" in entry ? [entry] : entry.options))
-    .flatMap((entry): ServerProviderModel[] => {
-      if (!entry.value.trim() || seen.has(entry.value)) return [];
-      seen.add(entry.value);
-      return [
-        {
-          slug: entry.value,
-          name: entry.name || entry.value,
-          subProvider: entry.value.split("/")[0],
-          isCustom: false,
-          ...(entry.value === model.currentValue
-            ? { isDefault: true, aliases: [OH_MY_PI_DEFAULT_MODEL] }
-            : {}),
-          capabilities,
-        },
-      ];
-    });
-}
-
 export const applyOhMyPiAcpModelSelection = Effect.fn("applyOhMyPiAcpModelSelection")(function* <
   E,
 >(input: {
@@ -137,6 +92,9 @@ export const applyOhMyPiAcpModelSelection = Effect.fn("applyOhMyPiAcpModelSelect
       (entry) => entry.id === selection.id && entry.category === "thought_level",
     );
     if (!option || option.type !== "select") continue;
+    const choices = option.options.flatMap((entry) => ("value" in entry ? [entry] : entry.options));
+    // A model switch can leave a saved thinking level that the new model lacks.
+    if (!choices.some((choice) => choice.value === selection.value)) continue;
     yield* input.runtime
       .setConfigOption(option.id, selection.value)
       .pipe(Effect.mapError((cause) => input.mapError({ cause })));

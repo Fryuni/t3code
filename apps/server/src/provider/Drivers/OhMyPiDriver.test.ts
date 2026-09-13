@@ -248,8 +248,8 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
               if (process.argv[2] === "models") {
                 if (process.argv[3] !== "--json") process.exit(2);
                 process.stdout.write(JSON.stringify({ models: [
-                  { provider: "anthropic", id: "sonnet", name: "Sonnet", reasoning: true },
-                  { provider: "openai", id: "gpt", name: "GPT", reasoning: false },
+                  { provider: "anthropic", id: "sonnet", name: "Sonnet", thinking: ["low", "high"] },
+                  { provider: "openai", id: "gpt", name: "GPT", thinking: ["high", "xhigh"] },
                 ] }));
                 process.exit(0);
               }
@@ -287,8 +287,14 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           modelSelection: { instanceId, model: OH_MY_PI_DEFAULT_MODEL },
         });
         expect(session.provider).toBe("ohMyPi");
+        expect((yield* instance.snapshot.getSnapshot).models).toEqual(refreshed.models);
         const turn = yield* instance.adapter
-          .sendTurn({ threadId, input: "hello", attachments: [] })
+          .sendTurn({
+            threadId,
+            input: "hello",
+            attachments: [],
+            modelSelection: { instanceId, model: "composer-2" },
+          })
           .pipe(Effect.forkChild);
         const seen: ProviderRuntimeEvent[] = [];
         while (true) {
@@ -304,6 +310,8 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           if (event.type === "turn.completed") break;
         }
         yield* Fiber.join(turn);
+        // Session model/config changes must not rewrite the shared catalog or default.
+        expect((yield* instance.snapshot.getSnapshot).models).toEqual(refreshed.models);
         expect(seen.some((event) => event.type === "content.delta")).toBe(true);
         expect(seen.some((event) => event.type === "request.resolved")).toBe(true);
         yield* instance.adapter.stopSession(threadId);

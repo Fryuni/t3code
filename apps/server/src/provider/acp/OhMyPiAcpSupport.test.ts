@@ -4,7 +4,6 @@ import * as Effect from "effect/Effect";
 import type * as AcpSchema from "effect-acp/schema";
 import {
   applyOhMyPiAcpModelSelection,
-  ohMyPiModelsFromConfig,
   ohMyPiApprovalMode,
   selectOhMyPiPermissionOption,
 } from "./OhMyPiAcpSupport.ts";
@@ -41,17 +40,6 @@ describe("OhMyPi ACP", () => {
     expect(ohMyPiApprovalMode("auto-accept-edits")).toBe("write");
     expect(ohMyPiApprovalMode("full-access")).toBe("yolo");
   });
-  it("publishes upstream model IDs, a default alias, and native thinking choices", () => {
-    const models = ohMyPiModelsFromConfig(config);
-    expect(models.map((model) => model.slug)).toEqual(["anthropic/sonnet", "openai/gpt"]);
-    expect(models[0]).toMatchObject({
-      isDefault: true,
-      aliases: [OH_MY_PI_DEFAULT_MODEL],
-      subProvider: "anthropic",
-      capabilities: { optionDescriptors: [{ id: "thinking", currentValue: "high" }] },
-    });
-  });
-
   it.effect("keeps the configured default and applies thinking after changing models", () =>
     Effect.gen(function* () {
       const calls: unknown[] = [];
@@ -87,6 +75,49 @@ describe("OhMyPi ACP", () => {
         ["model", "openai/gpt"],
         ["thinking", "high"],
       ]);
+    }),
+  );
+
+  it.effect("keeps the new model's default when a saved thinking level is unavailable", () =>
+    Effect.gen(function* () {
+      let currentConfig = config;
+      const applied: unknown[] = [];
+      const runtime = {
+        getConfigOptions: Effect.sync(() => currentConfig),
+        setModel: (_model: string) =>
+          Effect.sync(() => {
+            currentConfig = [
+              {
+                id: "thinking",
+                category: "thought_level",
+                name: "Thinking",
+                type: "select",
+                currentValue: "low",
+                options: [{ value: "low", name: "Low" }],
+              },
+            ];
+          }),
+        setConfigOption: (id: string, value: string | boolean) =>
+          Effect.sync(() => {
+            applied.push([id, value]);
+            return { configOptions: currentConfig };
+          }),
+      };
+      yield* applyOhMyPiAcpModelSelection({
+        runtime,
+        model: "openai/gpt",
+        selections: [{ id: "thinking", value: "high" }],
+        mapError: ({ cause }) => cause,
+      });
+      expect(applied).toEqual([]);
+      expect(currentConfig[0]?.currentValue).toBe("low");
+      yield* applyOhMyPiAcpModelSelection({
+        runtime,
+        model: "openai/gpt",
+        selections: [{ id: "thinking", value: "low" }],
+        mapError: ({ cause }) => cause,
+      });
+      expect(applied).toEqual([["thinking", "low"]]);
     }),
   );
 
