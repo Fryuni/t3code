@@ -24,6 +24,7 @@ const SESSION_COOKIE_NAME = "t3_session";
  *
  * Desktop scans upward from 3773 for a free port and binds
  *   127.0.0.1, so a second instance lands on a different port and the same host.
+ *   A desktop backend behind a proxy follows the remote rule instead.
  */
 export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
@@ -34,11 +35,22 @@ export function resolveSessionCookieName(input: {
   readonly environmentId: string;
   readonly development: boolean;
 }): string {
-  if (input.mode === "desktop") {
+  const remoteReachable = !input.development && isRemoteReachableServer(input);
+
+  // Desktop keys on the port because two local instances share 127.0.0.1, but a
+  // proxied desktop backend has the web server's problem instead: the proxy
+  // origin outlives the port that DesktopApp's upward scan happened to pick.
+  // Its environment identity separates local instances just as well, so only
+  // this new combination leaves the port scheme.
+  const proxiedDesktop =
+    input.mode === "desktop" &&
+    remoteReachable &&
+    input.publicUrl !== undefined &&
+    isRemoteReachableHost(input.publicUrl.hostname);
+
+  if (input.mode === "desktop" && !proxiedDesktop) {
     return `${SESSION_COOKIE_NAME}_${input.port}`;
   }
-
-  const remoteReachable = !input.development && isRemoteReachableServer(input);
   const instanceHash = NodeCrypto.createHash("sha256")
     .update(remoteReachable ? input.environmentId : input.instanceKey)
     .digest("hex")

@@ -214,6 +214,68 @@ describe("session cookie isolation", () => {
     expect(isRemoteReachableServer({ host: "0.0.0.0", publicUrl: undefined })).toBe(true);
   });
 
+  it("keeps a proxied desktop backend's cookie stable across its port scan", () => {
+    // DesktopApp scans upward from 3773, so a restart can land on a new port
+    // while the proxy origin stays put.
+    const first = resolveSessionCookieName({
+      mode: "desktop",
+      port: 3773,
+      host: "127.0.0.1",
+      publicUrl: new URL("https://t3.example.com"),
+      instanceKey: "/tmp/desktop",
+      environmentId: "environment-one",
+      development: false,
+    });
+    const second = resolveSessionCookieName({
+      mode: "desktop",
+      port: 3774,
+      host: "127.0.0.1",
+      publicUrl: new URL("https://t3.example.com"),
+      instanceKey: "/tmp/desktop",
+      environmentId: "environment-one",
+      development: false,
+    });
+
+    expect(first).toMatch(/^t3_session_[a-f0-9]{12}$/);
+    expect(first).toBe(second);
+  });
+
+  it("keeps ordinary desktop access port-scoped", () => {
+    const loopbackPublicUrl = resolveSessionCookieName({
+      mode: "desktop",
+      port: 3773,
+      host: "127.0.0.1",
+      publicUrl: new URL("http://localhost:8080"),
+      instanceKey: "/tmp/desktop",
+      environmentId: "environment-one",
+      development: false,
+    });
+    const developmentPublicUrl = resolveSessionCookieName({
+      mode: "desktop",
+      port: 3773,
+      host: "127.0.0.1",
+      publicUrl: new URL("https://t3.example.com"),
+      instanceKey: "/tmp/desktop",
+      environmentId: "environment-one",
+      development: true,
+    });
+    const wildcardBound = resolveSessionCookieName({
+      mode: "desktop",
+      port: 3773,
+      host: "0.0.0.0",
+      publicUrl: undefined,
+      instanceKey: "/tmp/desktop",
+      environmentId: "environment-one",
+      development: false,
+    });
+
+    expect(loopbackPublicUrl).toBe("t3_session_3773");
+    expect(developmentPublicUrl).toBe("t3_session_3773");
+    // Network-exposed desktop backends predate --public-url; renaming their
+    // cookie would sign every existing client out.
+    expect(wildcardBound).toBe("t3_session_3773");
+  });
+
   it("classifies loopback aliases separately from remotely reachable hosts", () => {
     expect(isRemoteReachableHost(undefined)).toBe(false);
     expect(isRemoteReachableHost("localhost")).toBe(false);
