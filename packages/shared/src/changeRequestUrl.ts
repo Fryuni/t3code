@@ -13,6 +13,8 @@ export interface ChangeRequestLink {
   readonly host: string;
   readonly repository: string;
   readonly number: number;
+  /** Forgejo's HTTP host and port, separate from the portless repository identity. */
+  readonly authority?: string;
 }
 
 /** The host itself, one of its subdomains, or an install named after the provider. */
@@ -57,7 +59,10 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   if (gitlab) return claim(host, gitlab);
   // Forgejo uses /pulls/ on arbitrary instance hosts, optionally below a subpath.
   const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (forgejo) return claim(url.host.toLowerCase(), forgejo, "forgejo");
+  if (forgejo) {
+    const link = claim(host, forgejo, "forgejo");
+    return link === null ? null : { ...link, authority: url.host.toLowerCase() };
+  }
   // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
   if (isHostOf(host, "bitbucket.org", "bitbucket")) {
     const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
@@ -100,30 +105,28 @@ export function changeRequestUrlFor(
   host: string,
   repository: string,
   number: number,
-  repositoryRemoteUrl?: string,
+  remoteUrl?: string,
 ): string | null {
   switch (kind) {
     case "github":
       return `https://${host}/${repository}/pull/${number}`;
+    case "forgejo": {
+      try {
+        const remote = new URL(remoteUrl ?? "");
+        if (
+          (remote.protocol === "http:" || remote.protocol === "https:") &&
+          (remote.hostname.toLowerCase() === host.toLowerCase() ||
+            remote.host.toLowerCase() === host.toLowerCase())
+        ) {
+          return `${remote.origin}/${repository}/pulls/${number}`;
+        }
+      } catch {
+        // SSH remotes do not specify the server's web origin.
+      }
+      return `https://${host}/${repository}/pulls/${number}`;
+    }
     case "gitlab":
       return `https://${host}/${repository}/-/merge_requests/${number}`;
-    case "forgejo": {
-      let origin = `https://${host}`;
-      if (repositoryRemoteUrl) {
-        try {
-          const remote = new URL(repositoryRemoteUrl);
-          if (
-            (remote.protocol === "http:" || remote.protocol === "https:") &&
-            remote.host.toLowerCase() === host.toLowerCase()
-          ) {
-            origin = remote.origin;
-          }
-        } catch {
-          // SSH remotes do not establish a web scheme; use the canonical web host.
-        }
-      }
-      return `${origin}/${repository}/pulls/${number}`;
-    }
     case "bitbucket":
       return `https://${host}/${repository}/pull-requests/${number}`;
     case "azure-devops":
@@ -209,7 +212,8 @@ export function matchesLinkedPullRequestUrl(
     target !== null &&
     linked.host === target.host &&
     linked.repository === target.repository &&
-    linked.number === target.number
+    linked.number === target.number &&
+    linked.authority === target.authority
   );
 }
 
