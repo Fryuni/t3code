@@ -1,4 +1,3 @@
-import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import * as Schema from "effect/Schema";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 
@@ -105,6 +104,7 @@ export function pullRequestCheckoutCommand(
   number: number,
   headBranch: string,
   headRepositoryNameWithOwner?: string | null,
+  repositoryUrl?: string | null,
 ): string | null {
   switch (provider) {
     case "github":
@@ -112,7 +112,9 @@ export function pullRequestCheckoutCommand(
     case "gitlab":
       return `glab mr checkout ${number}`;
     case "forgejo":
-      return `fj pr checkout ${number}`;
+      return repositoryUrl
+        ? `git fetch '${repositoryUrl.replaceAll("'", "'\\''")}' refs/pull/${number}/head && git checkout -B pulls/${number} FETCH_HEAD`
+        : null;
     case "azure-devops":
       return `az repos pr checkout --id ${number}`;
     case "bitbucket": {
@@ -1102,7 +1104,7 @@ const pullRequestDetailSnapshotKey = (
   reference: PullRequestDetailSnapshotRef,
 ) =>
   reference.host
-    ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), normalizeSourceControlRepository(reference.repository), reference.number])}`
+    ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), reference.repository.toLowerCase(), reference.number])}`
     : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`;
 
 const decodeDetailSnapshot = Schema.decodeUnknownOption(PullRequestDetail);
@@ -1157,8 +1159,7 @@ export function resolveDisplayedPullRequestDetail(input: {
   if (
     input.cached !== null &&
     input.cached.projectId === input.reference.projectId &&
-    normalizeSourceControlRepository(input.cached.repository) ===
-      normalizeSourceControlRepository(input.reference.repository) &&
+    input.cached.repository.toLowerCase() === input.reference.repository.toLowerCase() &&
     input.cached.number === input.reference.number &&
     (input.reference.host === undefined ||
       parseChangeRequestUrl(input.cached.url)?.host === input.reference.host.toLowerCase())

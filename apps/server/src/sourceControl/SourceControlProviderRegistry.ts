@@ -37,6 +37,7 @@ class RemoteRefinementKey extends Data.Class<{
   readonly remoteUrl: string;
   readonly providerName: string;
   readonly baseUrl: string;
+  readonly requestedHost: string | undefined;
 }> {}
 
 export interface SourceControlProviderRegistration {
@@ -229,6 +230,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
           context: {
             remoteName: key.remoteName,
             remoteUrl: key.remoteUrl,
+            ...(key.requestedHost === undefined ? {} : { requestedHost: key.requestedHost }),
             provider: { kind: "unknown", name: key.providerName, baseUrl: key.baseUrl },
           },
         }),
@@ -253,6 +255,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
               remoteUrl: context.remoteUrl,
               providerName: context.provider.name,
               baseUrl: context.provider.baseUrl,
+              requestedHost: context.requestedHost,
             }),
           )
         : Effect.succeed(context);
@@ -346,11 +349,6 @@ export const make = Effect.gen(function* () {
       discovery: GitHubSourceControlProvider.discovery,
     },
     {
-      kind: "forgejo",
-      provider: forgejo,
-      discovery: forgejoDiscovery,
-    },
-    {
       kind: "gitlab",
       provider: gitlab,
       discovery: GitLabSourceControlProvider.discovery,
@@ -364,6 +362,11 @@ export const make = Effect.gen(function* () {
       kind: "bitbucket",
       provider: bitbucket,
       discovery: bitbucketDiscovery,
+    },
+    {
+      kind: "forgejo",
+      provider: forgejo,
+      discovery: forgejoDiscovery,
     },
   ]);
 });

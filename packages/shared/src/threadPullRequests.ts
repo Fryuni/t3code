@@ -14,10 +14,25 @@ import {
   sourceControlRepositorySelector,
 } from "./sourceControl.ts";
 
-/** Normalize stored link identity, including Azure's SSH and browser host aliases. */
-export function normalizeThreadPullRequestKey(key: ThreadPullRequestKey): ThreadPullRequestKey {
-  const host = key.host.trim().toLowerCase();
-  const canonical = canonicalRepositoryKey(`${host}/${key.repository.trim()}`);
+type ThreadPullRequestKeySource = ThreadPullRequestKey & {
+  readonly authority?: string;
+  readonly url?: string;
+};
+
+/** Normalize stored links, recovering Forgejo HTTP ports from old links' URLs. */
+export function normalizeThreadPullRequestKey(
+  key: ThreadPullRequestKeySource,
+): ThreadPullRequestKey {
+  const parsed = key.url === undefined ? null : parseChangeRequestUrl(key.url);
+  const authority =
+    key.authority ??
+    (parsed?.repository === normalizeSourceControlRepository(key.repository.trim()) &&
+    parsed.number === key.number
+      ? parsed.authority
+      : undefined);
+  const canonical = canonicalRepositoryKey(
+    `${(authority ?? key.host).trim().toLowerCase()}/${normalizeSourceControlRepository(key.repository.trim())}`,
+  );
   const separator = canonical.indexOf("/");
   return {
     host: canonical.slice(0, separator),
@@ -34,10 +49,7 @@ export function legacyThreadPullRequestKey(
   const parsed = parseChangeRequestUrl(linked.url);
   if (parsed !== null && parsed.number === linked.number) {
     const canonical = canonicalRepositoryKey(`${parsed.host}/${parsed.repository}`);
-    if (
-      canonical.startsWith("dev.azure.com/") ||
-      /\/pulls\/\d+(?:\/|$)/u.test(new URL(linked.url).pathname)
-    ) {
+    if (parsed.authority !== undefined || canonical.startsWith("dev.azure.com/")) {
       return normalizeThreadPullRequestKey(parsed);
     }
   }
@@ -58,13 +70,13 @@ export function legacyThreadPullRequestKey(
 
 /** Compare normalized identities without folding case-sensitive instance paths. */
 export function threadPullRequestKeysEqual(
-  left: ThreadPullRequestKey,
-  right: ThreadPullRequestKey,
+  left: ThreadPullRequestKeySource,
+  right: ThreadPullRequestKeySource,
 ): boolean {
   return threadPullRequestKeyOf(left) === threadPullRequestKeyOf(right);
 }
 
-export function threadPullRequestKeyOf(key: ThreadPullRequestKey): string {
+export function threadPullRequestKeyOf(key: ThreadPullRequestKeySource): string {
   const normalized = normalizeThreadPullRequestKey(key);
   return `${normalized.host}/${normalized.repository}#${normalized.number}`;
 }
@@ -112,8 +124,10 @@ export function resolveThreadCurrentPullRequest(
   if (open.length === 1) return { kind: "single", link: open[0]! };
   const chains = resolveThreadPullRequestChains(visible);
   if (open.length > 1) {
+    // `.reverse()` on a copy, not `.toReversed()`: this runs on Hermes, which has no ES2023
+    // array methods, and a TypeError here is fatal on every mobile launch that renders a stack.
     const openChains = chains
-      .map((chain) => chain.layers.toReversed().filter(isOpen))
+      .map((chain) => [...chain.layers].reverse().filter(isOpen))
       .filter((layers) => layers.length > 0)
       .sort(
         (left, right) =>
@@ -161,6 +175,24 @@ export function legacyLinkedPullRequestOf(
         const key = legacyThreadPullRequestKey(link, link.host);
         return canonicalRepositoryKey(`${key.host}/${key.repository}`) === azureKey;
       }
+      const parsed = parseChangeRequestUrl(link.url);
+      if (parsed?.authority !== undefined) {
+        try {
+          const remote = new URL(identity.locator.remoteUrl);
+          if (remote.protocol === "http:" || remote.protocol === "https:") {
+            return (
+              parsed.authority === remote.host &&
+              parsed.repository === normalizeSourceControlRepository(repository, identity.provider)
+            );
+          }
+        } catch {
+          // SSH web ports are resolved by the provider's configured login.
+        }
+        return (
+          parsed.host === host &&
+          parsed.repository === normalizeSourceControlRepository(repository, identity.provider)
+        );
+      }
       return (
         link.host.toLowerCase() === host.toLowerCase() &&
         normalizeSourceControlRepository(link.repository, identity.provider) ===
@@ -198,7 +230,8 @@ export function resolveThreadPullRequestChains(
   const nativeStacks = new Map<string, Array<ThreadPullRequestLink>>();
   for (const link of visible) {
     if (link.stack === null) continue;
-    const stackKey = `${link.host.toLowerCase()}/${normalizeSourceControlRepository(link.repository)}#stack:${link.stack.id}`;
+    const key = normalizeThreadPullRequestKey(link);
+    const stackKey = `${key.host}/${key.repository}#stack:${link.stack.id}`;
     const members = nativeStacks.get(stackKey) ?? [];
     members.push(link);
     nativeStacks.set(stackKey, members);
@@ -211,8 +244,10 @@ export function resolveThreadPullRequestChains(
   }
 
   const remaining = visible.filter((link) => !placed.has(threadPullRequestKeyOf(link)));
-  const branchKey = (link: ThreadPullRequestLink, branch: string) =>
-    `${link.host.toLowerCase()}/${normalizeSourceControlRepository(link.repository)}:${branch}`;
+  const branchKey = (link: ThreadPullRequestLink, branch: string) => {
+    const key = normalizeThreadPullRequestKey(link);
+    return `${key.host}/${key.repository}:${branch}`;
+  };
   // Reused head names cannot identify a parent unambiguously.
   const byHead = new Map<string, ThreadPullRequestLink | null>();
   for (const link of remaining) {

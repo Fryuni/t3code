@@ -1,9 +1,9 @@
 import {
   canonicalRepositoryKey,
   normalizeSourceControlRepository,
+  isSshRemoteUrl,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
-import { changeRequestUrlFor } from "@t3tools/shared/changeRequestUrl";
 import * as Cache from "effect/Cache";
 import * as Clock from "effect/Clock";
 import * as Context from "effect/Context";
@@ -47,6 +47,9 @@ import {
   type PullRequestProviderSummary,
   type PullRequestReactionInput,
   type PullRequestRef,
+  type PullRequestRoutingResult,
+  type PullRequestRoutingIdentityInput,
+  type PullRequestRoutingIdentityResult,
   type PullRequestReviewVerdict,
   type PullRequestReviewerCandidateList,
   type PullRequestReviewerRequestInput,
@@ -139,6 +142,14 @@ const VIEWER_CACHE_CAPACITY = 32;
 
 export type PullRequestError = PullRequestUnavailableError | PullRequestOperationError;
 
+const routingCredential = Context.Reference<{
+  readonly credentialFingerprint: string;
+  readonly viewer: string;
+} | null>("t3/PullRequestService/routingCredential", { defaultValue: () => null });
+// Internal only: the client cannot choose its cache's credential namespace.
+const credentialNamespace = Symbol("pullRequestCredentialNamespace");
+type CredentialRef = PullRequestRef & { readonly [credentialNamespace]?: string };
+
 export class PullRequestService extends Context.Service<
   PullRequestService,
   {
@@ -148,6 +159,16 @@ export class PullRequestService extends Context.Service<
     readonly listStats: (
       input: PullRequestListStatsInput,
     ) => Effect.Effect<PullRequestListStatsResult, PullRequestError>;
+    readonly routing: (
+      input: PullRequestRef,
+    ) => Effect.Effect<PullRequestRoutingResult, PullRequestError>;
+    readonly routingIdentity: (
+      input: PullRequestRoutingIdentityInput,
+    ) => Effect.Effect<PullRequestRoutingIdentityResult, PullRequestError>;
+    readonly withRoutingCredential: <A, E, R>(
+      input: PullRequestRef,
+      operation: Effect.Effect<A, E, R>,
+    ) => Effect.Effect<A, E | PullRequestError, R>;
     readonly summary: (
       input: PullRequestRef,
       options?: { readonly recoverTransientFailure?: boolean },
@@ -255,19 +276,11 @@ const ACTION_ACCESS_REFUSALS: Record<PullRequestAction, string> = {
 const REVIEWER_REQUEST_REFUSAL = "You need write access on this repository to ask for a review.";
 const LABEL_CHANGE_REFUSAL = "You need triage access on this repository to change its labels.";
 
-/** Status synchronization uses a smaller interface than the full review page. */
-type SummaryProvider = Pick<
-  PullRequestProviderApi,
-  "kind" | "getChangeRequestSummary" | "getChangeRequestStack"
-> & {
-  readonly getChangeRequest: NonNullable<PullRequestProviderApi["getChangeRequestSummary"]>;
-};
-
 /** A project this page can read: its remote is on a host with an implementation. */
-interface SupportedProject<Api = PullRequestProviderApi> {
+interface SupportedProject {
   readonly cursorKey: string;
   readonly project: OrchestrationProjectShell;
-  readonly api: Api;
+  readonly api: PullRequestProviderApi;
   readonly repository: string;
   /** The host the repository lives on, which is the account boundary rather than the kind. */
   readonly host: string;
@@ -278,8 +291,8 @@ interface SupportedProject<Api = PullRequestProviderApi> {
  * implementation are counted rather than dropped, so their projects are explained in the
  * provider list instead of quietly missing from the page.
  */
-interface WorkspaceProjects<Api = PullRequestProviderApi> {
-  readonly supported: ReadonlyArray<SupportedProject<Api>>;
+interface WorkspaceProjects {
+  readonly supported: ReadonlyArray<SupportedProject>;
   /** Keyed by host, as the readable ones are: an unimplemented host is its own switcher entry. */
   readonly unimplemented: ReadonlyMap<
     string,
@@ -482,6 +495,10 @@ function withRateLimitBackoff(
     kind: api.kind,
     capabilities: api.capabilities,
     getViewer: wrap("getViewer", api.getViewer),
+    ...(api.getRoutingIdentity === undefined ? {} : { getRoutingIdentity: api.getRoutingIdentity }),
+    ...(api.withVerifiedCredential === undefined
+      ? {}
+      : { withVerifiedCredential: api.withVerifiedCredential }),
     listChangeRequests: wrap("listChangeRequests", api.listChangeRequests),
     ...(api.listChangeRequestsAcross === undefined
       ? {}
@@ -563,14 +580,21 @@ export const make = Effect.gen(function* () {
       if (filter.projectId !== undefined && project.id !== filter.projectId) continue;
       const identity = project.repositoryIdentity;
       if (
-        identity?.provider !== "unknown" ||
+        (identity?.provider !== "unknown" &&
+          !(identity?.provider === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))) ||
         sourceControlRepositorySelector(project.repositoryIdentity) === null
       )
         continue;
       const host = pullRequestHostOf(identity, "unknown");
       // A legacy identity has no canonical host until its provider is refined, so it must reach
       // the refinement before a host filter can decide whether it belongs in the result.
-      if (filter.host !== undefined && host !== "unknown" && host !== filter.host.toLowerCase()) {
+      if (
+        filter.host !== undefined &&
+        host !== "unknown" &&
+        host !== filter.host.toLowerCase() &&
+        pullRequestHostOf(identity, "forgejo") !== filter.host.toLowerCase() &&
+        !isSshRemoteUrl(identity.locator.remoteUrl)
+      ) {
         continue;
       }
       const { remoteName, remoteUrl } = identity.locator;
@@ -591,33 +615,36 @@ export const make = Effect.gen(function* () {
             Effect.suspend(() =>
               sourceControlProviders.resolveHandle({
                 cwd: project.workspaceRoot,
-                context: { provider, remoteName, remoteUrl },
+                context: {
+                  provider:
+                    provider.kind === "forgejo" ? { ...provider, kind: "unknown" } : provider,
+                  remoteName,
+                  remoteUrl,
+                  ...(filter.host !== undefined && isSshRemoteUrl(remoteUrl)
+                    ? { requestedHost: filter.host }
+                    : {}),
+                },
               }),
             ).pipe(
               Effect.flatMap((handle) => {
-                const kind = handle.context?.provider.kind;
-                return kind === undefined || kind === "unknown"
+                const refined = handle.context?.provider;
+                return refined === undefined || refined.kind === "unknown"
                   ? Effect.fail(undefined)
-                  : Effect.succeed(kind);
+                  : Effect.succeed(refined);
               }),
             ),
           ),
         ).pipe(
-          Effect.map((kind) => [baseUrl, kind] as const),
-          Effect.orElseSucceed(() => [baseUrl, "unknown"] as const),
+          Effect.map((provider) => [baseUrl, provider] as const),
+          Effect.orElseSucceed(() => [baseUrl, null] as const),
         ),
       { concurrency: REPOSITORY_CONCURRENCY },
     ).pipe(Effect.map((resolved) => new Map(resolved)));
   };
 
-  const listWorkspaceProjectsWith = <Api>(
+  const listWorkspaceProjects = (
     filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
-    providerFor: (
-      kind: SourceControlProviderKind,
-      host: string,
-      project: OrchestrationProjectShell,
-    ) => Api | null,
-  ): Effect.Effect<WorkspaceProjects<Api>, PullRequestError> =>
+  ): Effect.Effect<WorkspaceProjects, PullRequestError> =>
     (filter.projectId === undefined
       ? projections.getProjectShells(filter.projectIds)
       : projections.getProjectShellById(filter.projectId).pipe(Effect.map(Option.toArray))
@@ -632,11 +659,11 @@ export const make = Effect.gen(function* () {
       ),
       Effect.flatMap((projects) =>
         refineUnknownProjectKinds(projects, filter).pipe(
-          Effect.map((refinedKinds) => ({ refinedKinds, projects })),
+          Effect.map((refinedProviders) => ({ refinedProviders, projects })),
         ),
       ),
-      Effect.map(({ refinedKinds, projects }) => {
-        const supported: SupportedProject<Api>[] = [];
+      Effect.map(({ refinedProviders, projects }) => {
+        const supported: SupportedProject[] = [];
         const unimplemented = new Map<
           string,
           { kind: SourceControlProviderKind; projectCount: number }
@@ -653,13 +680,23 @@ export const make = Effect.gen(function* () {
           // Worktrees of one repository are separate projects; reading the remote once keeps
           // the page from repeating every change request per local checkout. The host is part
           // of the key, so the same `owner/repo` on two hosts stays two repositories.
-          if (kind === "unknown") {
+          let refinedProvider: SourceControlProviderInfo | null | undefined;
+          if (
+            kind === "unknown" ||
+            (kind === "forgejo" && isSshRemoteUrl(identity.locator.remoteUrl))
+          ) {
             const provider = detectSourceControlProviderFromRemoteUrl(identity.locator.remoteUrl);
-            kind = provider === null ? kind : (refinedKinds.get(provider.baseUrl) ?? kind);
+            refinedProvider = provider === null ? null : refinedProviders.get(provider.baseUrl);
+            kind = refinedProvider?.kind ?? kind;
           }
-          const host = pullRequestHostOf(identity, kind);
-          if (filter.host !== undefined && host !== filter.host.toLowerCase()) continue;
-          const api = providerFor(kind, host, project);
+          const host =
+            refinedProvider?.kind === "forgejo"
+              ? new URL(refinedProvider.baseUrl).host.toLowerCase()
+              : pullRequestHostOf(identity, kind);
+          if (filter.host !== undefined && host !== filter.host.toLowerCase()) {
+            continue;
+          }
+          const api = registry.get(kind);
           // Recorded before the de-duplication below, so the viewer lookup keeps the alternates
           // the listing is about to drop.
           if (api !== null) {
@@ -683,7 +720,7 @@ export const make = Effect.gen(function* () {
           supported.push({
             cursorKey: key,
             project,
-            api,
+            api: withRateLimitBackoff(api, host, rateLimits),
             repository,
             host,
           });
@@ -692,84 +729,6 @@ export const make = Effect.gen(function* () {
       }),
     );
 
-  const reviewProviderFor = (kind: SourceControlProviderKind, host: string) => {
-    const api = registry.get(kind);
-    return api === null ? null : withRateLimitBackoff(api, host, rateLimits);
-  };
-
-  // Linked status only needs metadata. Keep Forgejo out of the full review interface until
-  // it implements that interface's listing, permissions, diffs, and review actions.
-  const summaryProviderFor = (
-    kind: SourceControlProviderKind,
-    host: string,
-    project: OrchestrationProjectShell,
-  ): SummaryProvider | null =>
-    reviewProviderFor(kind, host) ??
-    (kind === "forgejo"
-      ? {
-          kind,
-          getChangeRequest: Effect.fn("PullRequestService.forgejoSummary")(function* (input) {
-            const reference = changeRequestUrlFor(
-              kind,
-              input.host,
-              input.repository,
-              input.number,
-              project.repositoryIdentity?.locator.remoteUrl,
-            );
-            if (reference === null) {
-              return yield* new PullRequestProviderError({
-                provider: kind,
-                operation: "getChangeRequestSummary",
-                reason: "failed",
-                detail: "The Forgejo pull request URL could not be resolved.",
-              });
-            }
-            const read = Effect.gen(function* () {
-              const provider = yield* sourceControlProviders.get(kind);
-              return yield* provider.getChangeRequest({
-                cwd: input.cwd,
-                reference,
-              });
-            });
-            const changeRequest = yield* read.pipe(
-              Effect.mapError(
-                (cause) =>
-                  new PullRequestProviderError({
-                    provider: kind,
-                    operation: "getChangeRequestSummary",
-                    reason: "failed",
-                    detail: cause.detail,
-                    cause,
-                  }),
-              ),
-            );
-            return {
-              number: changeRequest.number,
-              title: changeRequest.title,
-              url: changeRequest.url,
-              state: changeRequest.state,
-              ...(changeRequest.isDraft === undefined ? {} : { isDraft: changeRequest.isDraft }),
-              closedAt: changeRequest.closedAt ?? null,
-              mergedAt: changeRequest.mergedAt ?? null,
-              headBranch: changeRequest.headRefName,
-              baseBranch: changeRequest.baseRefName,
-              updatedAt: Option.match(changeRequest.updatedAt, {
-                // Missing timestamps must stay stable across polls.
-                onNone: () => "1970-01-01T00:00:00.000Z",
-                onSome: DateTime.formatIso,
-              }),
-            };
-          }),
-        }
-      : null);
-
-  const listWorkspaceProjects = (
-    filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
-  ) => listWorkspaceProjectsWith(filter, reviewProviderFor);
-  const listSummaryProjects = (
-    filter: Pick<PullRequestListInput, "projectId" | "projectIds" | "host">,
-  ) => listWorkspaceProjectsWith(filter, summaryProviderFor);
-
   /**
    * The project whose checkout and credentials serve a reference. The project's own
    * repository is the default; a reference that names a `host` may instead point at any
@@ -777,14 +736,9 @@ export const make = Effect.gen(function* () {
    * targeting can fall back to another checkout on the host. Azure derives its organization
    * from the checkout, so it requires a matching repository.
    */
-  const requireProjectWith = <Api extends Pick<PullRequestProviderApi, "kind">>(
-    ref: PullRequestRef,
-    listProjects: (
-      filter: Pick<PullRequestListInput, "projectId" | "host">,
-    ) => Effect.Effect<WorkspaceProjects<Api>, PullRequestError>,
-  ): Effect.Effect<SupportedProject<Api>, PullRequestError> =>
-    listProjects({ projectId: ref.projectId }).pipe(
-      Effect.flatMap(({ supported }): Effect.Effect<SupportedProject<Api>, PullRequestError> => {
+  const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
+    listWorkspaceProjects({ projectId: ref.projectId }).pipe(
+      Effect.flatMap(({ supported }): Effect.Effect<SupportedProject, PullRequestError> => {
         const own = supported[0];
         const repository = ref.repository.trim();
         const host = ref.host?.trim().toLowerCase();
@@ -813,7 +767,9 @@ export const make = Effect.gen(function* () {
         const repositoryKey = canonicalRepositoryKey(`${host}/${repository}`.toLowerCase());
         // Azure SSH and legacy clone hosts differ from the browser URL's host. Compare
         // the complete repository identity before narrowing those checkouts by host.
-        return listProjects(repositoryKey.startsWith("dev.azure.com/") ? {} : { host }).pipe(
+        return listWorkspaceProjects(
+          repositoryKey.startsWith("dev.azure.com/") ? {} : { host },
+        ).pipe(
           Effect.flatMap(({ supported }) => {
             const onHost = supported.filter((candidate) => candidate.host === host);
             const route =
@@ -838,16 +794,17 @@ export const make = Effect.gen(function* () {
               );
             }
             return Effect.succeed(
-              route.api.kind === "azure-devops" ? route : { ...route, repository },
+              route.api.kind === "azure-devops"
+                ? route
+                : {
+                    ...route,
+                    repository: normalizeSourceControlRepository(repository, route.api.kind),
+                  },
             );
           }),
         );
       }),
     );
-
-  const requireProject = (ref: PullRequestRef) => requireProjectWith(ref, listWorkspaceProjects);
-  const requireSummaryProject = (ref: PullRequestRef) =>
-    requireProjectWith(ref, listSummaryProjects);
 
   /**
    * What the signed-in account may do with this change request, asked of the host itself. Every
@@ -856,13 +813,19 @@ export const make = Effect.gen(function* () {
    * handed to a provider on the client's word. Read freshly for that reason, rather than taken
    * from whatever the detail said when the page loaded.
    */
-  const viewerPermissionsOf = (project: SupportedProject, ref: PullRequestRef, operation: string) =>
+  const viewerPermissionsOf = (
+    project: SupportedProject,
+    ref: PullRequestRef,
+    operation: string,
+    includeUpdateBranch = false,
+  ) =>
     project.api
       .getViewerPermissions({
         cwd: project.project.workspaceRoot,
         repository: project.repository,
         host: project.host,
         number: ref.number,
+        includeUpdateBranch,
       })
       .pipe(Effect.mapError(toPullRequestError(operation)));
 
@@ -922,7 +885,7 @@ export const make = Effect.gen(function* () {
         return Effect.die(new Error(`Missing pull request provider: ${kind}`));
       }
       const api = withRateLimitBackoff(registered, host, rateLimits);
-      return Effect.firstSuccessOf(roots.map((cwd) => api.getViewer({ cwd }))).pipe(
+      return Effect.firstSuccessOf(roots.map((cwd) => api.getViewer({ cwd, host }))).pipe(
         Effect.map((viewer) => ({
           host,
           kind,
@@ -1389,10 +1352,95 @@ export const make = Effect.gen(function* () {
    * and a host that cannot say leaves it null rather than failing the read it decorates.
    */
   const viewerOf = (project: SupportedProject): Effect.Effect<string | null> =>
-    resolveViewers([project], new Map()).pipe(Effect.map(([resolved]) => resolved?.viewer ?? null));
+    routingCredential.pipe(
+      Effect.flatMap((credential) =>
+        credential !== null
+          ? Effect.succeed(credential.viewer)
+          : resolveViewers([project], new Map()).pipe(
+              Effect.map(([resolved]) => resolved?.viewer ?? null),
+            ),
+      ),
+    );
+
+  const routingIdentity: PullRequestService["Service"]["routingIdentity"] = Effect.fn(
+    "PullRequestService.routingIdentity",
+  )(function* (input) {
+    const host = input.host.toLowerCase();
+    const { supported } = yield* listWorkspaceProjects({ host });
+    const project = supported.find((candidate) => candidate.api.kind === "github");
+    const api = registry.get("github");
+    if (project === undefined || api?.getRoutingIdentity === undefined) {
+      return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+    }
+    const identity = yield* api
+      .getRoutingIdentity({
+        cwd: project.project.workspaceRoot,
+        host,
+      })
+      .pipe(Effect.mapError(toPullRequestError("routeIdentity")));
+    return { ...identity, host, provider: "github" as const };
+  });
+
+  const withRoutingCredential: PullRequestService["Service"]["withRoutingCredential"] = (
+    input,
+    operation,
+  ) =>
+    Effect.gen(function* () {
+      if (input.expectedAccountId === undefined) return yield* operation;
+      const rejected = () =>
+        new PullRequestOperationError({
+          operation: "routeIdentity",
+          detail: "The GitHub account could not be verified before starting the operation.",
+        });
+      const project = yield* requireProject(input).pipe(Effect.mapError(rejected));
+      const api = project.api.kind === "github" ? registry.get("github") : null;
+      if (
+        api?.withVerifiedCredential === undefined ||
+        input.host?.toLowerCase() !== project.host.toLowerCase()
+      ) {
+        return yield* rejected();
+      }
+      const result = yield* api
+        .withVerifiedCredential(
+          { cwd: project.project.workspaceRoot, host: project.host },
+          (identity) =>
+            identity.accountId === input.expectedAccountId
+              ? operation.pipe(Effect.provideService(routingCredential, identity), Effect.result)
+              : Effect.fail(rejected()),
+        )
+        .pipe(Effect.catchTag("PullRequestProviderError", () => Effect.fail(rejected())));
+      return yield* Effect.fromResult(result);
+    });
+
+  const routing = Effect.fn("PullRequestService.routing")(function* (input: PullRequestRef) {
+    const project = yield* requireProject(input);
+    const api = project.api.kind === "github" ? registry.get("github") : null;
+    if (api?.getRoutingIdentity === undefined) {
+      return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+    }
+    const identity = yield* api
+      .getRoutingIdentity({
+        cwd: project.project.workspaceRoot,
+        host: project.host,
+      })
+      .pipe(Effect.mapError(toPullRequestError("routeIdentity")));
+    if (!identity.viewer.trim() || !identity.accountId.trim()) {
+      return yield* new PullRequestOperationError({
+        operation: "routeIdentity",
+        detail: "The signed-in account could not be verified.",
+      });
+    }
+    return {
+      host: project.host,
+      provider: project.api.kind,
+      ...identity,
+      projectTitle: project.project.title,
+      workspaceRoot: project.project.workspaceRoot,
+    };
+  });
 
   const summaryUncached: PullRequestService["Service"]["summary"] = (input) =>
-    requireSummaryProject(input).pipe(
+    requireProject(input).pipe(
       Effect.flatMap((project) => {
         const providerInput = {
           cwd: project.project.workspaceRoot,
@@ -1445,7 +1493,7 @@ export const make = Effect.gen(function* () {
     );
 
   const stackUncached: PullRequestService["Service"]["stack"] = (input, options) =>
-    requireSummaryProject(input).pipe(
+    requireProject(input).pipe(
       Effect.flatMap((project) => {
         const read = project.api.getChangeRequestStack;
         if (read === undefined) return Effect.succeed(null);
@@ -1700,7 +1748,12 @@ export const make = Effect.gen(function* () {
         // What the host can do and what this account may ask of it are two questions, and both
         // have to say yes. The second is asked last, because it costs a request and the checks
         // above do not.
-        return viewerPermissionsOf(project, input, "runAction").pipe(
+        return viewerPermissionsOf(
+          project,
+          input,
+          "runAction",
+          input.action === "update-branch",
+        ).pipe(
           Effect.flatMap((viewer): Effect.Effect<string, PullRequestError> => {
             const stackRebase = input.stackNumber !== undefined && input.action === "update-branch";
             if (
@@ -2210,7 +2263,8 @@ export const make = Effect.gen(function* () {
         if (
           project === undefined ||
           project.api.listChangeRequestStats === undefined ||
-          project.repository.toLowerCase() !== ref.repository.trim().toLowerCase()
+          normalizeSourceControlRepository(project.repository) !==
+            normalizeSourceControlRepository(ref.repository.trim())
         ) {
           continue;
         }
@@ -2231,7 +2285,7 @@ export const make = Effect.gen(function* () {
             return Effect.succeed<ReadonlyArray<PullRequestDiffStat>>([]);
           const projectsByRepository = new Map(
             entries.map((entry) => [
-              `${entry.project.repository.toLowerCase()} ${entry.number}`,
+              `${normalizeSourceControlRepository(entry.project.repository)} ${entry.number}`,
               entry.project,
             ]),
           );
@@ -2246,7 +2300,7 @@ export const make = Effect.gen(function* () {
             Effect.map((read) =>
               read.flatMap((stat): ReadonlyArray<PullRequestDiffStat> => {
                 const project = projectsByRepository.get(
-                  `${stat.repository.toLowerCase()} ${stat.number}`,
+                  `${normalizeSourceControlRepository(stat.repository)} ${stat.number}`,
                 );
                 return project === undefined
                   ? []
@@ -2273,6 +2327,12 @@ export const make = Effect.gen(function* () {
 
   const context = yield* Effect.context<never>();
   const runFork = Effect.runForkWith(context);
+  const revalidate = <A, E>(read: Effect.Effect<A, E>) =>
+    Effect.context<never>().pipe(
+      Effect.flatMap((caller) =>
+        Effect.sync(() => runFork(Effect.ignore(read).pipe(Effect.provideContext(caller)))),
+      ),
+    );
 
   /**
    * The diff is not live-polled and is expensive enough to keep its stale-while-revalidate path.
@@ -2298,7 +2358,7 @@ export const make = Effect.gen(function* () {
         // Run as its own fiber rather than a child: the caller is answered and gone before the
         // refresh lands. The read still coalesces on the cache key, so ten stale reads in one
         // window cost one host request — and a failed refresh costs nothing but the retry.
-        return Effect.sync(() => runFork(Effect.ignore(recorded))).pipe(Effect.as(snapshot.value));
+        return revalidate(recorded).pipe(Effect.as(snapshot.value));
       });
     };
   })();
@@ -2356,9 +2416,7 @@ export const make = Effect.gen(function* () {
       const snapshot = held.get(key);
       if (snapshot === undefined) return read(key, effect);
       if (mode === "reuse") return Effect.succeed(snapshot.value);
-      return Effect.sync(() => runFork(Effect.ignore(read(key, effect)))).pipe(
-        Effect.as(snapshot.value),
-      );
+      return revalidate(read(key, effect)).pipe(Effect.as(snapshot.value));
     };
     return { peek: (key: string) => held.get(key)?.value, read, record, serveHeld };
   };
@@ -2380,25 +2438,25 @@ export const make = Effect.gen(function* () {
     Math.max(turnRefreshEpoch, refEpochs.get(refScope(ref)) ?? 0);
   // Keys carry the reference back out of the cache loader, so the slot layout is shared with
   // `refOfCacheKey` rather than read positionally at every loader.
-  const refCacheKey = (ref: PullRequestRef) =>
+  const refCacheKey = (ref: CredentialRef) =>
     JSON.stringify([
       refEpoch(ref),
       ref.projectId,
       ref.host?.toLowerCase() ?? null,
       normalizeSourceControlRepository(ref.repository),
       ref.number,
+      ref.expectedAccountId ?? null,
+      ref[credentialNamespace] ?? null,
     ]);
   const refOfCacheKey = (key: string): PullRequestRef => {
-    const [, projectId, host, repository, number] = JSON.parse(key) as [
-      number,
-      string,
-      string | null,
-      string,
-      number,
-    ];
+    const [, projectId, host, repository, number, expectedAccountId, fingerprint] = JSON.parse(
+      key,
+    ) as [number, string, string | null, string, number, string | null, string | null];
     return {
       projectId,
       ...(host === null ? {} : { host }),
+      ...(expectedAccountId === null ? {} : { expectedAccountId }),
+      ...(fingerprint === null ? {} : { [credentialNamespace]: fingerprint }),
       repository,
       number,
     } as PullRequestRef;
@@ -2445,12 +2503,12 @@ export const make = Effect.gen(function* () {
   };
 
   const persistedRead = Effect.fn("PullRequestService.persistedRead")(function* <A>(
-    input: PullRequestRef,
+    input: CredentialRef,
     operation: string,
     codec: Schema.Codec<A, string>,
     read: Effect.Effect<A, PullRequestError>,
   ) {
-    const project = yield* requireSummaryProject(input);
+    const project = yield* requireProject(input);
     const key = [
       operation,
       project.api.kind,
@@ -2459,6 +2517,8 @@ export const make = Effect.gen(function* () {
       project.project.id,
       project.project.workspaceRoot,
       String(input.number),
+      input.expectedAccountId ?? "",
+      input[credentialNamespace] ?? "",
     ]
       .map(encodeURIComponent)
       .join(":");
@@ -2489,6 +2549,7 @@ export const make = Effect.gen(function* () {
     const cached = persistedRead(input, "summary", summaryCodec, summaryUncached(input));
     const held = lastGoodSummary.peek(key);
     return held !== undefined &&
+      input.allowStale !== false &&
       (options?.recoverTransientFailure !== false || held.state === "merged")
       ? Effect.succeed(held)
       : cached.pipe(
@@ -2646,18 +2707,17 @@ export const make = Effect.gen(function* () {
     // `serveHeld` returns immediately. Skip the write when that read is older
     // than a later strict summary — display reuse would otherwise keep the
     // regression and never ask the host again.
-    return lastGoodDetail.serveHeld(
-      key,
-      Cache.get(detailCache, key).pipe(
-        Effect.tap((value) => {
-          const summary = summaryFromDetail(value, lastGoodSummary.peek(key));
-          return shouldReplaceHeldSummary(key, summary)
-            ? lastGoodSummary.record(key, summary)
-            : Effect.void;
-        }),
-      ),
-      "revalidate",
+    const read = Cache.get(detailCache, key).pipe(
+      Effect.tap((value) => {
+        const summary = summaryFromDetail(value, lastGoodSummary.peek(key));
+        return shouldReplaceHeldSummary(key, summary)
+          ? lastGoodSummary.record(key, summary)
+          : Effect.void;
+      }),
     );
+    return input.allowStale === false
+      ? read.pipe(Effect.tap((value) => lastGoodDetail.record(key, value)))
+      : lastGoodDetail.serveHeld(key, read, "revalidate");
   };
 
   const activityCache = yield* Cache.makeWith(
@@ -2768,7 +2828,8 @@ export const make = Effect.gen(function* () {
       const stat = result.stats.find(
         (stat) =>
           stat.projectId === ref.projectId &&
-          stat.repository.toLowerCase() === ref.repository.toLowerCase() &&
+          normalizeSourceControlRepository(stat.repository) ===
+            normalizeSourceControlRepository(ref.repository) &&
           stat.number === ref.number,
       );
       if (stat !== undefined) recordStats(key, stat, at);
@@ -2838,11 +2899,33 @@ export const make = Effect.gen(function* () {
     }
   });
 
+  const credentialCached =
+    <I extends PullRequestRef, Args extends ReadonlyArray<unknown>, A, E>(
+      read: (input: I, ...args: Args) => Effect.Effect<A, E>,
+    ) =>
+    (input: I, ...args: Args) =>
+      routingCredential.pipe(
+        Effect.flatMap((credential) =>
+          read(
+            credential === null
+              ? input
+              : {
+                  ...input,
+                  [credentialNamespace]: credential.credentialFingerprint,
+                },
+            ...args,
+          ),
+        ),
+      );
+
   return PullRequestService.of({
+    routing,
+    routingIdentity,
+    withRoutingCredential,
     list,
     listStats,
-    summary,
-    stack,
+    summary: credentialCached(summary),
+    stack: credentialCached(stack),
     subscribeMerges: PubSub.subscribe(mergedPullRequests).pipe(
       Effect.map((subscription) => Stream.fromSubscription(subscription)),
     ),
@@ -2850,8 +2933,8 @@ export const make = Effect.gen(function* () {
       Stream.filter((revision) => revision > 0),
     ),
     refreshAfterTurn,
-    detail,
-    activity,
+    detail: credentialCached(detail),
+    activity: credentialCached(activity),
     threadComments,
     diff,
     diffFileContents,

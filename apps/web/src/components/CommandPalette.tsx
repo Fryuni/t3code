@@ -150,7 +150,7 @@ import { orderItemsByPreferredIds, sortLogicalProjectsForSidebar } from "./Sideb
 import { resolveEnvironmentOptionLabel } from "./BranchToolbar.logic";
 import { CommandPaletteContent } from "./CommandPaletteContent";
 import { CommandPaletteResults } from "./CommandPaletteResults";
-import { AzureDevOpsIcon, BitbucketIcon, ForgejoIcon, GitHubIcon, GitLabIcon } from "./Icons";
+import { AzureDevOpsIcon, BitbucketIcon, GitHubIcon, GitLabIcon, ForgejoIcon } from "./Icons";
 import { EnvironmentMachineIcon } from "./EnvironmentMachineIcon";
 import { ProjectFavicon } from "./ProjectFavicon";
 import { ProjectFilePicker } from "./files/ProjectFilePicker";
@@ -283,10 +283,10 @@ function remoteProjectSourceLabel(source: AddProjectRemoteSource): string {
   switch (source) {
     case "github":
       return "GitHub";
+    case "forgejo":
+      return "Forgejo / Gitea";
     case "gitlab":
       return "GitLab";
-    case "forgejo":
-      return "Forgejo";
     case "bitbucket":
       return "Bitbucket";
     case "azure-devops":
@@ -298,12 +298,11 @@ function remoteProjectSourceLabel(source: AddProjectRemoteSource): string {
 
 function remoteProjectSourcePathHint(source: AddProjectRemoteSource): string {
   switch (source) {
+    case "forgejo":
     case "github":
       return "owner/repo";
     case "gitlab":
       return "group/project";
-    case "forgejo":
-      return "host/owner/repo";
     case "bitbucket":
       return "workspace/repository";
     case "azure-devops":
@@ -323,10 +322,10 @@ function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: stri
   switch (source) {
     case "github":
       return <GitHubIcon className={className} />;
-    case "gitlab":
-      return <GitLabIcon className={className} />;
     case "forgejo":
       return <ForgejoIcon className={className} />;
+    case "gitlab":
+      return <GitLabIcon className={className} />;
     case "bitbucket":
       return <BitbucketIcon className={className} />;
     case "azure-devops":

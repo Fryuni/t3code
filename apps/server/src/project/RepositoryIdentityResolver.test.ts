@@ -1,6 +1,7 @@
 // @effect-diagnostics nodeBuiltinImport:off - realpathSync.native resolves Windows 8.3 short names, which the Effect realPath does not.
 import * as NodeFS from "node:fs";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { SourceControlProviderError } from "@t3tools/contracts";
 import { expect, it } from "@effect/vitest";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
@@ -9,12 +10,8 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import { TestClock } from "effect/testing";
-import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 
 import * as ProcessRunner from "../processRunner.ts";
-import * as ForgejoCli from "../sourceControl/ForgejoCli.ts";
-import { discovery as forgejoDiscovery } from "../sourceControl/forgejoAuth.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as RepositoryIdentityResolver from "./RepositoryIdentityResolver.ts";
 
 const normalizePathSeparators = (value: string) => value.replaceAll("\\", "/");
@@ -41,106 +38,13 @@ const makeRepositoryIdentityResolverTestLayer = (options: {
     }),
   ).pipe(Layer.provide(ProcessRunner.layer));
 
-it.layer(
-  Layer.mergeAll(
-    NodeServices.layer,
-    Layer.mock(ForgejoCli.ForgejoCli)({
-      refineUnknownRemote: (input) => Effect.succeed(forgejoDiscovery.refineUnknownRemote(input)),
-    }),
-  ),
-)("RepositoryIdentityResolverLive", (it) => {
-  it.effect(
-    "recognizes authenticated Forgejo instances in repository identities and retains the web port",
-    () => {
-      const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
-        run: (input) =>
-          Effect.succeed({
-            stdout:
-              input.command === "fj"
-                ? "codeberg.org\ncode.example.test:8443\n"
-                : input.args.includes("rev-parse")
-                  ? "/repo\n"
-                  : "origin\tssh://git@code.example.test:2222/Owner/Repo.git (fetch)\n",
-            stderr: "",
-            code: ChildProcessSpawner.ExitCode(0),
-            timedOut: false,
-            stdoutTruncated: false,
-            stderrTruncated: false,
-            stdoutInvalidUtf8: false,
-            stderrInvalidUtf8: false,
-          }),
-      });
-      return Effect.gen(function* () {
-        const resolver = yield* RepositoryIdentityResolver.make();
-        const identity = yield* resolver.resolve("/repo");
-        expect(identity?.provider).toBe("forgejo");
-        expect(identity?.canonicalKey).toBe("code.example.test:8443/owner/repo");
-      }).pipe(Effect.provide(processRunner));
-    },
-  );
-
-  for (const basePath of ["", "/Forge", "/forge"]) {
-    it.effect(`unifies Forgejo SSH and HTTPS identities with instance path '${basePath}'`, () =>
-      Effect.gen(function* () {
-        let remoteUrl = "ssh://git@ssh.example.test:2222/Owner/Repo.git";
-        const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
-          run: (input) =>
-            Effect.succeed({
-              stdout:
-                input.command === "fj"
-                  ? `git.example.test:8443${basePath}`
-                  : input.args.includes("rev-parse")
-                    ? "/repo"
-                    : `origin\t${remoteUrl} (fetch)`,
-              stderr: "",
-              code: ChildProcessSpawner.ExitCode(0),
-              timedOut: false,
-              stdoutTruncated: false,
-              stderrTruncated: false,
-              stdoutInvalidUtf8: false,
-              stderrInvalidUtf8: false,
-            }),
-        });
-        const fj = yield* ForgejoCli.make.pipe(
-          Effect.provide(
-            Layer.mergeAll(
-              Layer.mock(VcsProcess.VcsProcess)({}),
-              FileSystem.layerNoop({ exists: () => Effect.succeed(false) }),
-              Layer.succeed(
-                HttpClient.HttpClient,
-                HttpClient.make((request) =>
-                  Effect.succeed(
-                    HttpClientResponse.fromWeb(
-                      request,
-                      Response.json({ ssh_url: "ssh://git@ssh.example.test:2222/Owner/Repo.git" }),
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-        );
-        const resolver = yield* RepositoryIdentityResolver.make().pipe(
-          Effect.provide(processRunner),
-          Effect.provideService(ForgejoCli.ForgejoCli, fj),
-        );
-        const sshIdentity = yield* resolver.resolve("/repo");
-        remoteUrl = `https://git.example.test:8443${basePath}/Owner/Repo.git`;
-        const httpsIdentity = yield* resolver.resolve("/repo", { refresh: true });
-        expect(sshIdentity?.provider).toBe("forgejo");
-        expect(sshIdentity?.canonicalKey).toBe(`git.example.test:8443${basePath}/owner/repo`);
-        expect(httpsIdentity?.canonicalKey).toBe(sshIdentity?.canonicalKey);
-        expect(sshIdentity?.displayName).toBe(`${basePath}/owner/repo`.replace(/^\//u, ""));
-        expect(httpsIdentity?.displayName).toBe(sshIdentity?.displayName);
-        expect(sshIdentity?.owner).toBe("owner");
-        expect(httpsIdentity?.owner).toBe("owner");
-      }),
-    );
-  }
-
+it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
   it.effect("refreshes the Git root only when requested", () => {
     const calls: Array<ReadonlyArray<string>> = [];
     let rootPath = "/repo";
+    let remoteUrl = "git@github.com:T3Tools/t3code.git";
+    let refinements = 0;
+    let refinementFails = false;
     const processRunner = Layer.succeed(ProcessRunner.ProcessRunner, {
       run: (input) =>
         Effect.sync(() => {
@@ -148,7 +52,7 @@ it.layer(
           return {
             stdout: input.args.includes("rev-parse")
               ? `${rootPath}\n`
-              : "origin\tgit@github.com:T3Tools/t3code.git (fetch)\n",
+              : `origin\t${remoteUrl} (fetch)\n`,
             stderr: "",
             code: ChildProcessSpawner.ExitCode(0),
             timedOut: false,
@@ -161,7 +65,29 @@ it.layer(
     });
     const resolverLayer = Layer.effect(
       RepositoryIdentityResolver.RepositoryIdentityResolver,
-      RepositoryIdentityResolver.make(),
+      RepositoryIdentityResolver.make({
+        refine: (identity) => {
+          refinements++;
+          if (refinementFails)
+            return Effect.fail(
+              new SourceControlProviderError({
+                provider: "forgejo",
+                operation: "detectProvider",
+                cwd: rootPath,
+                detail: "account unavailable",
+              }),
+            );
+          return Effect.succeed(
+            identity.canonicalKey.startsWith("ssh.forge.test/")
+              ? {
+                  ...identity,
+                  provider: "forgejo",
+                  webUrl: "http://forge.test:3000/git/team/repo",
+                }
+              : identity,
+          );
+        },
+      }),
     ).pipe(Layer.provide(processRunner));
 
     return Effect.gen(function* () {
@@ -172,6 +98,7 @@ it.layer(
 
       expect(first?.canonicalKey).toBe("github.com/t3tools/t3code");
       expect(second).toEqual(first);
+      expect(refinements).toBe(1);
       expect(calls).toEqual([
         ["-C", "/repo/packages/web", "rev-parse", "--show-toplevel"],
         ["-C", "/repo", "remote", "-v"],
@@ -184,6 +111,18 @@ it.layer(
         ["-C", "/repo/packages/web", "rev-parse", "--show-toplevel"],
         ["-C", "/repo/packages/web", "remote", "-v"],
       ]);
+      remoteUrl = "git@ssh.forge.test:team/repo.git";
+      const forgejo = yield* resolver.resolve(rootPath, { refresh: true });
+      expect(forgejo?.webUrl).toBe("http://forge.test:3000/git/team/repo");
+      expect(forgejo?.provider).toBe("forgejo");
+      expect(forgejo?.canonicalKey).toBe("ssh.forge.test/team/repo");
+      expect(forgejo?.locator.remoteUrl).toBe(remoteUrl);
+      expect(yield* resolver.resolve(rootPath)).toEqual(forgejo);
+      expect(refinements).toBe(3);
+      refinementFails = true;
+      const unavailable = yield* resolver.resolve(rootPath, { refresh: true });
+      expect(unavailable?.webUrl).toBeUndefined();
+      expect(unavailable?.canonicalKey).toBe("ssh.forge.test/team/repo");
     }).pipe(Effect.provide(resolverLayer));
   });
 

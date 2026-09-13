@@ -1,4 +1,4 @@
-import type { RepositoryIdentity } from "@t3tools/contracts";
+import type { RepositoryIdentity, SourceControlProviderError } from "@t3tools/contracts";
 import {
   detectSourceControlProviderFromGitRemoteUrl,
   normalizeGitRemoteUrl,
@@ -9,12 +9,7 @@ import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
-import { FetchHttpClient } from "effect/unstable/http";
 
-import { discovery as forgejoDiscovery } from "../sourceControl/forgejoAuth.ts";
-import * as ForgejoCli from "../sourceControl/ForgejoCli.ts";
-import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as ProcessRunner from "../processRunner.ts";
 
 const DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY = 512;
@@ -25,6 +20,9 @@ export interface RepositoryIdentityResolverOptions {
   readonly cacheCapacity?: number;
   readonly positiveCacheTtl?: Duration.Input;
   readonly negativeCacheTtl?: Duration.Input;
+  readonly refine?: (
+    identity: RepositoryIdentity,
+  ) => Effect.Effect<RepositoryIdentity, SourceControlProviderError>;
 }
 
 export class RepositoryIdentityResolver extends Context.Service<
@@ -121,11 +119,7 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   "RepositoryIdentityResolver.resolveFromCacheKey",
 )(function* (
   cacheKey: string,
-): Effect.fn.Return<
-  RepositoryIdentity | null,
-  never,
-  ProcessRunner.ProcessRunner | ForgejoCli.ForgejoCli
-> {
+): Effect.fn.Return<RepositoryIdentity | null, never, ProcessRunner.ProcessRunner> {
   const processRunner = yield* ProcessRunner.ProcessRunner;
   const remoteResult = yield* processRunner
     .run({
@@ -139,49 +133,13 @@ const resolveRepositoryIdentityFromCacheKey = Effect.fn(
   }
 
   const remote = pickPrimaryRemote(parseRemoteFetchUrls(remoteResult.value.stdout));
-  if (!remote) return null;
-  const identity = buildRepositoryIdentity({ ...remote, rootPath: cacheKey });
-  const provider = detectSourceControlProviderFromGitRemoteUrl(remote.remoteUrl);
-  if (provider?.kind !== "unknown") return identity;
-  const auth = yield* processRunner
-    .run({
-      command: "fj",
-      args: forgejoDiscovery.authArgs,
-      cwd: cacheKey,
-      timeout: 5_000,
-      maxOutputBytes: 8_000,
-      timeoutBehavior: "timedOutResult",
-    })
-    .pipe(Effect.option);
-  if (Option.isNone(auth) || auth.value.code === null) return identity;
-  const fj = yield* ForgejoCli.ForgejoCli;
-  const refined = yield* fj.refineUnknownRemote({
-    cwd: cacheKey,
-    context: { ...remote, provider },
-    auth: { stdout: auth.value.stdout, stderr: auth.value.stderr, exitCode: auth.value.code },
-  });
-  if (!refined) return identity;
-  const instance = new URL(refined.baseUrl);
-  const repository = identity.canonicalKey.split("/").slice(-2).join("/");
-  const owner = repository.split("/")[0];
-  const displayName = `${instance.pathname.replace(/^\/+|\/+$/gu, "")}/${repository}`.replace(
-    /^\//u,
-    "",
-  );
-  return {
-    ...identity,
-    provider: refined.kind,
-    canonicalKey: `${instance.host}/${displayName}`,
-    displayName,
-    ...(owner ? { owner } : {}),
-  };
+  return remote ? buildRepositoryIdentity({ ...remote, rootPath: cacheKey }) : null;
 });
 
 export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
   options: RepositoryIdentityResolverOptions = {},
 ) {
   const processRunner = yield* ProcessRunner.ProcessRunner;
-  const fj = yield* ForgejoCli.ForgejoCli;
   const cacheCapacity = options.cacheCapacity ?? DEFAULT_REPOSITORY_IDENTITY_CACHE_CAPACITY;
 
   const repositoryRootCache = yield* Cache.makeWith<string, string | null>(
@@ -203,7 +161,11 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
     (cacheKey) =>
       resolveRepositoryIdentityFromCacheKey(cacheKey).pipe(
         Effect.provideService(ProcessRunner.ProcessRunner, processRunner),
-        Effect.provideService(ForgejoCli.ForgejoCli, fj),
+        Effect.flatMap((identity) =>
+          identity !== null && options.refine
+            ? options.refine(identity).pipe(Effect.catch(() => Effect.succeed(identity)))
+            : Effect.succeed(identity),
+        ),
       ),
     {
       capacity: cacheCapacity,
@@ -231,8 +193,5 @@ export const make = Effect.fn("RepositoryIdentityResolver.make")(function* (
 });
 
 export const layer = Layer.effect(RepositoryIdentityResolver, make()).pipe(
-  Layer.provide(
-    ForgejoCli.layer.pipe(Layer.provide(VcsProcess.layer), Layer.provide(FetchHttpClient.layer)),
-  ),
   Layer.provide(ProcessRunner.layer),
 );

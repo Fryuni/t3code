@@ -4,7 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { TestClock } from "effect/testing";
+import * as TestClock from "effect/testing/TestClock";
 import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
@@ -16,10 +16,8 @@ import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as AzureDevOpsCli from "./AzureDevOpsCli.ts";
 import * as BitbucketApi from "./BitbucketApi.ts";
 import * as GitHubCli from "./GitHubCli.ts";
-import * as ForgejoCli from "./ForgejoCli.ts";
-import { discovery as forgejoDiscovery } from "./forgejoAuth.ts";
-import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as GitLabCli from "./GitLabCli.ts";
+import * as ForgejoCli from "./ForgejoCli.ts";
 import * as SourceControlProviderRegistry from "./SourceControlProviderRegistry.ts";
 
 const TEST_EPOCH = DateTime.makeUnsafe("1970-01-01T00:00:00.000Z");
@@ -44,6 +42,7 @@ function makeRegistry(input: {
     readonly url: string;
   }>;
   readonly process?: Partial<VcsProcess.VcsProcess["Service"]>;
+  readonly listLogins?: ForgejoCli.ForgejoCli["Service"]["listLogins"];
   readonly resolve?: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"];
 }) {
   const driver = {
@@ -91,6 +90,7 @@ function makeRegistry(input: {
   return SourceControlProviderRegistry.make.pipe(
     Effect.provide(
       Layer.mergeAll(
+        NodeServices.layer,
         registryLayer,
         processLayer,
         Layer.mock(AzureDevOpsCli.AzureDevOpsCli)({}),
@@ -98,10 +98,8 @@ function makeRegistry(input: {
         Layer.mock(GitHubCli.GitHubCli)({}),
         Layer.mock(GitLabCli.GitLabCli)({}),
         Layer.mock(ForgejoCli.ForgejoCli)({
-          refineUnknownRemote: (input) =>
-            Effect.succeed(forgejoDiscovery.refineUnknownRemote(input)),
+          listLogins: input.listLogins ?? (() => Effect.succeed([])),
         }),
-        Layer.mock(GitVcsDriver.GitVcsDriver)({}),
         ServerConfig.layerTest(process.cwd(), {
           prefix: "t3-source-control-registry-test-",
         }).pipe(Layer.provide(NodeServices.layer)),
@@ -186,137 +184,24 @@ it.effect("routes GitLab remotes to the GitLab provider", () =>
   }),
 );
 
-it.effect("routes all authenticated Forgejo instances and caches detection", () =>
-  Effect.gen(function* () {
-    const calls: VcsProcess.VcsProcessInput[] = [];
-    const registry = yield* makeRegistry({
-      remotes: [{ name: "origin", url: "ssh://git@code.example.test:2222/Owner/Repo.git" }],
-      process: {
-        run: (input) =>
-          Effect.sync(() => {
-            calls.push(input);
-            return processOutput(
-              input.command === "fj" ? "codeberg.org\ncode.example.test:8443" : "",
-            );
-          }),
-      },
-    });
-    const handle = yield* registry.resolveHandle({ cwd: "/repo" });
-    assert.strictEqual(handle.provider.kind, "forgejo");
-    assert.strictEqual(handle.context?.provider.baseUrl, "https://code.example.test:8443");
-    const count = calls.length;
-    yield* registry.resolve({ cwd: "/repo" });
-    assert.strictEqual(calls.length, count);
-    assert.deepStrictEqual(calls.find((call) => call.command === "fj")?.args, ["auth", "list"]);
-  }),
-);
-
-it.effect("shares cached refinement across status contexts and default-remote detection", () =>
-  Effect.gen(function* () {
-    const remoteUrl = "ssh://git@code.example.test:2222/Owner/Repo.git";
-    let probes = 0;
-    const registry = yield* makeRegistry({
-      remotes: [{ name: "origin", url: remoteUrl }],
-      process: {
-        run: () =>
-          Effect.sync(() => {
-            probes++;
-            return processOutput("code.example.test:8443");
-          }),
-      },
-    });
-    const context = (url = remoteUrl) => ({
-      provider: detectSourceControlProviderFromRemoteUrl(url)!,
-      remoteName: "origin",
-      remoteUrl: url,
-    });
-    const handles = yield* Effect.all(
-      [
-        registry.resolveHandle({ cwd: "/repo", context: context() }),
-        registry.resolveHandle({ cwd: "/repo", context: context() }),
-      ],
-      { concurrency: "unbounded" },
-    );
-    assert.strictEqual(handles[0]?.provider.kind, "forgejo");
-    assert.strictEqual(probes, 1);
-    yield* TestClock.adjust("6 seconds");
-    yield* registry.resolveHandle({ cwd: "/repo", context: context() });
-    yield* registry.resolveHandle({ cwd: "/repo" });
-    assert.strictEqual(probes, 1);
-    const changed = yield* registry.resolveHandle({
-      cwd: "/repo",
-      context: context("ssh://git@code.example.test:2222/Other/Repo.git"),
-    });
-    assert.strictEqual(
-      changed.context?.remoteUrl,
-      "ssh://git@code.example.test:2222/Other/Repo.git",
-    );
-    assert.strictEqual(probes, 2);
-    yield* TestClock.adjust("1 minute");
-    yield* registry.resolveHandle({ cwd: "/repo", context: context() });
-    assert.strictEqual(probes, 3);
-  }),
-);
-
-it.effect("caches unmatched remotes but discovers a new login after expiry", () =>
-  Effect.gen(function* () {
-    const remoteUrl = "https://code.example.test/Owner/Repo.git";
-    let authenticated = false;
-    const calls: VcsProcess.VcsProcessInput[] = [];
-    const registry = yield* makeRegistry({
-      remotes: [],
-      process: {
-        run: (input) =>
-          Effect.sync(() => {
-            calls.push(input);
-            return processOutput(
-              authenticated && input.command === "fj" ? "code.example.test" : "",
-            );
-          }),
-      },
-    });
-    const resolve = () =>
-      registry.resolveHandle({
-        cwd: "/repo",
-        context: {
-          remoteName: "origin",
-          remoteUrl,
-          provider: detectSourceControlProviderFromRemoteUrl(remoteUrl)!,
-        },
-      });
-    assert.strictEqual((yield* resolve()).provider.kind, "unknown");
-    const firstProbeCount = calls.length;
-    assert.isAbove(firstProbeCount, 0);
-    authenticated = true;
-    yield* TestClock.adjust("6 seconds");
-    assert.strictEqual((yield* resolve()).provider.kind, "unknown");
-    assert.strictEqual(calls.length, firstProbeCount);
-    yield* TestClock.adjust("1 minute");
-    assert.strictEqual((yield* resolve()).provider.kind, "forgejo");
-    assert.strictEqual(calls.length, firstProbeCount + 1);
-  }),
-);
-
 it.effect("routes authenticated self-hosted GitLab remotes without relying on host naming", () =>
   Effect.gen(function* () {
     const registry = yield* makeRegistry({
       remotes: [{ name: "origin", url: "https://self-hosted.example.test/group/project.git" }],
       process: {
-        run: ({ command }) =>
-          command !== "glab"
-            ? Effect.succeed(processOutput(""))
-            : Effect.succeed(
-                processOutput(
-                  `gitlab.com
+        run: () =>
+          Effect.succeed(
+            processOutput(
+              `gitlab.com
   x gitlab.com: API call failed: 401 Unauthorized
   ! No token found
 self-hosted.example.test
   ✓ Logged in to self-hosted.example.test as gitlab-user
   ✓ Token found: ******
 `,
-                  { exitCode: ChildProcessSpawner.ExitCode(1) },
-                ),
-              ),
+              { exitCode: ChildProcessSpawner.ExitCode(1) },
+            ),
+          ),
       },
     });
 
@@ -331,14 +216,12 @@ it.effect("refines the caller-selected remote instead of choosing another config
     const registry = yield* makeRegistry({
       remotes: [{ name: "origin", url: "git@github.com:fork/project.git" }],
       process: {
-        run: ({ command }) =>
-          command !== "glab"
-            ? Effect.succeed(processOutput(""))
-            : Effect.succeed(
-                processOutput(`self-hosted.example.test
+        run: () =>
+          Effect.succeed(
+            processOutput(`self-hosted.example.test
   ✓ Logged in to self-hosted.example.test as gitlab-user
 `),
-              ),
+          ),
       },
     });
 
@@ -365,17 +248,15 @@ it.effect("routes authenticated self-hosted GitLab remotes on non-standard ports
     const registry = yield* makeRegistry({
       remotes: [{ name: "origin", url: "https://self-hosted.example.test:8443/group/project.git" }],
       process: {
-        run: ({ command }) =>
-          command !== "glab"
-            ? Effect.succeed(processOutput(""))
-            : Effect.succeed(
-                processOutput(
-                  `self-hosted.example.test:8443
+        run: () =>
+          Effect.succeed(
+            processOutput(
+              `self-hosted.example.test:8443
   ✓ Logged in to self-hosted.example.test:8443 as gitlab-user
   ✓ Token found: ******
 `,
-                ),
-              ),
+            ),
+          ),
       },
     });
 
@@ -418,5 +299,50 @@ it.effect("falls back to a non-origin remote when origin is not configured", () 
     const provider = yield* registry.resolve({ cwd: "/repo" });
 
     assert.strictEqual(provider.kind, "azure-devops");
+  }),
+);
+
+it.effect("shares cached refinement while keeping requested web authorities separate", () =>
+  Effect.gen(function* () {
+    const remoteUrl = "ssh://git@ssh.example:2222/Owner/Repo.git";
+    let probes = 0;
+    const registry = yield* makeRegistry({
+      remotes: [{ name: "origin", url: remoteUrl }],
+      listLogins: () =>
+        Effect.sync(() => {
+          probes++;
+          return [3000, 4000].map((port) => ({
+            name: String(port),
+            url: `https://forge.example:${port}`,
+            ssh_host: "ssh.example:2222",
+            user: "alice",
+            default: "false",
+          }));
+        }),
+    });
+    const resolve = (port: number) =>
+      registry.resolveHandle({
+        cwd: "/repo",
+        context: {
+          provider: detectSourceControlProviderFromRemoteUrl(remoteUrl)!,
+          remoteName: "origin",
+          remoteUrl,
+          requestedHost: `forge.example:${port}`,
+        },
+      });
+    const handles = yield* Effect.all([resolve(3000), resolve(3000)], { concurrency: "unbounded" });
+    assert.strictEqual(handles[0]?.context?.provider.baseUrl, "https://forge.example:3000");
+    assert.strictEqual(probes, 1);
+    assert.strictEqual(
+      (yield* resolve(4000)).context?.provider.baseUrl,
+      "https://forge.example:4000",
+    );
+    assert.strictEqual(probes, 2);
+    yield* TestClock.adjust("6 seconds");
+    yield* resolve(3000);
+    assert.strictEqual(probes, 2);
+    yield* TestClock.adjust("1 minute");
+    yield* resolve(3000);
+    assert.strictEqual(probes, 3);
   }),
 );
