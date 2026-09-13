@@ -28,6 +28,27 @@ describe("settings pairing URL helpers", () => {
     expect(withPublicUrlEndpoint(loopbackEndpoints, undefined)).toBe(loopbackEndpoints);
   });
 
+  it("classifies private proxy origins as LAN instead of Internet-public", () => {
+    const reachabilityOf = (publicUrl: string) =>
+      withPublicUrlEndpoint([], publicUrl)[0]?.reachability;
+
+    expect(reachabilityOf("http://192.168.1.42:8080")).toBe("lan");
+    expect(reachabilityOf("http://10.0.0.5:8080")).toBe("lan");
+    expect(reachabilityOf("http://172.16.0.9:8080")).toBe("lan");
+    expect(reachabilityOf("http://t3.home.local:8080")).toBe("lan");
+    expect(reachabilityOf("http://[fd00::1]:8080")).toBe("lan");
+    expect(reachabilityOf("http://127.0.0.2:8080")).toBe("loopback");
+    expect(reachabilityOf("http://localhost:3773")).toBe("loopback");
+    // 172.32 is outside the private 172.16/12 block.
+    expect(reachabilityOf("https://172.32.0.1")).toBe("public");
+    expect(reachabilityOf("https://t3.example.com")).toBe("public");
+  });
+
+  it("keeps private proxy endpoints shareable despite the LAN label", () => {
+    const [endpoint] = withPublicUrlEndpoint([], "http://192.168.1.42:8080");
+    expect(endpoint && isQrShareableEndpoint(endpoint)).toBe(true);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });
