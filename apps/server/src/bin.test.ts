@@ -19,8 +19,10 @@ import { assert, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as DateTime from "effect/DateTime";
 import * as Layer from "effect/Layer";
+import * as Stream from "effect/Stream";
 import * as HttpRouter from "effect/unstable/http/HttpRouter";
 import * as HttpServer from "effect/unstable/http/HttpServer";
+import * as HttpServerResponse from "effect/unstable/http/HttpServerResponse";
 import * as HttpApi from "effect/unstable/httpapi/HttpApi";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 import * as CliError from "effect/unstable/cli/CliError";
@@ -357,14 +359,29 @@ it.layer(NodeServices.layer)("project lookup with unavailable workspaces", (it) 
   );
 });
 
-const withLiveProjectCliServer = <A, E, R>(baseDir: string, run: () => Effect.Effect<A, E, R>) =>
+const withLiveProjectCliServer = <A, E, R>(
+  baseDir: string,
+  run: () => Effect.Effect<A, E, R>,
+  mode: "web" | "desktop" = "web",
+) =>
   Effect.gen(function* () {
-    const config = yield* makeCliTestServerConfig(baseDir);
+    const config = { ...(yield* makeCliTestServerConfig(baseDir)), mode };
     const routesLayer = HttpApiBuilder.layer(ProjectCliHttpApi).pipe(
       Layer.provide(orchestrationHttpApiLayer),
       Layer.provide(environmentAuthenticatedAuthLayer),
     );
-    const appLayer = HttpRouter.serve(routesLayer, {
+    const descriptorLayer = HttpRouter.add(
+      "GET",
+      "/.well-known/t3/environment",
+      HttpServerResponse.json({
+        environmentId: "cli-test-environment",
+        label: "CLI test",
+        platform: { os: "linux", arch: "x64" },
+        serverVersion: "0.0.1",
+        capabilities: { repositoryIdentity: true },
+      }),
+    );
+    const appLayer = HttpRouter.serve(Layer.merge(routesLayer, descriptorLayer), {
       disableListenLog: true,
       disableLogger: true,
     }).pipe(
@@ -404,6 +421,156 @@ const withLiveProjectCliServer = <A, E, R>(baseDir: string, run: () => Effect.Ef
       }).pipe(Effect.provide(Layer.mergeAll(appLayer, NodeServices.layer))),
     );
   });
+
+it.layer(NodeServices.layer)("t3 wake", (it) => {
+  it.effect.each(["web", "desktop"] as const)(
+    "sends one message and requests a turn through a running %s server",
+    (mode) =>
+      Effect.gen(function* () {
+        const { baseDir } = yield* makeProjectLookupFixture(true, false);
+        const threadId = ThreadId.make("thread-project-lookup");
+        yield* withLiveProjectCliServer(
+          baseDir,
+          () =>
+            Effect.gen(function* () {
+              const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+              const createdAt = DateTime.formatIso(yield* DateTime.now);
+              yield* engine.dispatch({
+                type: "thread.runtime-mode.set",
+                commandId: CommandId.make("wake-runtime"),
+                threadId,
+                runtimeMode: "full-access",
+                createdAt,
+              });
+              yield* engine.dispatch({
+                type: "thread.interaction-mode.set",
+                commandId: CommandId.make("wake-interaction"),
+                threadId,
+                interactionMode: "plan",
+                createdAt,
+              });
+              yield* engine.dispatch({
+                type: "thread.settle",
+                commandId: CommandId.make("wake-settle"),
+                threadId,
+              });
+              yield* engine.dispatch({
+                type: "thread.snooze",
+                commandId: CommandId.make("wake-snooze"),
+                threadId,
+                snoozedUntil: "2099-01-01T00:00:00.000Z",
+              });
+              const beforeSequence = yield* engine.latestSequence;
+              const message = "  Continue the task.\nKeep the existing settings.  ";
+              const { output } = yield* captureStdout(
+                runCli(["wake", threadId, message, "--base-dir", baseDir]),
+              );
+              assert.include(output, `Sent message to thread ${threadId}`);
+              const events = yield* engine.readEvents(beforeSequence).pipe(Stream.runCollect);
+              const messages = events.filter((event) => event.type === "thread.message-sent");
+              assert.equal(messages.length, 1);
+              assert.equal(messages[0]?.payload.text, message);
+              const starts = events.filter((event) => event.type === "thread.turn-start-requested");
+              assert.equal(starts.length, 1);
+              assert.equal(starts[0]?.payload.messageId, messages[0]?.payload.messageId);
+              assert.equal(starts[0]?.payload.runtimeMode, "full-access");
+              assert.equal(starts[0]?.payload.interactionMode, "plan");
+              const query = yield* ProjectionSnapshotQuery.ProjectionSnapshotQuery;
+              const snapshot = yield* query.getSnapshot();
+              const thread = snapshot.threads.find((entry) => entry.id === threadId)!;
+              assert.deepEqual(thread.modelSelection, {
+                instanceId: ProviderInstanceId.make("codex"),
+                model: "gpt-5-codex",
+              });
+              assert.isNull(thread.settledOverride);
+              assert.isNull(thread.snoozedUntil);
+              const auth = yield* EnvironmentAuth.EnvironmentAuth;
+              const sessions = yield* auth.listSessions();
+              assert.equal(sessions.length, 0);
+            }),
+          mode,
+        );
+      }),
+  );
+
+  it.effect("fails without creating state when no server is running", () =>
+    Effect.gen(function* () {
+      const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-wake-none-"));
+      const error = yield* runCliWithRuntime([
+        "wake",
+        "thread-missing",
+        "Continue",
+        "--base-dir",
+        baseDir,
+      ]).pipe(Effect.flip);
+      assert.include(error.message, "No running T3 Code server found.");
+      assert.deepEqual(NodeFS.readdirSync(baseDir), []);
+    }),
+  );
+
+  it.effect.each(["", "   ", "x".repeat(120_001)])(
+    "rejects an invalid message before accessing server state",
+    (message) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-wake-invalid-"));
+        const error = yield* runCliWithRuntime([
+          "wake",
+          "thread-missing",
+          message,
+          "--base-dir",
+          baseDir,
+        ]).pipe(Effect.flip);
+        assert.include(error.message, "Message cannot");
+        assert.deepEqual(NodeFS.readdirSync(baseDir), []);
+      }),
+  );
+
+  it.effect("fails on stale runtime state without changing the persisted thread", () =>
+    Effect.gen(function* () {
+      const { baseDir } = yield* makeProjectLookupFixture(true, false);
+      yield* withLiveProjectCliServer(baseDir, () => Effect.void);
+      const before = yield* readPersistedSnapshot(baseDir);
+      const error = yield* runCliWithRuntime([
+        "wake",
+        "thread-project-lookup",
+        "Continue",
+        "--base-dir",
+        baseDir,
+      ]).pipe(Effect.flip);
+      assert.include(error.message, "No running T3 Code server found.");
+      assert.deepEqual(yield* readPersistedSnapshot(baseDir), before);
+    }),
+  );
+
+  it.effect.each([false, true])("rejects missing or deleted threads (deleted=%s)", (deleted) =>
+    Effect.gen(function* () {
+      const { baseDir } = yield* makeProjectLookupFixture(true, false);
+      yield* withLiveProjectCliServer(baseDir, () =>
+        Effect.gen(function* () {
+          const engine = yield* OrchestrationEngine.OrchestrationEngineService;
+          const threadId = ThreadId.make(deleted ? "thread-project-lookup" : "missing-thread");
+          if (deleted) {
+            yield* engine.dispatch({
+              type: "thread.delete",
+              commandId: CommandId.make("wake-delete"),
+              threadId,
+            });
+          }
+          const beforeSequence = yield* engine.latestSequence;
+          const error = yield* runCliWithRuntime([
+            "wake",
+            threadId,
+            "Continue",
+            "--base-dir",
+            baseDir,
+          ]).pipe(Effect.flip);
+          assert.include(error.message, threadId);
+          assert.equal(yield* engine.latestSequence, beforeSequence);
+        }),
+      );
+    }),
+  );
+});
 
 it.layer(NodeServices.layer)("bin cli parsing", (it) => {
   it.effect("accepts the built-in lowercase log-level flag values", () =>

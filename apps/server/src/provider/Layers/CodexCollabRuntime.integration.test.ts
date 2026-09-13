@@ -24,7 +24,18 @@ import { assert, describe } from "vite-plus/test";
 
 import wireFixture from "../testFixtures/codexMultiAgentWire.json" with { type: "json" };
 import { makeCodexSessionRuntime } from "./CodexSessionRuntime.ts";
+import { writeFakeCli } from "../../testUtils/fakeCli.ts";
 import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
+
+const decodeRecordedEnvironment = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(
+    Schema.Struct({
+      threadId: Schema.String,
+      childThreadId: Schema.String,
+      args: Schema.Array(Schema.String),
+    }),
+  ),
+);
 
 const ROOT = wireFixture.rootThreadId;
 const [CHILD_A, CHILD_B] = wireFixture.childThreadIds as [string, string];
@@ -166,6 +177,54 @@ const peerPath = NodePath.join(
 );
 
 describe("CodexSessionRuntime collab integration", () => {
+  it.effect("passes the T3 thread environment to Codex and its child commands", () =>
+    Effect.gen(function* () {
+      const directory = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "codex-thread-env-"));
+      yield* Effect.addFinalizer(() =>
+        Effect.sync(() => NodeFS.rmSync(directory, { recursive: true, force: true })),
+      );
+      const fixturePath = NodePath.join(directory, "script.json");
+      const logPath = NodePath.join(directory, "environment.json");
+      // @effect-diagnostics-next-line preferSchemaOverJson:off - Scripted peer fixture.
+      NodeFS.writeFileSync(fixturePath, JSON.stringify({ rootThreadId: ROOT, notifications: [] }));
+      const binaryPath = writeFakeCli({
+        directory,
+        name: "codex-env-peer",
+        source: [
+          'import { execFileSync } from "node:child_process";',
+          'import { writeFileSync } from "node:fs";',
+          'const childThreadId = execFileSync(process.execPath, ["-p", "process.env.T3CODE_THREAD_ID"], { encoding: "utf8" }).trim();',
+          // @effect-diagnostics-next-line preferSchemaOverJson:off - Quote a filesystem path in generated JavaScript.
+          `writeFileSync(${JSON.stringify(logPath)}, JSON.stringify({ threadId: process.env.T3CODE_THREAD_ID, childThreadId, args: process.argv.slice(2) }));`,
+          // @effect-diagnostics-next-line preferSchemaOverJson:off - Quote an import URL in generated JavaScript.
+          `await import(${JSON.stringify(new URL("../testFixtures/codexCollabMockPeer.mjs", import.meta.url).href)});`,
+        ].join("\n"),
+      });
+      const threadId = ThreadId.make("t3-thread-environment");
+      const environment = {
+        ...process.env,
+        T3_CODEX_COLLAB_SCRIPT: fixturePath,
+        T3CODE_THREAD_ID: "inherited-thread",
+      };
+      const runtime = yield* makeCodexSessionRuntime({
+        threadId,
+        binaryPath,
+        cwd: directory,
+        runtimeMode: "full-access",
+        environment,
+      });
+      yield* runtime.start();
+      const recorded = yield* decodeRecordedEnvironment(NodeFS.readFileSync(logPath, "utf8"));
+      assert.equal(recorded.threadId, threadId);
+      assert.equal(recorded.childThreadId, threadId);
+      assert.include(
+        recorded.args,
+        'shell_environment_policy.set.T3CODE_THREAD_ID="t3-thread-environment"',
+      );
+      assert.equal(environment.T3CODE_THREAD_ID, "inherited-thread");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("looks up child model metadata once after activity registration", () =>
     Effect.gen(function* () {
       const script = {

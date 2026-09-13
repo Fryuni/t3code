@@ -758,6 +758,73 @@ describe("OrchestrationEngine", () => {
     await system.dispose();
   });
 
+  it.each(["thread.archive", "thread.delete"] as const)(
+    "rejects a stale turn request after %s without persisting its message",
+    async (type) => {
+      const system = await createOrchestrationSystem();
+      try {
+        const projectId = ProjectId.make("wake-race-project");
+        const threadId = ThreadId.make("wake-race-thread");
+        await system.run(
+          system.engine.dispatch({
+            type: "project.create",
+            commandId: CommandId.make("wake-race-project-create"),
+            projectId,
+            title: "Wake race project",
+            workspaceRoot: "/tmp/wake-race-project",
+            createdAt: now(),
+          }),
+        );
+        await system.run(
+          system.engine.dispatch({
+            type: "thread.create",
+            commandId: CommandId.make("wake-race-thread-create"),
+            threadId,
+            projectId,
+            title: "Wake race thread",
+            modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5" },
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: null,
+            worktreePath: null,
+            createdAt: now(),
+          }),
+        );
+        const observed = (await system.readModel()).threads[0]!;
+        const command = {
+          type: "thread.turn.start",
+          commandId: CommandId.make("wake-race-turn"),
+          threadId,
+          message: {
+            messageId: MessageId.make("wake-race-message"),
+            role: "user",
+            text: "Continue",
+            attachments: [],
+          },
+          runtimeMode: observed.runtimeMode,
+          interactionMode: observed.interactionMode,
+          createdAt: now(),
+        } satisfies OrchestrationCommand;
+        await system.run(
+          system.engine.dispatch({
+            type,
+            commandId: CommandId.make("wake-race-deactivate"),
+            threadId,
+          }),
+        );
+        const before = await system.readModel();
+        const sequence = await system.run(system.engine.latestSequence);
+        const error = await system.run(system.engine.dispatch(command).pipe(Effect.flip));
+        expect(error._tag).toBe("OrchestrationCommandInvariantError");
+        expect(error.message).toContain(type === "thread.archive" ? "archived" : "deleted");
+        expect(await system.run(system.engine.latestSequence)).toBe(sequence);
+        expect(await system.readModel()).toEqual(before);
+      } finally {
+        await system.dispose();
+      }
+    },
+  );
+
   it("archives and unarchives threads through orchestration commands", async () => {
     const system = await createOrchestrationSystem();
     const { engine } = system;

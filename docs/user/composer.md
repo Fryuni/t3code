@@ -12,6 +12,31 @@ becomes an attachment when inserting it would exceed the message limit. On a
 hardware keyboard, use `Cmd+Shift+V` on Apple devices or `Ctrl+Shift+V` elsewhere
 to keep a large paste editable in the composer instead.
 
+## Wake a thread from the command line
+
+Send a message to an existing thread and have its agent start working:
+
+```sh
+t3 wake <thread-id> "Continue the task and run the tests"
+```
+
+Run this on the environment's machine while its T3 Code server or desktop app is
+running. The command fails if no server is running; it never starts one. It uses
+the thread's existing provider, model, permission mode, and interaction mode, and
+returns after the server accepts the turn request.
+
+Use `--base-dir <t3-home>` to select a server using a different T3 home. Inside a
+linked worktree, discovery checks the worktree's `.t3` first, then `T3CODE_HOME`
+or the default T3 home.
+
+Agent processes launched by T3 Code receive `T3CODE_THREAD_ID`, the ID of their
+T3 thread. Scripts and child commands can read it from their environment instead
+of accepting a thread ID argument. The value is set when the provider session
+starts or resumes; already-running processes need a session restart to receive it.
+This does not apply to externally managed OpenCode servers, whose process
+environment T3 Code does not control. Custom provider environment filters may
+also restrict which variables reach tools.
+
 ## Attach files
 
 Attach up to eight files per message. Images can be up to 10 MB; other files can

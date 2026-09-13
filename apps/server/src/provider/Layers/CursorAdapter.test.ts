@@ -162,6 +162,65 @@ const cursorAdapterTestLayer = it.layer(
 );
 
 cursorAdapterTestLayer("CursorAdapterLive", (it) => {
+  it.effect(
+    "passes the thread environment to ACP agents and their child commands on start and resume",
+    () =>
+      Effect.gen(function* () {
+        const adapter = yield* CursorAdapter;
+        const settings = yield* ServerSettingsService;
+        const workspace = yield* Effect.promise(() =>
+          NodeFSP.mkdtemp(NodePath.join(NodeOS.tmpdir(), "cursor-thread-env-")),
+        );
+        const logPath = NodePath.join(workspace, "environment.jsonl");
+        const binaryPath = writeFakeCli({
+          directory: workspace,
+          name: "thread-environment-agent",
+          source: [
+            'import { execFileSync } from "node:child_process";',
+            'import { appendFileSync as recordEnvironment } from "node:fs";',
+            'const childThreadId = execFileSync(process.execPath, ["-p", "process.env.T3CODE_THREAD_ID"], { encoding: "utf8" }).trim();',
+            // @effect-diagnostics-next-line preferSchemaOverJson:off - Quote a filesystem path in generated JavaScript.
+            `recordEnvironment(${JSON.stringify(logPath)}, JSON.stringify([process.env.T3CODE_THREAD_ID, childThreadId]) + "\\n");`,
+            execScriptSource({ scriptPath: mockAgentPath }),
+          ].join("\n"),
+        });
+        yield* settings.updateSettings({ providers: { cursor: { binaryPath } } });
+        const firstId = ThreadId.make("cursor-thread-env-first");
+        const secondId = ThreadId.make("cursor-thread-env-second");
+        const first = yield* adapter.startSession({
+          threadId: firstId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+        yield* adapter.startSession({
+          threadId: secondId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+        });
+        yield* adapter.stopSession(firstId);
+        yield* adapter.startSession({
+          threadId: firstId,
+          cwd: workspace,
+          runtimeMode: "full-access",
+          resumeCursor: first.resumeCursor,
+        });
+        const lines = yield* Effect.promise(() => NodeFSP.readFile(logPath, "utf8"));
+        assert.deepEqual(
+          lines
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line)),
+          [
+            [firstId, firstId],
+            [secondId, secondId],
+            [firstId, firstId],
+          ],
+        );
+        yield* adapter.stopSession(firstId);
+        yield* adapter.stopSession(secondId);
+      }),
+  );
+
   it.effect("rejects rollback without discarding the provider conversation", () =>
     Effect.gen(function* () {
       const adapter = yield* CursorAdapter;

@@ -2833,10 +2833,13 @@ export function makeOpenCodeAdapter(
                 directory,
                 serverUrl,
                 ...(serverPassword ? { serverPassword } : {}),
-                environment: McpProviderSession.withAgentDeviceEnvironment(
-                  options?.environment ?? process.env,
-                  mcpSession,
-                ),
+                environment: {
+                  ...McpProviderSession.withAgentDeviceEnvironment(
+                    options?.environment ?? process.env,
+                    mcpSession,
+                  ),
+                  T3CODE_THREAD_ID: input.threadId,
+                },
               });
               const client = openCodeRuntime.createOpenCodeSdkClient({
                 baseUrl: server.url,

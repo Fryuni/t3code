@@ -20,6 +20,7 @@ import { serviceCommand } from "./cli/service.ts";
 import { servicePreflightCommand } from "./cli/servicePreflight.ts";
 import { themeCommand } from "./cli/theme.ts";
 import { triageCommand } from "./cli/triage.ts";
+import { wakeCommand } from "./cli/wake.ts";
 
 const CliRuntimeLayer = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -62,6 +63,7 @@ export const makeCli = ({ cloudEnabled = hasCloudPublicConfig } = {}) =>
       servicePreflightCommand,
       themeCommand,
       triageCommand,
+      wakeCommand,
       cloudEnabled ? connectCommand : connectUnavailableCommand,
     ]),
   );
