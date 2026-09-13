@@ -33,6 +33,12 @@ describe("settings pairing URL helpers", () => {
       withPublicUrlEndpoint([], publicUrl)[0]?.reachability;
 
     expect(reachabilityOf("http://192.168.1.42:8080")).toBe("lan");
+    expect(reachabilityOf("http://100.100.100.100:3773")).toBe("private-network");
+    expect(reachabilityOf("http://100.64.0.1:3773")).toBe("private-network");
+    expect(reachabilityOf("http://100.127.255.254:3773")).toBe("private-network");
+    // Just outside the 100.64/10 tailnet block.
+    expect(reachabilityOf("https://100.128.0.1")).toBe("public");
+    expect(reachabilityOf("https://100.63.0.1")).toBe("public");
     expect(reachabilityOf("http://10.0.0.5:8080")).toBe("lan");
     expect(reachabilityOf("http://172.16.0.9:8080")).toBe("lan");
     expect(reachabilityOf("http://t3.home.local:8080")).toBe("lan");
