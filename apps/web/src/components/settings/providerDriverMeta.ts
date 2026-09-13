@@ -5,6 +5,7 @@ import {
   CursorSettings,
   GrokSettings,
   OpenCodeSettings,
+  OhMyPiSettings,
   ProviderDriverKind,
 } from "@t3tools/contracts";
 import type * as Schema from "effect/Schema";
@@ -16,6 +17,7 @@ import {
   type Icon,
   OpenAI,
   OpenCodeIcon,
+  OhMyPiIcon,
 } from "../Icons";
 
 type ProviderSettingsSchema = {
@@ -44,6 +46,12 @@ export interface ProviderClientDefinition {
 }
 
 const PROVIDER_CLIENT_DEFINITIONS: readonly ProviderClientDefinition[] = [
+  {
+    value: ProviderDriverKind.make("ohMyPi"),
+    label: "OhMyPi",
+    icon: OhMyPiIcon,
+    settingsSchema: OhMyPiSettings,
+  },
   {
     value: ProviderDriverKind.make("codex"),
     label: "Codex",

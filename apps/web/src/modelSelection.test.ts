@@ -657,6 +657,35 @@ describe("instance-scoped model selection", () => {
     }
   });
 
+  it("offers only account catalog models for OhMyPi despite custom model settings", () => {
+    const driver = ProviderDriverKind.make("ohMyPi");
+    const customId = ProviderInstanceId.make("ohMyPi_work");
+    const nativeModel = "openai/gpt";
+    const settings: UnifiedSettings = {
+      ...DEFAULT_UNIFIED_SETTINGS,
+      providers: {
+        ...DEFAULT_UNIFIED_SETTINGS.providers,
+        ohMyPi: {
+          ...DEFAULT_UNIFIED_SETTINGS.providers.ohMyPi,
+          customModels: ["api-only-model"],
+        },
+      },
+      providerInstances: {
+        [customId]: { driver, config: { customModels: ["unknown-model"] } },
+      },
+    };
+    const entries = deriveProviderInstanceEntries([
+      provider({ provider: driver, instanceId: "ohMyPi", models: [nativeModel] }),
+      provider({ provider: driver, instanceId: customId, models: [nativeModel] }),
+    ]);
+
+    for (const entry of entries) {
+      expect(getAppModelOptionsForInstance(settings, entry).map((model) => model.slug)).toEqual([
+        nativeModel,
+      ]);
+    }
+  });
+
   it("resolves the Antigravity default marker without creating an unavailable model", () => {
     const instanceId = ProviderInstanceId.make("antigravity_work");
     const nativeModel = "gemini-3.1-pro";
