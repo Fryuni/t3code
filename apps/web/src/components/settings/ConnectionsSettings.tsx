@@ -2552,6 +2552,12 @@ export function ConnectionsSettings() {
       selectPairingEndpoint(visibleDesktopNetworkAdvertisedEndpoints, defaultAdvertisedEndpointKey),
     [defaultAdvertisedEndpointKey, visibleDesktopNetworkAdvertisedEndpoints],
   );
+  // A server behind an external proxy advertises a public URL while local
+  // network exposure stays off, so the network access row has an endpoint to
+  // name even though the toggle reads as local-only.
+  const hasRemoteAdvertisedEndpoint =
+    defaultDesktopNetworkAdvertisedEndpoint !== null &&
+    defaultDesktopNetworkAdvertisedEndpoint.reachability !== "loopback";
   const defaultDesktopAdvertisedEndpoint = useMemo(
     () =>
       defaultDesktopNetworkAdvertisedEndpoint ??
@@ -3188,7 +3194,7 @@ export function ConnectionsSettings() {
     <SettingsRow
       title={searchableSetting("network-access").title}
       description={
-        isLocalBackendNetworkAccessible ? (
+        isLocalBackendNetworkAccessible || hasRemoteAdvertisedEndpoint ? (
           <NetworkAccessDescription
             endpoint={defaultDesktopNetworkAdvertisedEndpoint}
             hiddenEndpointCount={Math.max(visibleDesktopNetworkAdvertisedEndpoints.length - 1, 0)}
