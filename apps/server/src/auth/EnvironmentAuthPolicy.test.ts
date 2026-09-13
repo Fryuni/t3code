@@ -119,6 +119,27 @@ it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
     ),
   );
 
+  it.effect("gives a proxied loopback web server the stable remote cookie name", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+
+      expect(descriptor.policy).toBe("remote-reachable");
+      // The proxy origin outlives the internal port, so the cookie must not be
+      // scoped to the port this process happened to grab.
+      expect(descriptor.sessionCookieName).toMatch(/^t3_session_[a-f0-9]{12}$/);
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "web",
+          host: "127.0.0.1",
+          port: 3773,
+          publicUrl: new URL("https://t3.example.com"),
+        }),
+      ),
+    ),
+  );
+
   it.effect("uses remote-reachable policy for wildcard web hosts", () =>
     Effect.gen(function* () {
       const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;

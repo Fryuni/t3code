@@ -18,6 +18,9 @@ const SESSION_COOKIE_NAME = "t3_session";
  *
  * Remote web servers use their persisted environment identity and omit the
  * port, so the name survives state-directory moves and public port changes.
+ * A loopback listener advertised through `--public-url` counts as remote: the
+ * proxy origin is the only host browsers see, and the internal port behind it
+ * can move on any restart.
  *
  * Desktop scans upward from 3773 for a free port and binds
  *   127.0.0.1, so a second instance lands on a different port and the same host.
@@ -26,6 +29,7 @@ export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
   readonly port: number;
   readonly host: string | undefined;
+  readonly publicUrl: URL | undefined;
   readonly instanceKey: string;
   readonly environmentId: string;
   readonly development: boolean;
@@ -34,16 +38,13 @@ export function resolveSessionCookieName(input: {
     return `${SESSION_COOKIE_NAME}_${input.port}`;
   }
 
+  const remoteReachable = !input.development && isRemoteReachableServer(input);
   const instanceHash = NodeCrypto.createHash("sha256")
-    .update(
-      !input.development && isRemoteReachableHost(input.host)
-        ? input.environmentId
-        : input.instanceKey,
-    )
+    .update(remoteReachable ? input.environmentId : input.instanceKey)
     .digest("hex")
     .slice(0, 12);
 
-  if (!input.development && isRemoteReachableHost(input.host)) {
+  if (remoteReachable) {
     return `${SESSION_COOKIE_NAME}_${instanceHash}`;
   }
 
@@ -56,9 +57,10 @@ export function resolveSessionCookieName(input: {
 export function resolveLegacySessionCookieName(input: {
   readonly mode: "web" | "desktop";
   readonly host: string | undefined;
+  readonly publicUrl: URL | undefined;
   readonly development: boolean;
 }): string | undefined {
-  return input.mode === "web" && !input.development && isRemoteReachableHost(input.host)
+  return input.mode === "web" && !input.development && isRemoteReachableServer(input)
     ? SESSION_COOKIE_NAME
     : undefined;
 }
@@ -76,6 +78,22 @@ export function isRemoteReachableHost(host: string | undefined): boolean {
     host === "::1" ||
     host === "[::1]" ||
     host.startsWith("127.")
+  );
+}
+
+/**
+ * A server is reachable from other machines when it binds a non-loopback
+ * interface *or* advertises an external origin that some other process routes
+ * to it. Callers that only look at the bind address misclassify a loopback
+ * listener sitting behind a reverse proxy.
+ */
+export function isRemoteReachableServer(input: {
+  readonly host: string | undefined;
+  readonly publicUrl: URL | undefined;
+}): boolean {
+  return (
+    isRemoteReachableHost(input.host) ||
+    (input.publicUrl !== undefined && isRemoteReachableHost(input.publicUrl.hostname))
   );
 }
 

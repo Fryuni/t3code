@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   deriveAuthClientMetadata,
   isRemoteReachableHost,
+  isRemoteReachableServer,
   resolveSessionCookieName,
 } from "./utils.ts";
 
@@ -63,6 +64,7 @@ describe("session cookie isolation", () => {
       mode: "web",
       port: 5775,
       host: "127.0.0.1",
+      publicUrl: undefined,
       instanceKey: "/tmp/t3-agent-one",
       environmentId: "environment-one",
       development: true,
@@ -71,6 +73,7 @@ describe("session cookie isolation", () => {
       mode: "web",
       port: 5775,
       host: "127.0.0.1",
+      publicUrl: undefined,
       instanceKey: "/tmp/t3-agent-two",
       environmentId: "environment-two",
       development: true,
@@ -86,6 +89,7 @@ describe("session cookie isolation", () => {
       mode: "web",
       port: 3773,
       host: "192.168.1.50",
+      publicUrl: undefined,
       instanceKey: "/srv/t3-one",
       environmentId: "environment-one",
       development: false,
@@ -94,6 +98,7 @@ describe("session cookie isolation", () => {
       mode: "web",
       port: 5775,
       host: "192.168.1.50",
+      publicUrl: undefined,
       instanceKey: "/srv/t3-two",
       environmentId: "environment-two",
       development: false,
@@ -109,6 +114,7 @@ describe("session cookie isolation", () => {
       mode: "web",
       port: 8080,
       host: "0.0.0.0",
+      publicUrl: undefined,
       instanceKey: "/srv/t3",
       environmentId: "environment-one",
       development: false,
@@ -117,6 +123,7 @@ describe("session cookie isolation", () => {
       mode: "web",
       port: 9090,
       host: "app.example.com",
+      publicUrl: undefined,
       instanceKey: "/srv/t3",
       environmentId: "environment-one",
       development: false,
@@ -131,6 +138,7 @@ describe("session cookie isolation", () => {
         mode: "desktop",
         port: 3773,
         host: "127.0.0.1",
+        publicUrl: undefined,
         instanceKey: "/tmp/desktop",
         environmentId: "environment-one",
         development: true,
@@ -144,11 +152,66 @@ describe("session cookie isolation", () => {
         mode: "web",
         port: 5775,
         host: "0.0.0.0",
+        publicUrl: undefined,
         instanceKey: "/tmp/t3-wildcard-dev",
         environmentId: "environment-one",
         development: true,
       }),
     ).toMatch(/^t3_session_5775_[a-f0-9]{12}$/);
+  });
+
+  it("keeps a proxied loopback server's cookie stable when its internal port moves", () => {
+    // `--public-url` servers keep binding 127.0.0.1, but browsers only ever see
+    // the proxy origin. Port-scoped names would log everyone out whenever the
+    // server restarted onto a different internal port.
+    const first = resolveSessionCookieName({
+      mode: "web",
+      port: 3773,
+      host: "127.0.0.1",
+      publicUrl: new URL("https://t3.example.com"),
+      instanceKey: "/srv/t3",
+      environmentId: "environment-one",
+      development: false,
+    });
+    const second = resolveSessionCookieName({
+      mode: "web",
+      port: 3774,
+      host: "127.0.0.1",
+      publicUrl: new URL("https://t3.example.com"),
+      instanceKey: "/srv/t3",
+      environmentId: "environment-one",
+      development: false,
+    });
+
+    expect(first).toMatch(/^t3_session_[a-f0-9]{12}$/);
+    expect(first).toBe(second);
+  });
+
+  it("keeps loopback-only servers port-scoped when no public URL is advertised", () => {
+    expect(
+      resolveSessionCookieName({
+        mode: "web",
+        port: 3773,
+        host: "127.0.0.1",
+        publicUrl: undefined,
+        instanceKey: "/srv/t3",
+        environmentId: "environment-one",
+        development: false,
+      }),
+    ).toMatch(/^t3_session_3773_[a-f0-9]{12}$/);
+  });
+
+  it("does not treat a loopback public URL as remotely reachable", () => {
+    expect(
+      isRemoteReachableServer({
+        host: "127.0.0.1",
+        publicUrl: new URL("http://localhost:8080"),
+      }),
+    ).toBe(false);
+    expect(
+      isRemoteReachableServer({ host: "127.0.0.1", publicUrl: new URL("https://t3.example.com") }),
+    ).toBe(true);
+    expect(isRemoteReachableServer({ host: "0.0.0.0", publicUrl: undefined })).toBe(true);
   });
 
   it("classifies loopback aliases separately from remotely reachable hosts", () => {
