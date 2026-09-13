@@ -8,6 +8,7 @@ import {
   ThreadId,
   type ProviderRuntimeEvent,
 } from "@t3tools/contracts";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
@@ -188,6 +189,14 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           if (event.type === "turn.completed") break;
         }
         expect(steered.turnId).toBe(original.turnId);
+        expect(
+          seen.some(
+            (event) =>
+              event.type === "content.delta" &&
+              event.payload.streamKind === "reasoning_text" &&
+              event.payload.delta === "native-cancel-received",
+          ),
+        ).toBe(true);
         expect(seen.filter((event) => event.type === "turn.started")).toHaveLength(1);
         expect(seen.filter((event) => event.type === "turn.completed")).toMatchObject([
           { turnId: original.turnId, payload: { state: "completed" } },
@@ -208,6 +217,87 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
       }).pipe(Effect.scoped),
     );
   }
+
+  it.effect("stops during attachment preparation without dispatching a prompt", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const logPath = path.join(directory, "stop-preparing.jsonl");
+      const readStarted = yield* Deferred.make<void>();
+      const releaseRead = yield* Deferred.make<void>();
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-stop-mock",
+          env: { T3_ACP_REQUEST_LOG_PATH: logPath },
+          source: execScriptSource({
+            scriptPath: NodeURL.fileURLToPath(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+          }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      }).pipe(
+        Effect.provideService(FileSystem.FileSystem, {
+          ...fs,
+          readFile: () =>
+            Effect.gen(function* () {
+              yield* Deferred.succeed(readStarted, undefined);
+              yield* Deferred.await(releaseRead);
+              return new Uint8Array([1]);
+            }),
+        }),
+      );
+      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      yield* instance.adapter.streamEvents.pipe(
+        Stream.runForEach((event) => Queue.offer(events, event)),
+        Effect.forkChild,
+      );
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      const sending = yield* instance.adapter
+        .sendTurn({
+          threadId,
+          input: "read this image",
+          attachments: [
+            {
+              type: "image",
+              id: "omp-thread-00000000-0000-4000-8000-000000000000",
+              name: "image.png",
+              mimeType: "image/png",
+              sizeBytes: 1,
+            },
+          ],
+        })
+        .pipe(Effect.forkChild);
+      yield* Deferred.await(readStarted);
+      yield* instance.adapter.interruptTurn(threadId);
+      yield* Deferred.succeed(releaseRead, undefined);
+      const stopped = yield* Fiber.join(sending);
+      while (true) {
+        const event = yield* Queue.take(events);
+        if (event.type !== "turn.completed") continue;
+        expect(event.turnId).toBe(stopped.turnId);
+        expect(event.payload.state).toBe("cancelled");
+        break;
+      }
+      expect(yield* fs.readFileString(logPath)).not.toContain('"method":"session/prompt"');
+      const next = yield* instance.adapter.sendTurn({ threadId, input: "new task" });
+      expect(next.turnId).not.toBe(stopped.turnId);
+      expect(yield* fs.readFileString(logPath)).toContain('"method":"session/prompt"');
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
+  );
 
   it.effect.skipIf(process.env.T3_OH_MY_PI_MODELS_PROBE !== "1")(
     "discovers models from the installed OhMyPi CLI",

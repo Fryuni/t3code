@@ -113,6 +113,7 @@ interface OhMyPiSessionContext {
    * >0 means a turn is actively running, so a new sendTurn is a steer that
    * continues it, and only the last remaining prompt settles the turn. */
   promptsInFlight: number;
+  interruptionVersion: number;
   stopped: boolean;
 }
 
@@ -570,6 +571,7 @@ export function makeOhMyPiAdapter(
             lastPlanFingerprint: undefined,
             activeTurnId: undefined,
             promptsInFlight: 0,
+            interruptionVersion: 0,
             stopped: false,
           };
 
@@ -661,6 +663,7 @@ export function makeOhMyPiAdapter(
                       }),
                     );
                     return;
+                  case "ThoughtDelta":
                   case "ContentDelta":
                     yield* logNative(
                       ctx.threadId,
@@ -674,7 +677,10 @@ export function makeOhMyPiAdapter(
                         provider: PROVIDER,
                         threadId: ctx.threadId,
                         turnId: ctx.activeTurnId,
-                        ...(event.itemId ? { itemId: event.itemId } : {}),
+                        ...(event._tag === "ContentDelta" && event.itemId
+                          ? { itemId: event.itemId }
+                          : {}),
+                        ...(event._tag === "ThoughtDelta" ? { streamKind: "reasoning_text" } : {}),
                         text: event.text,
                         rawPayload: event.rawPayload,
                       }),
@@ -735,6 +741,7 @@ export function makeOhMyPiAdapter(
           input.threadId,
           Effect.gen(function* () {
             const ctx = yield* requireSession(input.threadId);
+            const interruptionVersion = ctx.interruptionVersion;
             // Keep a steering prompt under the active T3 turn until both RPCs settle.
             const steeringTurnId = ctx.promptsInFlight > 0 ? ctx.activeTurnId : undefined;
             const turnId = steeringTurnId ?? TurnId.make(yield* randomUUIDv4);
@@ -851,24 +858,30 @@ export function makeOhMyPiAdapter(
               }
 
               // ACP has no system-message field; keep runtime context separate from the user's text.
-              const result = yield* ctx.acp
-                .prompt(
-                  {
-                    prompt: [
-                      ...promptParts,
-                      {
-                        type: "text",
-                        text: buildRuntimeInstructions({ harness: "OhMyPi", model: resolvedModel }),
-                      },
-                    ],
-                  },
-                  { dispatched },
-                )
-                .pipe(
-                  Effect.mapError((error) =>
-                    mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
-                  ),
-                );
+              const result =
+                interruptionVersion !== ctx.interruptionVersion
+                  ? { stopReason: "cancelled" as const }
+                  : yield* ctx.acp
+                      .prompt(
+                        {
+                          prompt: [
+                            ...promptParts,
+                            {
+                              type: "text",
+                              text: buildRuntimeInstructions({
+                                harness: "OhMyPi",
+                                model: resolvedModel,
+                              }),
+                            },
+                          ],
+                        },
+                        { dispatched },
+                      )
+                      .pipe(
+                        Effect.mapError((error) =>
+                          mapAcpToAdapterError(PROVIDER, input.threadId, "session/prompt", error),
+                        ),
+                      );
 
               yield* ctx.acp.drainEvents;
               const turnRecord = ctx.turns.find((turn) => turn.id === turnId);
@@ -924,6 +937,8 @@ export function makeOhMyPiAdapter(
     const interruptTurn: OhMyPiAdapterShape["interruptTurn"] = (threadId) =>
       Effect.gen(function* () {
         const ctx = yield* requireSession(threadId);
+        // Invalidate preparation even when ACP has no prompt to cancel yet.
+        ctx.interruptionVersion += 1;
         yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
         yield* Effect.ignore(
           ctx.acp.cancel.pipe(
