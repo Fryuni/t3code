@@ -34,6 +34,7 @@ describe("serverRuntimeState", () => {
         port: 4_971,
         origin: "http://127.0.0.1:4971",
         devUrl: "http://localhost:5733/",
+        publicUrl: "https://t3.example.com/",
         startedAt: "2026-06-20T00:00:00.000Z",
       };
 

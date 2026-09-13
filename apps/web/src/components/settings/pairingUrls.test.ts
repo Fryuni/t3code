@@ -1,8 +1,33 @@
 import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
-import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
+import {
+  resolveDesktopPairingUrl,
+  resolveHostedPairingUrl,
+  withPublicUrlEndpoint,
+} from "./pairingUrls";
+import { isQrShareableEndpoint, selectQrEndpointOption } from "./ConnectionsSettings.logic";
 
 describe("settings pairing URL helpers", () => {
+  it("makes the public URL the default shareable QR endpoint even with loopback binding", () => {
+    const loopbackEndpoints = withPublicUrlEndpoint([], "http://localhost:3773");
+    const endpoints = withPublicUrlEndpoint(loopbackEndpoints, "https://t3.example.com:8443");
+    const options = endpoints.map((endpoint) => ({
+      id: endpoint.id,
+      preferenceKey: endpoint.id,
+      qrShareable: isQrShareableEndpoint(endpoint),
+      url: resolveDesktopPairingUrl(endpoint.httpBaseUrl, "PAIRCODE"),
+    }));
+    expect(selectQrEndpointOption(options, null, null)?.url).toBe(
+      "https://t3.example.com:8443/pair#token=PAIRCODE",
+    );
+    expect(endpoints.find((endpoint) => endpoint.isDefault)?.httpBaseUrl).toBe(
+      "https://t3.example.com:8443/",
+    );
+    expect(endpoints[0]?.wsBaseUrl).toBe("wss://t3.example.com:8443/");
+    expect(options[1]?.qrShareable).toBe(false);
+    expect(withPublicUrlEndpoint(loopbackEndpoints, undefined)).toBe(loopbackEndpoints);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

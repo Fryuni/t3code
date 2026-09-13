@@ -29,6 +29,23 @@ const makeEnvironmentAuthPolicyLayer = (
   );
 
 it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
+  it.effect("advertises remote pairing for a public URL with a loopback listener", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+      expect(descriptor.policy).toBe("remote-reachable");
+      expect(descriptor.bootstrapMethods).toContain("one-time-token");
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "desktop",
+          host: "127.0.0.1",
+          publicUrl: new URL("https://t3.example.com"),
+        }),
+      ),
+    ),
+  );
+
   it.effect("uses desktop-managed-local policy for desktop mode", () =>
     Effect.gen(function* () {
       const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;

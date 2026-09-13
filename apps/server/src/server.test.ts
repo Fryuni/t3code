@@ -4909,6 +4909,20 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
+  it.effect("advertises the configured public URL to clients over the loopback listener", () =>
+    Effect.gen(function* () {
+      yield* buildAppUnderTest({
+        config: { host: "127.0.0.1", publicUrl: new URL("https://t3.example.com:8443") },
+      });
+      const wsUrl = yield* getWsServerUrl("/ws");
+      const response = yield* Effect.scoped(
+        withWsRpcClient(wsUrl, (client) => client[WS_METHODS.serverGetConfig]({})),
+      );
+      assert.equal(response.publicUrl, "https://t3.example.com:8443/");
+      assert.equal(response.auth.policy, "remote-reachable");
+    }).pipe(Effect.provide(NodeHttpServer.layerTest)),
+  );
+
   it.effect("advertises the usable file manager and its reveal label", () =>
     Effect.gen(function* () {
       yield* buildAppUnderTest({
