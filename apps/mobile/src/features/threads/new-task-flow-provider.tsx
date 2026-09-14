@@ -83,7 +83,7 @@ import {
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
 import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { type VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -775,7 +775,15 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       updateComposerDraftSettings(selectedProjectDraftKey, {
         workspaceSelection: {
           mode,
-          branch: mode === "local" ? localSelection.branch : selectedBranchName,
+          branch:
+            mode === "local"
+              ? localSelection.branch
+              : createNewBranch ||
+                  canCheckoutBranchInNewWorktree(
+                    availableBranches.find((branch) => branch.name === selectedBranchName),
+                  )
+                ? selectedBranchName
+                : null,
           worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
           createNewBranch,
@@ -888,7 +896,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       updateComposerDraftSettings(selectedProjectDraftKey, {
         workspaceSelection: {
           mode: workspaceMode,
-          branch: selectedBranchName,
+          branch:
+            value ||
+            canCheckoutBranchInNewWorktree(
+              availableBranches.find((branch) => branch.name === selectedBranchName),
+            )
+              ? selectedBranchName
+              : null,
           worktreePath: selectedWorktreePath,
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
           createNewBranch: value,
@@ -901,6 +915,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedBranchName,
       selectedWorktreePath,
       draftStartFromOrigin,
+      availableBranches,
     ],
   );
 
@@ -918,6 +933,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (
       !defaultWorkspaceModeSettled ||
       workspaceMode !== "worktree" ||
+      !createNewBranch ||
       selectedBranchName !== null
     ) {
       return;
@@ -935,6 +951,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     allBranchRefs,
     availableBranches,
     defaultWorkspaceModeSettled,
+    createNewBranch,
     selectBranch,
     selectedBranchName,
     workspaceMode,

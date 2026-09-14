@@ -1,4 +1,4 @@
-import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import {
@@ -315,7 +315,7 @@ export function NewTaskBranchPickerRouteScreen() {
           switchingBranchName !== null ||
           (flow.workspaceMode === "worktree" &&
             !flow.createNewBranch &&
-            (item.isRemote || item.current || Boolean(item.worktreePath)))
+            !canCheckoutBranchInNewWorktree(item))
         }
         isFirst={index === 0}
         isLast={index === flow.filteredBranches.length - 1}

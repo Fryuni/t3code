@@ -903,7 +903,9 @@ export function NewTaskDraftScreen(props: {
     workspaceMode: flow.workspaceMode,
     selectedBranch:
       flow.selectedBranchName ??
-      (flow.workspaceMode === "worktree" ? availableCurrentBranchName : null),
+      (flow.workspaceMode === "worktree" && flow.createNewBranch
+        ? availableCurrentBranchName
+        : null),
     currentCheckoutBranch: flow.currentCheckoutBranchName,
   });
   const selectedBranchLabel = resolveNewTaskBranchLabel({

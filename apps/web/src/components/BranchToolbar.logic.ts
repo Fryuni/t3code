@@ -176,10 +176,11 @@ export function resolveBranchToolbarValue(input: {
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
+  createNewBranch?: boolean;
 }): string | null {
   const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
   if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
+    return activeThreadBranch ?? (input.createNewBranch === false ? null : currentGitBranch);
   }
   return currentGitBranch ?? activeThreadBranch;
 }

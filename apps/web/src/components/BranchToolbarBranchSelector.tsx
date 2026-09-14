@@ -3,6 +3,7 @@ import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullR
 import { useRightPanelStore } from "../rightPanelStore";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { canCheckoutBranchInNewWorktree } from "@t3tools/client-runtime/state/vcs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -265,6 +266,7 @@ export function BranchToolbarBranchSelector({
     activeWorktreePath,
     activeThreadBranch,
     currentGitBranch,
+    createNewBranch,
   });
   const branchNames = useMemo(() => refs.map((refName) => refName.name), [refs]);
   const branchByName = useMemo(
@@ -336,6 +338,7 @@ export function BranchToolbarBranchSelector({
   const queriedActiveBranch = activeBranchRefQuery.data?.refs.find(
     (refName) => refName.name === resolvedActiveBranch,
   );
+  const selectedBranchRef = listedActiveBranch ?? queriedActiveBranch;
   const resolvedActiveBranchIsRemote =
     listedActiveBranch !== null
       ? listedActiveBranch.isRemote === true
@@ -505,9 +508,21 @@ export function BranchToolbarBranchSelector({
     () => refs.find((refName) => refName.isDefault)?.name ?? null,
     [refs],
   );
-  const worktreeBaseBranchCandidate = isInitialBranchesLoadPending
-    ? null
-    : (defaultBranchName ?? currentGitBranch);
+  const worktreeBaseBranchCandidate =
+    !createNewBranch || isInitialBranchesLoadPending
+      ? null
+      : (defaultBranchName ?? currentGitBranch);
+
+  useEffect(() => {
+    if (
+      isSelectingWorktreeBase &&
+      !createNewBranch &&
+      selectedBranchRef &&
+      !canCheckoutBranchInNewWorktree(selectedBranchRef)
+    ) {
+      setThreadBranch(null, null);
+    }
+  }, [createNewBranch, isSelectingWorktreeBase, selectedBranchRef, setThreadBranch]);
 
   useEffect(() => {
     if (
@@ -726,9 +741,7 @@ export function BranchToolbarBranchSelector({
         value={itemValue}
         className="pe-1.5"
         disabled={
-          isSelectingWorktreeBase &&
-          !createNewBranch &&
-          (refName.isRemote || refName.current || Boolean(refName.worktreePath))
+          isSelectingWorktreeBase && !createNewBranch && !canCheckoutBranchInNewWorktree(refName)
         }
         onClick={() => selectBranch(refName)}
         onContextMenu={(event) => handleBranchContextMenu(event, itemValue)}
@@ -885,7 +898,12 @@ export function BranchToolbarBranchSelector({
                         checked={createNewBranch}
                         size="sm"
                         aria-label="Create new branch for worktree"
-                        onCheckedChange={(checked) => onCreateNewBranchChange(Boolean(checked))}
+                        onCheckedChange={(checked) => {
+                          if (!checked && !canCheckoutBranchInNewWorktree(selectedBranchRef)) {
+                            setThreadBranch(null, null);
+                          }
+                          onCreateNewBranchChange(Boolean(checked));
+                        }}
                       />
                     </label>
                   }

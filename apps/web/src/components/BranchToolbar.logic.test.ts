@@ -143,6 +143,30 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
 });
 
 describe("resolveBranchToolbarValue", () => {
+  it("keeps an existing-branch selection empty until the user chooses a branch", () => {
+    expect(
+      resolveBranchToolbarValue({
+        envMode: "worktree",
+        activeWorktreePath: null,
+        activeThreadBranch: null,
+        currentGitBranch: "main",
+        createNewBranch: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("preserves a selected existing branch", () => {
+    expect(
+      resolveBranchToolbarValue({
+        envMode: "worktree",
+        activeWorktreePath: null,
+        activeThreadBranch: "feature/existing",
+        currentGitBranch: "main",
+        createNewBranch: false,
+      }),
+    ).toBe("feature/existing");
+  });
+
   it("defaults new-worktree mode to current git ref when no explicit base ref is set", () => {
     expect(
       resolveBranchToolbarValue({
