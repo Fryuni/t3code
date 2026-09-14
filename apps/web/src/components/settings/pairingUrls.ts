@@ -1,10 +1,9 @@
 import type { AdvertisedEndpoint } from "@t3tools/contracts";
-import { normalizeHostname } from "@t3tools/shared/hostClassification";
+import { isPrivateNetworkHost, normalizeHostname } from "@t3tools/shared/hostClassification";
 import { isLoopbackHostname } from "../../environments/primary/target";
 import { buildHostedPairingUrl } from "../../hostedPairing";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 
-const PRIVATE_IPV4_PATTERN = /^(?:10\.|169\.254\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/;
 // Tailscale assigns 100.64.0.0/10, which only resolves inside the tailnet.
 const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
 
@@ -16,20 +15,13 @@ const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
  */
 function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["reachability"] {
   const host = normalizeHostname(hostname.trim());
-  if (isLoopbackHostname(hostname) || host.startsWith("127.")) {
+  if (isLoopbackHostname(host) || host.startsWith("127.")) {
     return "loopback";
-  }
-  if (host.includes(":")) {
-    // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
-    return /^(?:f[cd]|fe[89ab])/.test(host) ? "lan" : "public";
   }
   if (TAILSCALE_IPV4_PATTERN.test(host) || host.endsWith(".ts.net")) {
     return "private-network";
   }
-  if (PRIVATE_IPV4_PATTERN.test(host) || host === "local" || host.endsWith(".local")) {
-    return "lan";
-  }
-  return "public";
+  return isPrivateNetworkHost(host) ? "lan" : "public";
 }
 
 export function withPublicUrlEndpoint(

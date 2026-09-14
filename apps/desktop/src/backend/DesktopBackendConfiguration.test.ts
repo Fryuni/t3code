@@ -137,6 +137,7 @@ interface PackagedWslHarnessContext {
 const withPackagedWslHarness = <A, E, R>(
   input: {
     readonly archiveHash: string;
+    readonly wslOnly?: boolean;
     readonly wsl: (
       context: PackagedWslHarnessContext,
     ) => DesktopWslEnvironment.DesktopWslEnvironmentTestStub;
@@ -194,7 +195,13 @@ const withPackagedWslHarness = <A, E, R>(
       Effect.provide(
         DesktopBackendConfiguration.layer.pipe(
           Layer.provideMerge(serverExposureLayer),
-          Layer.provideMerge(DesktopAppSettings.layerTest()),
+          Layer.provideMerge(
+            DesktopAppSettings.layerTest({
+              ...DesktopAppSettings.DEFAULT_DESKTOP_SETTINGS,
+              wslOnly: input.wslOnly ?? false,
+              wslBackendEnabled: true,
+            }),
+          ),
           Layer.provideMerge(serverTreeLayer),
           Layer.provideMerge(
             DesktopWslEnvironment.layerTest({
@@ -426,10 +433,11 @@ describe("DesktopBackendConfiguration", () => {
     );
   });
 
-  it.effect("resolveWsl forwards the Windows public URL as an explicit server argument", () =>
+  it.effect("only the WSL primary forwards the Windows public URL", () =>
     withPackagedWslHarness(
       {
         archiveHash: "a".repeat(64),
+        wslOnly: true,
         wsl: () => ({
           prepareRuntime: () => ({ ok: true, linuxAppRoot: "/home/test/.t3/wsl-runtime" }),
           ensureNodePty: () => ({
@@ -445,18 +453,20 @@ describe("DesktopBackendConfiguration", () => {
           const previousPublicUrl = process.env.T3CODE_PUBLIC_URL;
           try {
             process.env.T3CODE_PUBLIC_URL = "https://box.tailnet.ts.net:8443";
-            const config = yield* configuration.resolveWsl({ port: 5000, distro: "Ubuntu" });
+            const config = yield* configuration.resolvePrimary;
             assert.isTrue(Option.isNone(config.preflightFailure));
             assert.deepEqual(config.args.slice(-2), [
               "--public-url",
               "https://box.tailnet.ts.net:8443",
             ]);
 
+            const secondary = yield* configuration.resolveWsl({ port: 5000, distro: "Ubuntu" });
+            assert.isTrue(Option.isNone(secondary.preflightFailure));
+            assert.notInclude(secondary.args, "--public-url");
+            assert.isUndefined(secondary.env.T3CODE_PUBLIC_URL);
+
             delete process.env.T3CODE_PUBLIC_URL;
-            const withoutPublicUrl = yield* configuration.resolveWsl({
-              port: 5000,
-              distro: "Ubuntu",
-            });
+            const withoutPublicUrl = yield* configuration.resolvePrimary;
             assert.notInclude(withoutPublicUrl.args, "--public-url");
           } finally {
             restoreEnv("T3CODE_PUBLIC_URL", previousPublicUrl);

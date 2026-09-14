@@ -45,6 +45,10 @@ describe("settings pairing URL helpers", () => {
     expect(reachabilityOf("http://10.0.0.5:8080")).toBe("lan");
     expect(reachabilityOf("http://172.16.0.9:8080")).toBe("lan");
     expect(reachabilityOf("http://t3.home.local:8080")).toBe("lan");
+    expect(reachabilityOf("https://devbox")).toBe("lan");
+    expect(reachabilityOf("https://server.home.arpa")).toBe("lan");
+    expect(reachabilityOf("http://[::ffff:192.168.1.42]:8080")).toBe("lan");
+    expect(reachabilityOf("https://server.home.arpa.example.com")).toBe("public");
     expect(reachabilityOf("http://[fd00::1]:8080")).toBe("lan");
     expect(reachabilityOf("http://127.0.0.2:8080")).toBe("loopback");
     expect(reachabilityOf("http://localhost:3773")).toBe("loopback");
