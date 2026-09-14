@@ -61,6 +61,26 @@ created in Settings can only be copied from the client that created them while
 its Connections page stays open. If you leave or reload that page, create
 another link to share.
 
+### External reverse proxy
+
+If another process exposes T3 Code on your network, set its public URL while
+keeping the server bound to loopback:
+
+```bash
+npx t3 serve --host 127.0.0.1 --public-url https://t3.example.com
+```
+
+You can also set `T3CODE_PUBLIC_URL=https://t3.example.com` in the server's
+environment. The command-line flag takes precedence. Use an HTTP or HTTPS
+origin, optionally with a port, without a path, query, fragment, or credentials.
+Configure your proxy to forward HTTP and WebSocket requests to the local server.
+
+Startup pairing links, QR codes, later `npx t3 pair` calls, and links created in
+**Settings → Connections** use this address by default. The setting does not start a tunnel
+or change the listening interface. Restart the server after changing it; remove
+the flag or environment variable to return to the default address selection.
+An explicit `npx t3 pair --tailscale` still uses the Tailscale address.
+
 ### Balance new threads across machines
 
 Auto balance is off by default. On web and desktop, enable it in

@@ -29,6 +29,23 @@ const makeEnvironmentAuthPolicyLayer = (
   );
 
 it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
+  it.effect("advertises remote pairing for a public URL with a loopback listener", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+      expect(descriptor.policy).toBe("remote-reachable");
+      expect(descriptor.bootstrapMethods).toContain("one-time-token");
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "desktop",
+          host: "127.0.0.1",
+          publicUrl: new URL("https://t3.example.com"),
+        }),
+      ),
+    ),
+  );
+
   it.effect("uses desktop-managed-local policy for desktop mode", () =>
     Effect.gen(function* () {
       const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
@@ -97,6 +114,27 @@ it.layer(NodeServices.layer)("EnvironmentAuthPolicy.layer", (it) => {
           mode: "web",
           host: "127.0.0.1",
           port: 3773,
+        }),
+      ),
+    ),
+  );
+
+  it.effect("gives a proxied loopback web server the stable remote cookie name", () =>
+    Effect.gen(function* () {
+      const policy = yield* EnvironmentAuthPolicy.EnvironmentAuthPolicy;
+      const descriptor = yield* policy.getDescriptor();
+
+      expect(descriptor.policy).toBe("remote-reachable");
+      // The proxy origin outlives the internal port, so the cookie must not be
+      // scoped to the port this process happened to grab.
+      expect(descriptor.sessionCookieName).toMatch(/^t3_session_[a-f0-9]{12}$/);
+    }).pipe(
+      Effect.provide(
+        makeEnvironmentAuthPolicyLayer({
+          mode: "web",
+          host: "127.0.0.1",
+          port: 3773,
+          publicUrl: new URL("https://t3.example.com"),
         }),
       ),
     ),

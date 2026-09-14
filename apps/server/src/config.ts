@@ -25,6 +25,22 @@ export type RuntimeMode = typeof RuntimeMode.Type;
 export const StartupPresentation = Schema.Literals(["browser", "headless"]);
 export type StartupPresentation = typeof StartupPresentation.Type;
 
+export const PublicUrl = Schema.URLFromString.check(
+  Schema.makeFilter(
+    (url) =>
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      url.username === "" &&
+      url.password === "" &&
+      url.pathname === "/" &&
+      url.search === "" &&
+      url.hash === "",
+    {
+      message:
+        "Public URL must be an HTTP(S) origin without credentials, a path, query, or fragment.",
+    },
+  ),
+);
+
 /**
  * ServerDerivedPaths - Derived paths from the base directory.
  */
@@ -75,6 +91,8 @@ export class ServerConfig extends Context.Service<
     readonly mode: RuntimeMode;
     readonly port: number;
     readonly host: string | undefined;
+    /** Externally managed address to advertise; independent of the listening interface. */
+    readonly publicUrl?: URL | undefined;
     readonly cwd: string;
     readonly baseDir: string;
     readonly staticDir: string | undefined;

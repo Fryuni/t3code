@@ -30,6 +30,13 @@ const hostFlag = Flag.string("host").pipe(
   Flag.withDescription("Host/interface to bind (for example 127.0.0.1, 0.0.0.0, or a Tailnet IP)."),
   Flag.optional,
 );
+const publicUrlFlag = Flag.string("public-url").pipe(
+  Flag.withSchema(ServerConfig.PublicUrl),
+  Flag.withDescription(
+    "Public HTTP(S) origin for pairing behind an external proxy; does not change the bind address (equivalent to T3CODE_PUBLIC_URL).",
+  ),
+  Flag.optional,
+);
 export const baseDirFlag = Flag.string("base-dir").pipe(
   Flag.withDescription(
     "Explicit T3 Code data directory; runtime state is stored under userdata (equivalent to T3CODE_HOME).",
@@ -104,6 +111,10 @@ const EnvServerConfig = Config.all({
   ),
   port: Config.port("T3CODE_PORT").pipe(Config.option, Config.map(Option.getOrUndefined)),
   host: Config.string("T3CODE_HOST").pipe(Config.option, Config.map(Option.getOrUndefined)),
+  publicUrl: Config.schema(ServerConfig.PublicUrl, "T3CODE_PUBLIC_URL").pipe(
+    Config.option,
+    Config.map(Option.getOrUndefined),
+  ),
   t3Home: Config.string("T3CODE_HOME").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devUrl: Config.url("VITE_DEV_SERVER_URL").pipe(Config.option, Config.map(Option.getOrUndefined)),
   devAllowedOrigins: Config.string("T3CODE_DEV_ALLOWED_ORIGINS").pipe(
@@ -145,6 +156,7 @@ export interface CliServerFlags {
   readonly mode: Option.Option<ServerConfig.RuntimeMode>;
   readonly port: Option.Option<number>;
   readonly host: Option.Option<string>;
+  readonly publicUrl?: Option.Option<URL>;
   readonly baseDir: Option.Option<string>;
   readonly cwd: Option.Option<string>;
   readonly devUrl: Option.Option<URL>;
@@ -174,6 +186,7 @@ export const sharedServerCommandFlags = {
   mode: modeFlag,
   port: portFlag,
   host: hostFlag,
+  publicUrl: publicUrlFlag,
   baseDir: baseDirFlag,
   cwd: Argument.string("cwd").pipe(
     Argument.withDescription(
@@ -222,6 +235,7 @@ export const resolveServerConfig = (
       mode: flags.mode ?? Option.none(),
       port: flags.port ?? Option.none(),
       host: flags.host ?? Option.none(),
+      publicUrl: flags.publicUrl ?? Option.none(),
       baseDir: flags.baseDir ?? Option.none(),
       cwd: flags.cwd ?? Option.none(),
       devUrl: flags.devUrl ?? Option.none(),
@@ -371,6 +385,9 @@ export const resolveServerConfig = (
       ...derivedPaths,
       serverTracePath,
       host,
+      publicUrl: Option.getOrUndefined(
+        resolveOptionPrecedence(normalizedFlags.publicUrl, Option.fromUndefinedOr(env.publicUrl)),
+      ),
       staticDir,
       devUrl,
       devAllowedOrigins: env.devAllowedOrigins,

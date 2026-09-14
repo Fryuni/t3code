@@ -310,7 +310,9 @@ const resolveStartupBrowserTarget = Effect.gen(function* () {
   const baseTarget = serverConfig.devUrl?.toString() ?? bindUrl;
   return yield* Effect.succeed(serverConfig.mode === "desktop" ? baseTarget : undefined).pipe(
     Effect.flatMap((target) =>
-      target ? Effect.succeed(target) : serverAuth.issueStartupPairingUrl(baseTarget),
+      target
+        ? Effect.succeed(target)
+        : serverAuth.issueStartupPairingUrl(serverConfig.publicUrl?.toString() ?? baseTarget),
     ),
   );
 });

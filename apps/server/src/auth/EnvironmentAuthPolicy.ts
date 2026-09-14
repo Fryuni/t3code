@@ -5,7 +5,7 @@ import * as Layer from "effect/Layer";
 
 import * as ServerConfig from "../config.ts";
 import * as ServerEnvironment from "../environment/ServerEnvironment.ts";
-import { isRemoteReachableHost, resolveSessionCookieName } from "./utils.ts";
+import { isRemoteReachableServer, resolveSessionCookieName } from "./utils.ts";
 
 export class EnvironmentAuthPolicy extends Context.Service<
   EnvironmentAuthPolicy,
@@ -18,7 +18,10 @@ export class EnvironmentAuthPolicy extends Context.Service<
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
-  const isRemoteReachable = isRemoteReachableHost(config.host);
+  const isRemoteReachable = isRemoteReachableServer({
+    host: config.host,
+    publicUrl: config.publicUrl,
+  });
 
   const policy =
     config.mode === "desktop"
@@ -44,6 +47,7 @@ export const make = Effect.gen(function* () {
       mode: config.mode,
       port: config.port,
       host: config.host,
+      publicUrl: config.publicUrl,
       instanceKey: config.stateDir,
       environmentId: yield* serverEnvironment.getEnvironmentId,
       development: config.devUrl !== undefined,

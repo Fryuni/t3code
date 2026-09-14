@@ -1,13 +1,56 @@
 import { assert, expect, it } from "@effect/vitest";
+import * as NodeServices from "@effect/platform-node/NodeServices";
+import * as DateTime from "effect/DateTime";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { HttpServer } from "effect/unstable/http";
+
+import { ServerConfig, layerTest } from "./config.ts";
+import { EnvironmentAuth } from "./auth/EnvironmentAuth.ts";
 
 import {
   buildPairingUrl,
   formatHeadlessServeOutput,
+  issueHeadlessServeAccessInfo,
   renderTerminalQrCode,
   resolveHeadlessConnectionHost,
   resolveHeadlessConnectionString,
   resolveListeningPort,
 } from "./startupAccess.ts";
+
+it.effect("prints the public URL and QR at startup with a loopback listener", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig;
+    const access = yield* issueHeadlessServeAccessInfo().pipe(
+      Effect.provideService(ServerConfig, {
+        ...config,
+        host: "127.0.0.1",
+        port: 3773,
+        publicUrl: new URL("https://t3.example.com:8443"),
+      }),
+    );
+    expect(access.connectionString).toBe("https://t3.example.com:8443/");
+    expect(access.pairingUrl).toBe("https://t3.example.com:8443/pair#token=PAIRCODE");
+    expect(formatHeadlessServeOutput(access)).toContain(renderTerminalQrCode(access.pairingUrl));
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        layerTest(process.cwd(), { prefix: "t3-startup-access-test-" }),
+        Layer.mock(HttpServer.HttpServer)({
+          address: { _tag: "TcpAddress", hostname: "127.0.0.1", port: 4123 },
+        }),
+        Layer.mock(EnvironmentAuth)({
+          issueStartupPairingCredential: () =>
+            Effect.map(DateTime.now, (expiresAt) => ({
+              id: "startup-pairing",
+              credential: "PAIRCODE",
+              expiresAt,
+            })),
+        }),
+      ).pipe(Layer.provide(NodeServices.layer)),
+    ),
+  ),
+);
 
 it("prefers localhost when no explicit host is configured", () => {
   expect(resolveHeadlessConnectionHost(undefined)).toBe("localhost");
