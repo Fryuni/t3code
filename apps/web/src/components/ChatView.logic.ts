@@ -848,7 +848,8 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
 } {
   return {
     envMode: input.envMode,
-    branch: input.branch,
+    // The preceding send has already checked this branch out in its worktree.
+    branch: input.envMode === "worktree" && input.createNewBranch === false ? null : input.branch,
     worktreePath: null,
     ...(input.createNewBranch !== undefined ? { createNewBranch: input.createNewBranch } : {}),
     startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,

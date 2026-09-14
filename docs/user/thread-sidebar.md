@@ -22,9 +22,10 @@ if that project exists there. Otherwise it selects an environment that has it.
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
-next draft keeps the workspace mode and base branch you selected. With **New
-worktree** and **Create new branch** enabled, each background submission creates
-its own branch and worktree.
+next draft keeps the workspace mode you selected. With **New worktree** and
+**Create new branch** enabled, it also keeps the base branch, and each background
+submission creates its own branch and worktree. When using an existing branch,
+choose another branch for the next draft; the previous branch is now checked out.
 
 ## Pin and reorder threads
 

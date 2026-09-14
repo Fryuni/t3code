@@ -1715,7 +1715,7 @@ describe("resolveSendEnvMode", () => {
 
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
   it.each([true, false])(
-    "keeps New worktree and createNewBranch=%s selected",
+    "preserves the worktree mode and only reusable base branches (createNewBranch=%s)",
     (createNewBranch) => {
       expect(
         resolveBackgroundDraftWorkspaceOptions({
@@ -1726,13 +1726,30 @@ describe("resolveBackgroundDraftWorkspaceOptions", () => {
         }),
       ).toEqual({
         envMode: "worktree",
-        branch: "main",
+        branch: createNewBranch ? "main" : null,
         worktreePath: null,
         startFromOrigin: true,
         createNewBranch,
       });
     },
   );
+
+  it("keeps the branch when the background thread uses the current checkout", () => {
+    expect(
+      resolveBackgroundDraftWorkspaceOptions({
+        envMode: "local",
+        branch: "feature/existing",
+        startFromOrigin: false,
+        createNewBranch: false,
+      }),
+    ).toEqual({
+      envMode: "local",
+      branch: "feature/existing",
+      worktreePath: null,
+      startFromOrigin: false,
+      createNewBranch: false,
+    });
+  });
 });
 
 describe("branchMismatchKey", () => {
