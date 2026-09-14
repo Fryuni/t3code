@@ -90,7 +90,8 @@ describe("resolveLinkPullRequestInput", () => {
       }),
     ).toEqual({
       link: {
-        host: "forge.example.test:3000",
+        host: "forge.example.test",
+        authority: "forge.example.test:3000",
         repository: "owner/repo",
         number: 42,
         url: "http://forge.example.test:3000/owner/repo/pulls/42",
