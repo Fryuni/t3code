@@ -1582,6 +1582,82 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
         }),
     );
 
+    it.effect("checks out an existing local branch without creating or moving branches", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const initialBranch = yield* git(cwd, ["branch", "--show-current"]);
+        const commit = yield* git(cwd, ["rev-parse", "HEAD"]);
+        yield* git(cwd, ["branch", "feature/existing"]);
+        yield* git(cwd, ["config", "branch.feature/existing.gh-merge-base", "develop"]);
+        yield* git(cwd, ["commit", "--allow-empty", "-m", "Advance current checkout"]);
+        const branches = yield* git(cwd, [
+          "for-each-ref",
+          "--format=%(refname) %(objectname)",
+          "refs/heads",
+        ]);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const created = yield* driver.createWorktree({
+          cwd,
+          refName: "feature/existing",
+          path: null,
+        });
+
+        assert.equal(created.worktree.refName, "feature/existing");
+        assert.equal(
+          yield* git(created.worktree.path, ["branch", "--show-current"]),
+          "feature/existing",
+        );
+        assert.equal(yield* git(created.worktree.path, ["rev-parse", "HEAD"]), commit);
+        assert.equal(yield* git(cwd, ["branch", "--show-current"]), initialBranch);
+        assert.equal(
+          yield* git(cwd, ["for-each-ref", "--format=%(refname) %(objectname)", "refs/heads"]),
+          branches,
+        );
+        assert.equal(
+          yield* git(cwd, ["config", "branch.feature/existing.gh-merge-base"]),
+          "develop",
+        );
+        yield* driver.removeWorktree({ cwd, path: created.worktree.path });
+        assert.equal(yield* git(cwd, ["rev-parse", "feature/existing"]), commit);
+      }),
+    );
+
+    it.effect("refuses to check out an existing branch that is already in use", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        const branch = yield* git(cwd, ["branch", "--show-current"]);
+        const worktreesRoot = yield* makeTmpDir("git-existing-worktree-");
+        const pathService = yield* Path.Path;
+        const worktreePath = pathService.join(worktreesRoot, "occupied");
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const result = yield* driver
+          .createWorktree({ cwd, refName: branch, path: worktreePath })
+          .pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        const fs = yield* FileSystem.FileSystem;
+        assert.equal(yield* fs.exists(worktreePath), false);
+        assert.equal(yield* git(cwd, ["branch", "--show-current"]), branch);
+      }),
+    );
+
+    it.effect("refuses remote refs when creating a worktree without a new branch", () =>
+      Effect.gen(function* () {
+        const cwd = yield* makeTmpDir();
+        yield* initRepoWithCommit(cwd);
+        yield* git(cwd, ["update-ref", "refs/remotes/origin/feature", "HEAD"]);
+        const driver = yield* GitVcsDriver.GitVcsDriver;
+        const result = yield* driver
+          .createWorktree({ cwd, refName: "origin/feature", path: null })
+          .pipe(Effect.result);
+        assert.equal(result._tag, "Failure");
+        if (result._tag === "Failure") {
+          assert.match(result.failure.detail, /existing local branch/);
+        }
+      }),
+    );
+
     it.effect("checks out submodules in a new worktree", () =>
       Effect.gen(function* () {
         const fileSystem = yield* FileSystem.FileSystem;

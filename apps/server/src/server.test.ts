@@ -10474,18 +10474,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect(
-    "bootstraps first-send worktree turns on the server before dispatching turn start",
-    () =>
+  it.effect.each([true, false])(
+    "bootstraps first-send worktree turns before dispatching turn start (create new branch: %s)",
+    (createNewBranch) =>
       Effect.gen(function* () {
         const dispatchedCommands: Array<OrchestrationCommand> = [];
         const bootstrapGitOperations: string[] = [];
+        const targetBranch = createNewBranch ? "t3code/bootstrap-refName" : "main";
         const refreshStatus = vi.fn((_: string) =>
           Effect.succeed({
             isRepo: true,
             hasPrimaryRemote: true,
             isDefaultRef: false,
-            refName: "t3code/bootstrap-refName",
+            refName: targetBranch,
             hasWorkingTreeChanges: false,
             workingTree: {
               files: [],
@@ -10535,7 +10536,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               bootstrapGitOperations.push("create-worktree");
               return {
                 worktree: {
-                  refName: "t3code/bootstrap-refName",
+                  refName: targetBranch,
                   path: "/tmp/bootstrap-worktree",
                 },
               };
@@ -10613,7 +10614,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 prepareWorktree: {
                   projectCwd: "/tmp/project",
                   baseBranch: "main",
-                  branch: "t3code/bootstrap-refName",
+                  ...(createNewBranch ? { branch: targetBranch } : {}),
                   startFromOrigin: true,
                 },
                 runSetupScript: true,
@@ -10636,32 +10637,45 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         );
         assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
-          refName: fetchedOriginCommit,
-          newRefName: "t3code/bootstrap-refName",
+          refName: createNewBranch ? fetchedOriginCommit : "main",
+          newRefName: createNewBranch ? targetBranch : undefined,
           baseRefName: "main",
           path: null,
         });
-        assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
-          cwd: "/tmp/project",
-          remoteName: "origin",
-        });
-        assert.deepEqual(remoteBranchExists.mock.calls[0]?.[0], {
-          cwd: "/tmp/project",
-          remoteName: "origin",
-          refName: "main",
-        });
-        assert.deepEqual(resolveRemoteTrackingCommit.mock.calls[0]?.[0], {
-          cwd: "/tmp/project",
-          refName: "main",
-          fallbackRemoteName: "origin",
-        });
-        assert.deepEqual(bootstrapGitOperations, [
-          "remote-exists",
-          "fetch",
-          "remote-branch-exists",
-          "resolve-remote-commit",
-          "create-worktree",
-        ]);
+        if (createNewBranch) {
+          assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
+            cwd: "/tmp/project",
+            remoteName: "origin",
+          });
+          assert.deepEqual(remoteBranchExists.mock.calls[0]?.[0], {
+            cwd: "/tmp/project",
+            remoteName: "origin",
+            refName: "main",
+          });
+          assert.deepEqual(resolveRemoteTrackingCommit.mock.calls[0]?.[0], {
+            cwd: "/tmp/project",
+            refName: "main",
+            fallbackRemoteName: "origin",
+          });
+          assert.deepEqual(bootstrapGitOperations, [
+            "remote-exists",
+            "fetch",
+            "remote-branch-exists",
+            "resolve-remote-commit",
+            "create-worktree",
+          ]);
+        } else {
+          assert.equal(remoteExists.mock.calls.length, 0);
+          assert.equal(fetchRemote.mock.calls.length, 0);
+          assert.equal(resolveRemoteTrackingCommit.mock.calls.length, 0);
+          assert.deepEqual(bootstrapGitOperations, ["create-worktree"]);
+        }
+        const metadataUpdate = dispatchedCommands[1];
+        assert.equal(metadataUpdate?.type, "thread.meta.update");
+        if (metadataUpdate?.type === "thread.meta.update") {
+          assert.equal(metadataUpdate.branch, targetBranch);
+          assert.equal(metadataUpdate.worktreePath, "/tmp/bootstrap-worktree");
+        }
         assert.deepEqual(runForThread.mock.calls[0]?.[0], {
           threadId: ThreadId.make("thread-bootstrap"),
           projectId: defaultProjectId,

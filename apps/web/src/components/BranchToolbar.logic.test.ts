@@ -834,3 +834,16 @@ describe("sanitizeNewRefName", () => {
     expect(sanitizeNewRefName("foo--bar")).toBe("foo--bar");
   });
 });
+
+it("labels an existing branch without a base or origin prefix", () => {
+  expect(
+    resolveBranchTriggerLabel({
+      activeWorktreePath: null,
+      effectiveEnvMode: "worktree",
+      resolvedActiveBranch: "feature/existing",
+      resolvedActiveBranchIsRemote: false,
+      startFromOrigin: true,
+      createNewBranch: false,
+    }),
+  ).toBe("feature/existing");
+});

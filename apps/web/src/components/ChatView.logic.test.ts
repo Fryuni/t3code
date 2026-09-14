@@ -1714,20 +1714,25 @@ describe("resolveSendEnvMode", () => {
 });
 
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
-  it("keeps New worktree selected without reusing the launched worktree", () => {
-    expect(
-      resolveBackgroundDraftWorkspaceOptions({
+  it.each([true, false])(
+    "keeps New worktree and createNewBranch=%s selected",
+    (createNewBranch) => {
+      expect(
+        resolveBackgroundDraftWorkspaceOptions({
+          envMode: "worktree",
+          branch: "main",
+          startFromOrigin: true,
+          createNewBranch,
+        }),
+      ).toEqual({
         envMode: "worktree",
         branch: "main",
+        worktreePath: null,
         startFromOrigin: true,
-      }),
-    ).toEqual({
-      envMode: "worktree",
-      branch: "main",
-      worktreePath: null,
-      startFromOrigin: true,
-    });
-  });
+        createNewBranch,
+      });
+    },
+  );
 });
 
 describe("branchMismatchKey", () => {

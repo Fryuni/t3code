@@ -3011,6 +3011,15 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
   const createWorktree: GitVcsDriver.GitVcsDriver["Service"]["createWorktree"] = Effect.fn(
     "createWorktree",
   )(function* (input) {
+    if (!input.newRefName && !(yield* branchExists(input.cwd, input.refName))) {
+      return yield* new GitCommandError({
+        operation: "GitVcsDriver.createWorktree",
+        cwd: input.cwd,
+        command: "git worktree add",
+        detail:
+          "Select an existing local branch, or enable Create new branch to start from a remote ref.",
+      });
+    }
     const targetBranch = input.newRefName ?? input.refName;
     const sanitizedBranch = targetBranch.replace(/\//g, "-");
     const repoName = path.basename(input.cwd);
