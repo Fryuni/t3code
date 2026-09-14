@@ -126,3 +126,14 @@ describe("resolveNewTaskBranchLabel", () => {
     ).toBe("Choose branch");
   });
 });
+
+it("labels an existing branch without a base or origin prefix", () => {
+  expect(
+    resolveNewTaskBranchLabel({
+      branchName: "feature/existing",
+      workspaceMode: "worktree",
+      startFromOrigin: true,
+      createNewBranch: false,
+    }),
+  ).toBe("feature/existing");
+});

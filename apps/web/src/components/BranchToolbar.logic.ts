@@ -176,10 +176,11 @@ export function resolveBranchToolbarValue(input: {
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
+  createNewBranch?: boolean;
 }): string | null {
   const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
   if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
+    return activeThreadBranch ?? (input.createNewBranch === false ? null : currentGitBranch);
   }
   return currentGitBranch ?? activeThreadBranch;
 }
@@ -190,6 +191,7 @@ export function resolveBranchTriggerLabel(input: {
   resolvedActiveBranch: string | null;
   resolvedActiveBranchIsRemote: boolean | null;
   startFromOrigin: boolean;
+  createNewBranch?: boolean;
 }): string {
   const {
     activeWorktreePath,
@@ -197,11 +199,12 @@ export function resolveBranchTriggerLabel(input: {
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
     startFromOrigin,
+    createNewBranch = true,
   } = input;
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
-  if (effectiveEnvMode === "worktree" && !activeWorktreePath) {
+  if (effectiveEnvMode === "worktree" && !activeWorktreePath && createNewBranch) {
     const baseRef =
       startFromOrigin && resolvedActiveBranchIsRemote === false
         ? `origin/${resolvedActiveBranch}`

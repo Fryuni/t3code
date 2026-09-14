@@ -101,3 +101,38 @@ describe("new thread on an existing branch", () => {
     },
   );
 });
+
+describe("new worktree branch choice", () => {
+  it.each([true, false, undefined])(
+    "builds a worktree start with createNewBranch=%s",
+    (createNewBranch) => {
+      const input = buildProjectThreadStartTurnInput({
+        projectId: ProjectId.make("project"),
+        projectCwd: "/workspace",
+        threadId: "new-thread",
+        commandId: "command",
+        messageId: "message",
+        createdAt: "2026-09-06T00:00:00Z",
+        text: "Continue working",
+        uploadedAttachments: [],
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        workspaceMode: "worktree",
+        branch: "feature/existing",
+        worktreePath: null,
+        startFromOrigin: true,
+        ...(createNewBranch !== undefined ? { createNewBranch } : {}),
+        worktreeBranchName: "t3code/new-branch",
+      });
+      expect(input.bootstrap.prepareWorktree).toEqual({
+        projectCwd: "/workspace",
+        baseBranch: "feature/existing",
+        ...(createNewBranch !== false
+          ? { branch: "t3code/new-branch", startFromOrigin: true }
+          : {}),
+      });
+      expect(input.bootstrap.runSetupScript).toBe(true);
+    },
+  );
+});

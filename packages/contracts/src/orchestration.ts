@@ -1200,6 +1200,7 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
 const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   projectCwd: TrimmedNonEmptyString,
   baseBranch: TrimmedNonEmptyString,
+  // Omit to check out the existing local baseBranch in the new worktree.
   branch: Schema.optional(TrimmedNonEmptyString),
   startFromOrigin: Schema.optional(Schema.Boolean),
 });
