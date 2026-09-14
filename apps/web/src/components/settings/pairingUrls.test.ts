@@ -36,6 +36,9 @@ describe("settings pairing URL helpers", () => {
     expect(reachabilityOf("http://100.100.100.100:3773")).toBe("private-network");
     expect(reachabilityOf("http://100.64.0.1:3773")).toBe("private-network");
     expect(reachabilityOf("http://100.127.255.254:3773")).toBe("private-network");
+    expect(reachabilityOf("https://box.tailnet.ts.net")).toBe("private-network");
+    expect(reachabilityOf("https://BOX.TAILNET.TS.NET.")).toBe("private-network");
+    expect(reachabilityOf("https://box.tailnet.ts.net.example.com")).toBe("public");
     // Just outside the 100.64/10 tailnet block.
     expect(reachabilityOf("https://100.128.0.1")).toBe("public");
     expect(reachabilityOf("https://100.63.0.1")).toBe("public");

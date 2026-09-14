@@ -426,6 +426,45 @@ describe("DesktopBackendConfiguration", () => {
     );
   });
 
+  it.effect("resolveWsl forwards the Windows public URL as an explicit server argument", () =>
+    withPackagedWslHarness(
+      {
+        archiveHash: "a".repeat(64),
+        wsl: () => ({
+          prepareRuntime: () => ({ ok: true, linuxAppRoot: "/home/test/.t3/wsl-runtime" }),
+          ensureNodePty: () => ({
+            ok: true,
+            nodePath: "/usr/bin/node",
+            resolvedPath: "/usr/bin:/bin",
+          }),
+        }),
+      },
+      () =>
+        Effect.gen(function* () {
+          const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
+          const previousPublicUrl = process.env.T3CODE_PUBLIC_URL;
+          try {
+            process.env.T3CODE_PUBLIC_URL = "https://box.tailnet.ts.net:8443";
+            const config = yield* configuration.resolveWsl({ port: 5000, distro: "Ubuntu" });
+            assert.isTrue(Option.isNone(config.preflightFailure));
+            assert.deepEqual(config.args.slice(-2), [
+              "--public-url",
+              "https://box.tailnet.ts.net:8443",
+            ]);
+
+            delete process.env.T3CODE_PUBLIC_URL;
+            const withoutPublicUrl = yield* configuration.resolveWsl({
+              port: 5000,
+              distro: "Ubuntu",
+            });
+            assert.notInclude(withoutPublicUrl.args, "--public-url");
+          } finally {
+            restoreEnv("T3CODE_PUBLIC_URL", previousPublicUrl);
+          }
+        }),
+    ),
+  );
+
   it.effect("resolveWsl changes the cache id when the packaged archive changes", () => {
     const firstHash = "a".repeat(64);
     const secondHash = "b".repeat(64);

@@ -1,4 +1,5 @@
 import type { AdvertisedEndpoint } from "@t3tools/contracts";
+import { normalizeHostname } from "@t3tools/shared/hostClassification";
 import { isLoopbackHostname } from "../../environments/primary/target";
 import { buildHostedPairingUrl } from "../../hostedPairing";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
@@ -14,10 +15,7 @@ const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
  * "Reachable from anywhere" for an endpoint that never leaves the network.
  */
 function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["reachability"] {
-  const host = hostname
-    .trim()
-    .toLowerCase()
-    .replace(/^\[(.*)\]$/, "$1");
+  const host = normalizeHostname(hostname.trim());
   if (isLoopbackHostname(hostname) || host.startsWith("127.")) {
     return "loopback";
   }
@@ -25,7 +23,7 @@ function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["re
     // IPv6 unique-local (fc00::/7) and link-local (fe80::/10).
     return /^(?:f[cd]|fe[89ab])/.test(host) ? "lan" : "public";
   }
-  if (TAILSCALE_IPV4_PATTERN.test(host)) {
+  if (TAILSCALE_IPV4_PATTERN.test(host) || host.endsWith(".ts.net")) {
     return "private-network";
   }
   if (PRIVATE_IPV4_PATTERN.test(host) || host === "local" || host.endsWith(".local")) {

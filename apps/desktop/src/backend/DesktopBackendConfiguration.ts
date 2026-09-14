@@ -692,6 +692,10 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     onNone: () => [] as ReadonlyArray<string>,
     onSome: (url) => ["--dev-url", url.href],
   });
+  // Pass the advertised origin explicitly across the Windows/WSL boundary,
+  // just like the dev URL, without relying on WSLENV URL translation.
+  const publicUrl = process.env.T3CODE_PUBLIC_URL;
+  const publicUrlArgs = publicUrl ? ["--public-url", publicUrl] : [];
 
   if (preflight._tag === "Failed") {
     const retryLimit =
@@ -731,6 +735,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
       "--bootstrap-fd",
       "0",
       ...devUrlArgs,
+      ...publicUrlArgs,
     ],
     preflightFailure: Option.none(),
     ...(preflight.runtimeId === undefined ? {} : { wslRuntimeId: preflight.runtimeId }),
