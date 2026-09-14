@@ -1626,3 +1626,122 @@ it.effect(
       Effect.provide(VcsProcess.layer.pipe(Layer.provideMerge(NodeServices.layer))),
     ),
 );
+
+for (const scenario of [
+  "matching",
+  "wrong-path",
+  "wrong-port",
+  "ambiguous",
+  "unavailable",
+] as const) {
+  it.effect(`discovers advertised Forgejo SSH remotes: ${scenario}`, () => {
+    let repositoryLookups = 0;
+    return Effect.gen(function* () {
+      const cli = yield* ForgejoCli.make;
+      const discovery = yield* ForgejoSourceControlProvider.makeDiscovery.pipe(
+        Effect.provideService(ForgejoCli.ForgejoCli, cli),
+      );
+      const context = {
+        provider: {
+          kind: "unknown" as const,
+          name: "git.rudd-agama.ts.net",
+          baseUrl: "https://git.rudd-agama.ts.net",
+        },
+        remoteName: "origin",
+        remoteUrl: "ssh://git@git.rudd-agama.ts.net/maria/project.git",
+      };
+      assert.strictEqual(discovery.type, "managed-cli");
+      if (discovery.type !== "managed-cli") return;
+      const provider = yield* discovery.refineUnknownRemote({ cwd: "/repo", context });
+      if (scenario !== "matching") {
+        assert.isNull(provider);
+        return;
+      }
+      assert.deepStrictEqual(provider, {
+        kind: "forgejo",
+        name: "Forgejo / Gitea",
+        baseUrl: "https://git.fryuni.dev",
+      });
+      if (!provider) return;
+      const resolved = yield* cli.resolveRepository({
+        cwd: "/repo",
+        context: { ...context, provider },
+      });
+      assert.strictEqual(resolved.baseUrl, "https://git.fryuni.dev");
+      assert.strictEqual(resolved.repository, "maria/project");
+      const sourceControl = yield* ForgejoSourceControlProvider.make.pipe(
+        Effect.provideService(ForgejoCli.ForgejoCli, cli),
+      );
+      assert.deepStrictEqual(
+        yield* sourceControl.listChangeRequests({
+          cwd: "/repo",
+          context: { ...context, provider },
+          headSelector: "feature",
+          state: "open",
+        }),
+        [],
+      );
+      // Discovery and subsequent PR operations share the clone URL probe.
+      assert.strictEqual(repositoryLookups, 2);
+    }).pipe(
+      Effect.provideService(
+        FileSystem.FileSystem,
+        FileSystem.makeNoop({
+          exists: () => Effect.succeed(true),
+          readFileString: () =>
+            Effect.succeed(
+              encodeJson({
+                hosts: {
+                  "git.fryuni.dev": { type: "Application", token: "test-token" },
+                  "other.test": { type: "Application", token: "other-token" },
+                },
+                aliases: {},
+              }),
+            ),
+        }),
+      ),
+      Effect.provideService(
+        HttpClient.HttpClient,
+        HttpClient.make((request) => {
+          assert.strictEqual(request.method, "GET");
+          if (request.url.includes("/pulls?")) {
+            assert.isTrue(
+              request.url.startsWith("https://git.fryuni.dev/api/v1/repos/maria/project/pulls?"),
+            );
+            return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("[]")));
+          }
+          repositoryLookups++;
+          assert.isTrue(request.url.endsWith("/api/v1/repos/maria/project"));
+          const sshUrl =
+            scenario === "wrong-path"
+              ? "git@git.rudd-agama.ts.net:maria/other.git"
+              : scenario === "wrong-port"
+                ? "ssh://git@git.rudd-agama.ts.net:2222/maria/project.git"
+                : "git@git.rudd-agama.ts.net:maria/project.git";
+          return Effect.succeed(
+            HttpClientResponse.fromWeb(
+              request,
+              new Response(
+                encodeJson({
+                  ssh_url:
+                    request.url.startsWith("https://git.fryuni.dev/") || scenario === "ambiguous"
+                      ? sshUrl
+                      : "git@other.test:maria/project.git",
+                }),
+                { status: scenario === "unavailable" ? 404 : 200 },
+              ),
+            ),
+          );
+        }),
+      ),
+      Effect.provide(
+        Layer.mock(VcsProcess.VcsProcess)({
+          run: (input) =>
+            input.command === "fj"
+              ? Effect.succeed(processOutput(""))
+              : Effect.succeed(processOutput("[]")),
+        }),
+      ),
+    );
+  });
+}

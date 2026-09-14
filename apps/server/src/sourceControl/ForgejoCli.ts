@@ -1,3 +1,5 @@
+import * as Cache from "effect/Cache";
+import * as Data from "effect/Data";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -16,6 +18,11 @@ import { HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import { collectUint8StreamText } from "../stream/collectUint8StreamText.ts";
 import type { SourceControlProviderContext } from "./SourceControlProvider.ts";
+
+class SshRemoteLookup extends Data.Class<{
+  readonly cwd: string;
+  readonly remoteUrl: string;
+}> {}
 
 const encodeApiBody = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
 
@@ -329,7 +336,22 @@ export const make = Effect.gen(function* () {
         if (Result.isFailure(available) && available.failure.reason === "missing-cli") return [];
         return yield* keys.failure;
       }
-      return publicLogins(keys.success, input.remoteUrl);
+      const logins = publicLogins(keys.success, input.remoteUrl);
+      const remote = input.remoteUrl ? parseForgejoRemote(input.remoteUrl) : null;
+      if (
+        !input.remoteUrl ||
+        !remote?.ssh ||
+        logins.some((login) => matchForgejoLogin([login], remote))
+      ) {
+        return logins;
+      }
+      const hosts = yield* Cache.get(
+        sshRemoteCache,
+        new SshRemoteLookup({ cwd: input.cwd, remoteUrl: input.remoteUrl }),
+      );
+      return logins.map((login) =>
+        hosts.includes(login.name) ? { ...login, ssh_host: remote.host } : login,
+      );
     }
     return parseForgejoLogins(
       (yield* execute({ cwd: input.cwd, args: ["login", "list", "--output", "json"] })).stdout,
@@ -446,6 +468,46 @@ export const make = Effect.gen(function* () {
     return refreshed;
   }, authLock.withPermits(1));
 
+  // Match the advertised clone URL: the same owner/repository can exist on
+  // several servers, so a successful repository lookup alone is not evidence.
+  const sshRemoteCache = yield* Cache.makeWith(
+    Effect.fn("ForgejoCli.discoverSshRemote")(function* (input: SshRemoteLookup) {
+      const remote = parseForgejoRemote(input.remoteUrl);
+      if (!remote?.ssh || !/^[^/\s]+\/[^/\s]+$/.test(remote.path)) return [];
+      const logins = publicLogins(yield* readKeys(input.cwd));
+      const matches = yield* Effect.forEach(
+        [...new Map(logins.map((login) => [login.name, login])).values()],
+        Effect.fn("ForgejoCli.matchAdvertisedSshRemote")(
+          function* (login: typeof ForgejoLoginSchema.Type) {
+            const token = yield* authenticateFj(input.cwd, login);
+            const response = yield* requestFj({
+              cwd: input.cwd,
+              baseUrl: login.url,
+              token,
+              path: `repos/${remote.path.split("/").map(encodeURIComponent).join("/")}`,
+            });
+            const decoded = decodeJsonResult(Schema.Struct({ ssh_url: Schema.String }))(
+              response.stdout,
+            );
+            const clone = Result.isSuccess(decoded)
+              ? parseForgejoRemote(decoded.success.ssh_url)
+              : null;
+            return clone?.ssh &&
+              clone.host === remote.host &&
+              clone.path.toLowerCase() === remote.path.toLowerCase()
+              ? login.name
+              : null;
+          },
+          Effect.timeout("5 seconds"),
+          Effect.orElseSucceed(() => null),
+        ),
+        { concurrency: 3 },
+      );
+      return matches.filter((host) => host !== null);
+    }),
+    { capacity: 512, timeToLive: () => "1 minute" },
+  );
+
   const getAccount: NonNullable<ForgejoCli["Service"]["getAccount"]> = Effect.fn(
     "ForgejoCli.getAccount",
   )(function* (input) {
@@ -546,7 +608,7 @@ export const make = Effect.gen(function* () {
         path: remote?.path ?? "",
       };
     const schemeRemoteUrl = remote?.ssh ? input.context?.provider.baseUrl : remoteUrl;
-    const fjLogins = yield* listLogins({
+    let fjLogins = yield* listLogins({
       cwd: input.cwd,
       command: "fj",
       ...(schemeRemoteUrl ? { remoteUrl: schemeRemoteUrl } : {}),
@@ -559,6 +621,10 @@ export const make = Effect.gen(function* () {
         : (logins.find((item) => item.default === "true") ??
           (new Set(logins.map((item) => item.name)).size === 1 ? logins[0] : undefined));
     let login = selectLogin(fjLogins);
+    if (!login && remote?.ssh && remoteUrl) {
+      fjLogins = yield* listLogins({ cwd: input.cwd, command: "fj", remoteUrl });
+      login = selectLogin(fjLogins);
+    }
     let command: "fj" | "tea" = "fj";
     if (
       !login &&
