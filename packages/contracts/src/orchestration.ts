@@ -143,8 +143,6 @@ export const ProviderRequestKind = Schema.Literals([
   "mcp-elicitation",
 ]);
 export type ProviderRequestKind = typeof ProviderRequestKind.Type;
-export const AssistantDeliveryMode = Schema.Literals(["buffered", "streaming"]);
-export type AssistantDeliveryMode = typeof AssistantDeliveryMode.Type;
 export const ProviderApprovalDecision = Schema.Literals([
   "accept",
   "acceptForSession",
@@ -406,6 +404,12 @@ export const ProjectScript = Schema.Struct({
   command: TrimmedNonEmptyString,
   icon: ProjectScriptIcon,
   runOnWorktreeCreate: Schema.Boolean,
+  /**
+   * For `runOnWorktreeCreate` scripts: when false, the agent's first turn waits
+   * for the script to exit. Absent or true starts the agent right away and
+   * lets the script finish in the background.
+   */
+  async: Schema.optional(Schema.Boolean),
   /**
    * URL to open in the in-app browser preview when this script runs (or
    * when the user explicitly requests a preview). Optional; only honored on
@@ -1200,7 +1204,6 @@ const ThreadTurnStartBootstrapCreateThread = Schema.Struct({
 const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   projectCwd: TrimmedNonEmptyString,
   baseBranch: TrimmedNonEmptyString,
-  // Omit to check out the existing local baseBranch in the new worktree.
   branch: Schema.optional(TrimmedNonEmptyString),
   startFromOrigin: Schema.optional(Schema.Boolean),
 });

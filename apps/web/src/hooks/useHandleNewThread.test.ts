@@ -260,7 +260,7 @@ describe.each([
   );
 
   it.each([true, false])(
-    "preserves an existing-branch choice with start-from-origin %s",
+    "preserves an explicit start-from-origin choice of %s",
     async (startFromOrigin) => {
       testState.reset(draft, { envMode: "worktree", startFromOrigin: !startFromOrigin });
       const openThread = useNewThreadHandler();
@@ -269,17 +269,13 @@ describe.each([
         projectId: "project-remote",
       } as never;
 
-      const opened = await openThread(projectRef, {
-        envMode: "worktree",
-        startFromOrigin,
-        createNewBranch: false,
-      });
+      const opened = await openThread(projectRef, { envMode: "worktree", startFromOrigin });
 
       expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
         "remote-project",
         projectRef,
         opened!.draftId,
-        expect.objectContaining({ envMode: "worktree", startFromOrigin, createNewBranch: false }),
+        expect.objectContaining({ envMode: "worktree", startFromOrigin }),
       );
     },
   );

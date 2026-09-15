@@ -1,7 +1,7 @@
 # Working with threads
 
 Use a new thread for a separate task. Choose **New worktree** when its code changes
-need a separate working directory.
+need a separate branch and working directory.
 
 ## Start a thread
 
@@ -10,11 +10,6 @@ and mode selections, unless the destination project has its own model default.
 Its branch and workspace mode come from your configured defaults. To continue in
 an existing worktree, use **New thread in this worktree** from the branch toolbar.
 
-To work on an existing branch in a new directory, choose **New worktree**, open
-the branch selector, and turn off **Create new branch**. Select a local branch
-that is not already checked out. **Start from origin** applies only when creating
-a new branch; using an existing branch keeps its current commit.
-
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 
@@ -22,10 +17,8 @@ if that project exists there. Otherwise it selects an environment that has it.
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
-next draft keeps the workspace mode you selected. With **New worktree** and
-**Create new branch** enabled, it also keeps the base branch, and each background
-submission creates its own branch and worktree. When using an existing branch,
-choose another branch for the next draft; the previous branch is now checked out.
+next draft keeps the workspace mode and base branch you selected. With **New
+worktree**, each background submission creates its own worktree.
 
 ## Pin and reorder threads
 
@@ -136,3 +129,10 @@ On web and desktop, use **Agents** to follow work delegated to subagents.
 Expand a tool call in the conversation to see its full command and output.
 Summaries shorten shell wrappers and can still describe the latest call after it
 finishes; the call's own result shows its status.
+
+## Snooze until later
+
+Choose **Snooze → Custom…** from a thread's menu to pick a date and time in your
+local time zone, or a duration in minutes, hours, or days. Durations start when
+you confirm; one day means 24 hours. On web and desktop, you can also snooze
+several selected threads together. Choose **Wake thread** to bring a thread back early.
