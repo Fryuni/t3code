@@ -1624,29 +1624,6 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
-  it("preserves the existing-branch choice through edits and rehydration", async () => {
-    vi.useFakeTimers();
-    try {
-      const store = useComposerDraftStore.getState();
-      store.setProjectDraftThreadId(projectRef, draftId, { threadId, envMode: "worktree" });
-      expect(store.getDraftThread(draftId)?.createNewBranch).toBe(true);
-      store.setDraftThreadContext(draftId, { createNewBranch: false });
-      store.setDraftThreadContext(draftId, { branch: "feature/existing" });
-      await vi.advanceTimersByTimeAsync(300);
-      resetComposerDraftStore();
-      await useComposerDraftStore.persist.rehydrate();
-      expect(useComposerDraftStore.getState().getDraftThread(draftId)).toMatchObject({
-        createNewBranch: false,
-        branch: "feature/existing",
-        envMode: "worktree",
-      });
-      store.setDraftThreadContext(draftId, { createNewBranch: true });
-      expect(store.getDraftThread(draftId)?.createNewBranch).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("stores the start-from-origin choice with the draft thread", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {

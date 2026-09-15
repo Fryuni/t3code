@@ -40,7 +40,6 @@ export interface ProjectThreadStartTurnSpec {
   readonly branch: string | null;
   readonly worktreePath: string | null;
   readonly startFromOrigin: boolean;
-  readonly createNewBranch?: boolean;
   /** Generated temp branch for worktree mode; unused for local mode. */
   readonly worktreeBranchName: string;
 }
@@ -83,12 +82,8 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
             prepareWorktree: {
               projectCwd: spec.projectCwd,
               baseBranch: spec.branch!,
-              ...(spec.createNewBranch !== false
-                ? {
-                    branch: spec.worktreeBranchName,
-                    ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
-                  }
-                : {}),
+              branch: spec.worktreeBranchName,
+              ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
             },
             runSetupScript: true,
           }

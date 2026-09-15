@@ -597,6 +597,30 @@ describe("draft hero submission transition", () => {
     ).toBe(false);
   });
 
+  it("leaves the hero layout while a worktree setup card is on the timeline", () => {
+    expect(
+      resolveDraftHeroState({
+        isLocalDraftThread: true,
+        hasTimelineEntries: false,
+        isWorking: false,
+        draftHeroDockRequested: false,
+        backgroundSubmissionPending: false,
+        hasWorktreeSetupCard: true,
+      }),
+    ).toBe(false);
+    // A background submission normally pins the hero, but never over the card.
+    expect(
+      resolveDraftHeroState({
+        isLocalDraftThread: true,
+        hasTimelineEntries: false,
+        isWorking: false,
+        draftHeroDockRequested: false,
+        backgroundSubmissionPending: true,
+        hasWorktreeSetupCard: true,
+      }),
+    ).toBe(false);
+  });
+
   it("keeps the composer in the hero layout until navigation after server promotion", () => {
     expect(
       resolveDraftHeroState({
@@ -1714,40 +1738,18 @@ describe("resolveSendEnvMode", () => {
 });
 
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
-  it.each([true, false])(
-    "preserves the worktree mode and only reusable base branches (createNewBranch=%s)",
-    (createNewBranch) => {
-      expect(
-        resolveBackgroundDraftWorkspaceOptions({
-          envMode: "worktree",
-          branch: "main",
-          startFromOrigin: true,
-          createNewBranch,
-        }),
-      ).toEqual({
-        envMode: "worktree",
-        branch: createNewBranch ? "main" : null,
-        worktreePath: null,
-        startFromOrigin: true,
-        createNewBranch,
-      });
-    },
-  );
-
-  it("keeps the branch when the background thread uses the current checkout", () => {
+  it("keeps New worktree selected without reusing the launched worktree", () => {
     expect(
       resolveBackgroundDraftWorkspaceOptions({
-        envMode: "local",
-        branch: "feature/existing",
-        startFromOrigin: false,
-        createNewBranch: false,
+        envMode: "worktree",
+        branch: "main",
+        startFromOrigin: true,
       }),
     ).toEqual({
-      envMode: "local",
-      branch: "feature/existing",
+      envMode: "worktree",
+      branch: "main",
       worktreePath: null,
-      startFromOrigin: false,
-      createNewBranch: false,
+      startFromOrigin: true,
     });
   });
 });

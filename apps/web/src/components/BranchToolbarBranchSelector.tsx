@@ -3,7 +3,6 @@ import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullR
 import { useRightPanelStore } from "../rightPanelStore";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { canCheckoutBranchInNewWorktree } from "@t3tools/client-runtime/state/vcs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -16,6 +15,7 @@ import {
   useDeferredValue,
   useEffect,
   useId,
+  useImperativeHandle,
   useLayoutEffect,
   useMemo,
   useOptimistic,
@@ -23,6 +23,7 @@ import {
   useState,
   useTransition,
   type MouseEvent as ReactMouseEvent,
+  type Ref,
 } from "react";
 
 import { useComposerDraftStore, type DraftId } from "../composerDraftStore";
@@ -73,7 +74,12 @@ import {
 import { stackedThreadToast, toastManager } from "./ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "./ui/tooltip";
 
+export interface BranchToolbarBranchSelectorHandle {
+  open: () => void;
+}
+
 interface BranchToolbarBranchSelectorProps {
+  ref?: Ref<BranchToolbarBranchSelectorHandle>;
   className?: string;
   environmentId: EnvironmentId;
   threadId: ThreadId;
@@ -82,8 +88,6 @@ interface BranchToolbarBranchSelectorProps {
   effectiveEnvModeOverride?: "local" | "worktree";
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
-  createNewBranch: boolean;
-  onCreateNewBranchChange: (createNewBranch: boolean) => void;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -95,6 +99,7 @@ function toBranchActionErrorMessage(error: unknown): string {
 }
 
 export function BranchToolbarBranchSelector({
+  ref,
   className,
   environmentId,
   threadId,
@@ -103,15 +108,12 @@ export function BranchToolbarBranchSelector({
   effectiveEnvModeOverride,
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
-  createNewBranch,
-  onCreateNewBranchChange,
   startFromOrigin,
   onStartFromOriginChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
   const startFromOriginSwitchId = useId();
-  const createNewBranchSwitchId = useId();
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
@@ -266,7 +268,6 @@ export function BranchToolbarBranchSelector({
     activeWorktreePath,
     activeThreadBranch,
     currentGitBranch,
-    createNewBranch,
   });
   const branchNames = useMemo(() => refs.map((refName) => refName.name), [refs]);
   const branchByName = useMemo(
@@ -338,7 +339,6 @@ export function BranchToolbarBranchSelector({
   const queriedActiveBranch = activeBranchRefQuery.data?.refs.find(
     (refName) => refName.name === resolvedActiveBranch,
   );
-  const selectedBranchRef = listedActiveBranch ?? queriedActiveBranch;
   const resolvedActiveBranchIsRemote =
     listedActiveBranch !== null
       ? listedActiveBranch.isRemote === true
@@ -508,21 +508,9 @@ export function BranchToolbarBranchSelector({
     () => refs.find((refName) => refName.isDefault)?.name ?? null,
     [refs],
   );
-  const worktreeBaseBranchCandidate =
-    !createNewBranch || isInitialBranchesLoadPending
-      ? null
-      : (defaultBranchName ?? currentGitBranch);
-
-  useEffect(() => {
-    if (
-      isSelectingWorktreeBase &&
-      !createNewBranch &&
-      selectedBranchRef &&
-      !canCheckoutBranchInNewWorktree(selectedBranchRef)
-    ) {
-      setThreadBranch(null, null);
-    }
-  }, [createNewBranch, isSelectingWorktreeBase, selectedBranchRef, setThreadBranch]);
+  const worktreeBaseBranchCandidate = isInitialBranchesLoadPending
+    ? null
+    : (defaultBranchName ?? currentGitBranch);
 
   useEffect(() => {
     if (
@@ -554,6 +542,17 @@ export function BranchToolbarBranchSelector({
       setBranchQuery("");
     }
   }, []);
+
+  useImperativeHandle(
+    ref,
+    () => ({
+      open: () => {
+        if (isInitialBranchesLoadPending || isBranchActionPending) return;
+        handleOpenChange(true);
+      },
+    }),
+    [handleOpenChange, isBranchActionPending, isInitialBranchesLoadPending],
+  );
 
   const [showTopBranchScrollFade, setShowTopBranchScrollFade] = useState(false);
   const [showBottomBranchScrollFade, setShowBottomBranchScrollFade] = useState(false);
@@ -638,7 +637,6 @@ export function BranchToolbarBranchSelector({
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
     startFromOrigin,
-    createNewBranch,
   });
 
   // Branch status is the fallback when this thread has no linked pull requests.
@@ -740,9 +738,6 @@ export function BranchToolbarBranchSelector({
         index={index}
         value={itemValue}
         className="pe-1.5"
-        disabled={
-          isSelectingWorktreeBase && !createNewBranch && !canCheckoutBranchInNewWorktree(refName)
-        }
         onClick={() => selectBranch(refName)}
         onContextMenu={(event) => handleBranchContextMenu(event, itemValue)}
       >
@@ -881,66 +876,32 @@ export function BranchToolbarBranchSelector({
             </ComboboxListVirtualized>
           </div>
           {isSelectingWorktreeBase ? (
-            <>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <label
-                      htmlFor={createNewBranchSwitchId}
-                      className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                        <GitBranchIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-                        <span className="truncate">Create new branch</span>
-                      </span>
-                      <Switch
-                        id={createNewBranchSwitchId}
-                        checked={createNewBranch}
-                        size="sm"
-                        aria-label="Create new branch for worktree"
-                        onCheckedChange={(checked) => {
-                          if (!checked && !canCheckoutBranchInNewWorktree(selectedBranchRef)) {
-                            setThreadBranch(null, null);
-                          }
-                          onCreateNewBranchChange(Boolean(checked));
-                        }}
-                      />
-                    </label>
-                  }
-                />
-                <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
-                  Turn off to check out the selected local branch in a new worktree. The branch must
-                  not already be checked out.
-                </TooltipPopup>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <label
-                      htmlFor={startFromOriginSwitchId}
-                      className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                        <RefreshIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
-                        <span className="truncate">Start from origin</span>
-                      </span>
-                      <Switch
-                        id={startFromOriginSwitchId}
-                        checked={createNewBranch && startFromOrigin}
-                        disabled={!createNewBranch}
-                        size="sm"
-                        aria-label="Start worktree from origin"
-                        onCheckedChange={(checked) => onStartFromOriginChange(Boolean(checked))}
-                      />
-                    </label>
-                  }
-                />
-                <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
-                  Creates the worktree from the latest matching branch on origin instead of your
-                  local branch.
-                </TooltipPopup>
-              </Tooltip>
-            </>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <label
+                    htmlFor={startFromOriginSwitchId}
+                    className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
+                      <RefreshIcon aria-hidden="true" className="size-3 shrink-0 opacity-70" />
+                      <span className="truncate">Start from origin</span>
+                    </span>
+                    <Switch
+                      id={startFromOriginSwitchId}
+                      checked={startFromOrigin}
+                      size="sm"
+                      aria-label="Start worktree from origin"
+                      onCheckedChange={(checked) => onStartFromOriginChange(Boolean(checked))}
+                    />
+                  </label>
+                }
+              />
+              <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
+                Creates the worktree from the latest matching branch on origin instead of your local
+                branch.
+              </TooltipPopup>
+            </Tooltip>
           ) : null}
           {branchStatusText ? <ComboboxStatus>{branchStatusText}</ComboboxStatus> : null}
         </div>

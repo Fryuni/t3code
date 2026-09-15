@@ -19,6 +19,12 @@ export const PersistedServerRuntimeState = Schema.Struct({
   devUrl: Schema.optional(Schema.String),
   publicUrl: Schema.optional(Schema.String),
   startedAt: Schema.String,
+  /**
+   * Set when the boot-service launcher supervises this server. Lets a CLI
+   * tell a service-managed server apart from one started by hand, which is
+   * the difference between "restart the service" and "stop your terminal".
+   */
+  serviceManaged: Schema.optional(Schema.Boolean),
 });
 export type PersistedServerRuntimeState = typeof PersistedServerRuntimeState.Type;
 
@@ -51,6 +57,7 @@ const runtimeOriginForConfig = (
 export const makePersistedServerRuntimeState = (input: {
   readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl" | "publicUrl">;
   readonly port: number;
+  readonly serviceManaged?: boolean;
 }): Effect.Effect<PersistedServerRuntimeState> =>
   Effect.map(DateTime.now, (now) => ({
     version: 1,
@@ -61,6 +68,7 @@ export const makePersistedServerRuntimeState = (input: {
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
     ...(input.config.publicUrl ? { publicUrl: input.config.publicUrl.toString() } : {}),
     startedAt: DateTime.formatIso(now),
+    ...(input.serviceManaged ? { serviceManaged: true } : {}),
   }));
 
 export const persistServerRuntimeState = (input: {

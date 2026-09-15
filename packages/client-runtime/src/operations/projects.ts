@@ -80,8 +80,6 @@ export function addProjectRemoteSourceLabel(source: AddProjectRemoteSource): str
       return "Forgejo / Gitea";
     case "gitlab":
       return "GitLab";
-    case "forgejo":
-      return "Forgejo";
     case "bitbucket":
       return "Bitbucket";
     case "azure-devops":
@@ -98,8 +96,6 @@ export function addProjectRemoteSourcePathHint(source: AddProjectRemoteSource): 
       return "owner/repo";
     case "gitlab":
       return "group/project";
-    case "forgejo":
-      return "host/owner/repo";
     case "bitbucket":
       return "workspace/repository";
     case "azure-devops":

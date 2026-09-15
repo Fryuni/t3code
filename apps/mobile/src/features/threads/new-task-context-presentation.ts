@@ -60,14 +60,13 @@ export function resolveNewTaskLocalWorkspaceSelection(input: {
 export function resolveNewTaskBranchLabel(input: {
   readonly branchName: string | null;
   readonly startFromOrigin: boolean;
-  readonly createNewBranch?: boolean;
   readonly workspaceMode: WorkspaceMode;
 }): string {
   if (!input.branchName) {
     return "Choose branch";
   }
 
-  if (input.workspaceMode === "local" || input.createNewBranch === false) {
+  if (input.workspaceMode === "local") {
     return input.branchName;
   }
 
