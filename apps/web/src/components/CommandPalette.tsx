@@ -1677,6 +1677,32 @@ function OpenCommandPaletteDialog(props: {
       });
     }
 
+    const currentThread = activeThread ?? activeDraftThread;
+    if (currentThread?.branch) {
+      actionItems.push({
+        kind: "action",
+        value: "action:new-thread-on-branch",
+        searchTerms: ["new thread", "chat", "create", "branch", "worktree", currentThread.branch],
+        title: (
+          <>
+            New thread on <span className="font-semibold">{currentThread.branch}</span>
+          </>
+        ),
+        icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+        run: async () => {
+          await handleNewThread(
+            scopeProjectRef(currentThread.environmentId, currentThread.projectId),
+            {
+              branch: currentThread.branch,
+              worktreePath: currentThread.worktreePath,
+              envMode: currentThread.worktreePath ? "worktree" : "local",
+              startFromOrigin: false,
+            },
+          );
+        },
+      });
+    }
+
     actionItems.push({
       kind: "submenu",
       value: "action:new-thread-in",
