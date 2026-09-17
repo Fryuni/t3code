@@ -230,6 +230,51 @@ export function codexModelFamily(slug: string): string {
   return slug.startsWith("openai.gpt-") ? slug.slice("openai.".length) : slug;
 }
 
+export function getModelProviderLabel(model: {
+  slug: string;
+  name: string;
+  shortName?: string | undefined;
+  subProvider?: string | undefined;
+}): string | undefined {
+  const subProvider = model.subProvider?.trim() || undefined;
+  const names = [model.name, model.shortName].filter(
+    (name): name is string => typeof name === "string" && name.length > 0,
+  );
+  const inferDotQualifier = (value: string): string | undefined => {
+    const lowerValue = value.toLowerCase();
+    for (const name of names) {
+      const suffix = `.${name.toLowerCase()}`;
+      if (lowerValue.endsWith(suffix)) {
+        return value.slice(0, -suffix.length) || undefined;
+      }
+    }
+    return undefined;
+  };
+
+  const slashParts = model.slug.split("/");
+  const modelId = slashParts.pop() ?? model.slug;
+  if (subProvider) {
+    slashParts.shift();
+  }
+  const qualifiers = slashParts.filter(Boolean);
+  const dotQualifier = inferDotQualifier(modelId);
+  if (dotQualifier) {
+    qualifiers.push(dotQualifier);
+  }
+
+  const qualifier = qualifiers.join("/") || undefined;
+  const missingQualifier =
+    qualifier && subProvider?.localeCompare(qualifier, undefined, { sensitivity: "accent" }) === 0
+      ? undefined
+      : qualifier;
+
+  return (
+    [subProvider, missingQualifier]
+      .filter((value): value is string => Boolean(value))
+      .join(" · ") || undefined
+  );
+}
+
 export function normalizeModelSlug(
   model: string | null | undefined,
   provider: ProviderDriverKind = DEFAULT_PROVIDER_DRIVER_KIND,

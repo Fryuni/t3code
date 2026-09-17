@@ -1,4 +1,5 @@
 import { type ProviderDriverKind, type ProviderInstanceId } from "@t3tools/contracts";
+import { getModelProviderLabel } from "@t3tools/shared/model";
 import { memo } from "react";
 import { StarIcon } from "lucide-react";
 import {
@@ -41,8 +42,9 @@ export const ModelListRow = memo(function ModelListRow(props: {
   onToggleFavorite: () => void;
 }) {
   const ProviderIcon = PROVIDER_ICON_BY_PROVIDER[props.driverKind] ?? null;
-  const providerLabel = props.model.subProvider
-    ? `${props.providerDisplayName} · ${props.model.subProvider}`
+  const modelProviderLabel = getModelProviderLabel(props.model);
+  const providerLabel = modelProviderLabel
+    ? `${props.providerDisplayName} · ${modelProviderLabel}`
     : props.providerDisplayName;
 
   const row = (

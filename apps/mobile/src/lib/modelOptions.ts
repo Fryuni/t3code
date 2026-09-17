@@ -5,6 +5,7 @@ import type {
 } from "@t3tools/contracts";
 import {
   buildExplicitProviderOptionSelectionsFromDescriptors,
+  getModelProviderLabel,
   getProviderOptionDescriptors,
 } from "@t3tools/shared/model";
 
@@ -169,7 +170,7 @@ export function buildModelOptions(
       options.set(key, {
         key,
         label: model.name,
-        subtitle: model.subProvider ?? "",
+        subtitle: getModelProviderLabel(model) ?? "",
         providerKey: provider.instanceId,
         providerLabel,
         providerDriver: provider.driver,
@@ -216,7 +217,7 @@ export function buildModelOptions(
       options.set(key, {
         key,
         label: model?.name ?? fallbackModelSelection.model,
-        subtitle: model?.subProvider ?? "",
+        subtitle: model ? (getModelProviderLabel(model) ?? "") : "",
         providerKey: fallbackModelSelection.instanceId,
         providerLabel,
         providerDriver,

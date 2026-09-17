@@ -8,6 +8,7 @@ import {
   createModelCapabilities,
   createModelSelection,
   getModelSelectionBooleanOptionValue,
+  getModelProviderLabel,
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
   readCustomModelEntries,
@@ -162,6 +163,99 @@ describe("descriptor helpers", () => {
     ).toBeUndefined();
     expect(getModelSelectionStringOptionValue(selection, "reasoningEffort")).toBe("high");
     expect(getModelSelectionBooleanOptionValue(selection, "fastMode")).toBe(true);
+  });
+});
+
+describe("getModelProviderLabel", () => {
+  it("preserves missing slash qualifiers without changing the friendly name", () => {
+    expect(
+      getModelProviderLabel({
+        slug: "upstream/glm-5.3-flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("upstream");
+    expect(
+      getModelProviderLabel({
+        slug: "partner/glm-5.3-flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("partner");
+    expect(
+      getModelProviderLabel({
+        slug: "loem/upstream/glm-5.3-flash",
+        name: "GLM-5.3-Flash",
+        subProvider: "Loem",
+      }),
+    ).toBe("Loem · upstream");
+    expect(
+      getModelProviderLabel({
+        slug: "loem/azure.glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+        subProvider: "Loem",
+      }),
+    ).toBe("Loem · azure");
+  });
+
+  it("keeps ordinary slash providers and avoids duplicating represented prefixes", () => {
+    expect(
+      getModelProviderLabel({
+        slug: "github-copilot/claude-fable-5",
+        name: "Claude Fable 5",
+        subProvider: "GitHub Copilot",
+      }),
+    ).toBe("GitHub Copilot");
+    expect(
+      getModelProviderLabel({
+        slug: "anthropic/claude-fable-5",
+        name: "Claude Fable 5",
+      }),
+    ).toBe("anthropic");
+  });
+
+  it("infers dot qualifiers only when the remaining suffix is a model name", () => {
+    expect(
+      getModelProviderLabel({
+        slug: "openai.gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+      }),
+    ).toBe("openai");
+    expect(
+      getModelProviderLabel({
+        slug: "gpt-5.6-sol",
+        name: "GPT-5.6 Sol",
+      }),
+    ).toBeUndefined();
+    expect(
+      getModelProviderLabel({
+        slug: "azure.glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("azure");
+    expect(
+      getModelProviderLabel({
+        slug: "azure.glm-5.3-flash",
+        name: "Friendly GLM",
+        shortName: "GLM-5.3-Flash",
+      }),
+    ).toBe("azure");
+    expect(
+      getModelProviderLabel({
+        slug: "openai.glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("openai");
+    expect(
+      getModelProviderLabel({
+        slug: "glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBeUndefined();
+    expect(
+      getModelProviderLabel({
+        slug: "glm-5.3-Flash",
+        name: "GLM Flash",
+      }),
+    ).toBeUndefined();
   });
 });
 
