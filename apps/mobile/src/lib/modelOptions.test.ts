@@ -54,6 +54,31 @@ describe("mobile model options", () => {
     ]);
   });
 
+  it("keeps the OhMyPi role catalog in server cycle order without stale fallback models", () => {
+    const instanceId = ProviderInstanceId.make("ohMyPi");
+    const config = {
+      providers: [
+        {
+          instanceId,
+          driver: "ohMyPi",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [
+            { slug: "review", name: "Review", isCustom: false, capabilities: null },
+            { slug: "build", name: "Build", isCustom: false, capabilities: null },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+
+    expect(
+      buildModelOptions(config, { instanceId, model: "openai/gpt-5.4" }).map(
+        (option) => option.selection.model,
+      ),
+    ).toEqual(["review", "build"]);
+  });
+
   it("distinguishes same-name OpenCode models without changing their routing", () => {
     const sources = [
       { id: "anthropic", label: "Anthropic" },

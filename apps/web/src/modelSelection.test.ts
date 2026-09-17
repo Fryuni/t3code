@@ -49,6 +49,32 @@ function provider(input: {
   };
 }
 
+it("keeps the OhMyPi role catalog in server cycle order without custom model injection", () => {
+  const instanceId = ProviderInstanceId.make("ohMyPi-work");
+  const settings = {
+    ...DEFAULT_UNIFIED_SETTINGS,
+    providerInstances: {
+      [instanceId]: {
+        driver: ProviderDriverKind.make("ohMyPi"),
+        enabled: true,
+        config: { customModels: ["openai/gpt-5.4"] },
+      },
+    },
+  } satisfies UnifiedSettings;
+  const entry = deriveProviderInstanceEntries([
+    provider({
+      provider: ProviderDriverKind.make("ohMyPi"),
+      instanceId,
+      models: ["review", "build"],
+    }),
+  ])[0]!;
+
+  expect(getAppModelOptionsForInstance(settings, entry).map((model) => model.slug)).toEqual([
+    "review",
+    "build",
+  ]);
+});
+
 function settingsWithProviderInstances(): UnifiedSettings {
   return {
     ...DEFAULT_UNIFIED_SETTINGS,

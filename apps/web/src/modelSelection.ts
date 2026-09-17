@@ -192,6 +192,7 @@ function getAppModelOptions(
   const options: AppModelOption[] = rawModels
     .filter((model) => !model.isCustom)
     .map(toAppModelOption);
+  if (provider === "ohMyPi") return options;
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
     Arr.filterMap(getProviderModels(providers, provider), (model) =>
@@ -245,6 +246,7 @@ export function getAppModelOptionsForInstance(
   const options: AppModelOption[] = entry.models
     .filter((model) => !model.isCustom)
     .map(toAppModelOption);
+  if (entry.driverKind === "ohMyPi") return options;
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
     Arr.filterMap(entry.models, (model) =>

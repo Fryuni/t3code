@@ -46,6 +46,7 @@ import {
   type WorktreeSetupSnapshot,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import { resolveProviderRuntimeMode } from "@t3tools/client-runtime/provider-runtime-mode";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
 import { readPastedComposerContext } from "./composerInlineTokenPaste";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
@@ -1901,7 +1902,8 @@ export default function ChatView(props: ChatViewProps) {
     .settings.defaultRuntimeMode;
   // Implicit drafts follow their current project/environment, including retargets.
   // Explicit composer choices and existing server threads retain their permissions.
-  const runtimeMode = composerRuntimeMode ?? activeServerThread?.runtimeMode ?? defaultRuntimeMode;
+  const unresolvedRuntimeMode =
+    composerRuntimeMode ?? activeServerThread?.runtimeMode ?? defaultRuntimeMode;
   const isLocalDraftThread = !isServerThread && localDraftThread !== undefined;
   const canCheckoutPullRequestIntoThread = isLocalDraftThread;
   const activeThreadId = activeThread?.id ?? null;
@@ -2837,6 +2839,7 @@ export default function ChatView(props: ChatViewProps) {
   const selectedProvider = selectedProviderEntry?.driverKind ?? requestedDriverKind;
   const activeProviderInstanceId = selectedProviderEntry?.instanceId ?? null;
   const activeProviderStatus = selectedProviderEntry?.snapshot ?? null;
+  const runtimeMode = resolveProviderRuntimeMode(selectedProvider, unresolvedRuntimeMode);
   const { enabled: interactionModeEnabled, interactionMode } = resolveComposerInteractionMode({
     planModeEnabled: settings.planModeEnabled,
     provider: activeProviderStatus,
@@ -4423,7 +4426,8 @@ export default function ChatView(props: ChatViewProps) {
   );
 
   const handleRuntimeModeChange = useCallback(
-    (mode: RuntimeMode) => {
+    (requestedMode: RuntimeMode) => {
+      const mode = resolveProviderRuntimeMode(selectedProvider, requestedMode);
       if (mode === runtimeMode) return;
       setComposerDraftRuntimeMode(composerDraftTarget, mode);
       if (isLocalDraftThread) {
@@ -4433,6 +4437,7 @@ export default function ChatView(props: ChatViewProps) {
     },
     [
       isLocalDraftThread,
+      selectedProvider,
       runtimeMode,
       scheduleComposerFocus,
       composerDraftTarget,
@@ -6740,7 +6745,7 @@ export default function ChatView(props: ChatViewProps) {
       if (
         command === "composer.host" ||
         command === "composer.effort" ||
-        command === "composer.mode" ||
+        (command === "composer.mode" && selectedProvider !== "ohMyPi") ||
         command === "composer.workspace"
       ) {
         event.preventDefault();
@@ -6811,6 +6816,7 @@ export default function ChatView(props: ChatViewProps) {
     requestCloseTerminal,
     requestClosePanelTerminal,
     createNewTerminal,
+    selectedProvider,
     setTerminalOpen,
     runProjectScript,
     splitTerminal,
@@ -8682,6 +8688,10 @@ export default function ChatView(props: ChatViewProps) {
     }
     const nextThreadTitle = truncate(buildPlanImplementationThreadTitle(planMarkdown));
     const nextThreadModelSelection: ModelSelection = ctxSelectedModelSelection;
+    const nextThreadRuntimeMode = resolveProviderRuntimeMode(
+      ctxSelectedProvider,
+      defaultRuntimeMode,
+    );
 
     sendInFlightRef.current = true;
     beginLocalDispatch({ preparingWorktree: false });
@@ -8697,7 +8707,7 @@ export default function ChatView(props: ChatViewProps) {
         projectId: activeProject.id,
         title: nextThreadTitle,
         modelSelection: nextThreadModelSelection,
-        runtimeMode: defaultRuntimeMode,
+        runtimeMode: nextThreadRuntimeMode,
         interactionMode: "default",
         branch: activeThreadBranch,
         worktreePath: activeThread.worktreePath,
@@ -8720,7 +8730,7 @@ export default function ChatView(props: ChatViewProps) {
           },
           modelSelection: ctxSelectedModelSelection,
           titleSeed: nextThreadTitle,
-          runtimeMode: defaultRuntimeMode,
+          runtimeMode: nextThreadRuntimeMode,
           interactionMode: "default",
           sourceProposedPlan: {
             threadId: activeThread.id,

@@ -18,6 +18,7 @@ import {
   T3_PROJECT_FILE_NAME,
   ThreadId,
 } from "@t3tools/contracts";
+import { resolveProviderRuntimeMode } from "@t3tools/client-runtime/provider-runtime-mode";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import {
@@ -475,7 +476,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const defaultRuntimeMode = editingPendingTask
     ? (editingPendingTask.runtimeMode ?? DEFAULT_RUNTIME_MODE)
     : projectSettings.settings.defaultRuntimeMode;
-  const runtimeMode = selectedProjectDraft.runtimeMode ?? defaultRuntimeMode;
+  const unresolvedRuntimeMode = selectedProjectDraft.runtimeMode ?? defaultRuntimeMode;
 
   // Antigravity keeps unavailable selections so sign-out or a catalog change
   // cannot switch the user's model. Other providers retain their fallback
@@ -533,6 +534,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       ) ?? null,
     [selectedEnvironmentServerConfig, selectedModel?.instanceId],
   );
+  const runtimeMode = resolveProviderRuntimeMode(selectedProviderStatus, unresolvedRuntimeMode);
   const planModeEnabled =
     legacyPlanModeEnabled && selectedProviderStatus?.showInteractionModeToggle !== false;
   const interactionMode = planModeEnabled
@@ -900,10 +902,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const setRuntimeMode = useCallback(
     (value: RuntimeMode) => {
       if (selectedProjectDraftKey) {
-        updateComposerDraftSettings(selectedProjectDraftKey, { runtimeMode: value });
+        updateComposerDraftSettings(selectedProjectDraftKey, {
+          runtimeMode: resolveProviderRuntimeMode(selectedProviderStatus, value),
+        });
       }
     },
-    [selectedProjectDraftKey],
+    [selectedProjectDraftKey, selectedProviderStatus],
   );
   const setInteractionMode = useCallback(
     (value: ProviderInteractionMode) => {
@@ -994,7 +998,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         attachments: draft.attachments,
         context: draft.context,
         modelSelection: draftModelSelection,
-        runtimeMode: draft.runtimeMode ?? defaultRuntimeMode,
+        runtimeMode: resolveProviderRuntimeMode(
+          selectedProviderStatus,
+          draft.runtimeMode ?? defaultRuntimeMode,
+        ),
         interactionMode: resolvePendingTaskInteractionMode({
           preferenceLoaded: planModePreferenceLoaded,
           planModeEnabled: legacyPlanModeEnabled,
@@ -1035,6 +1042,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       editingPendingTask,
       selectedEnvironmentServerConfig,
       selectedModel,
+      selectedProviderStatus,
       selectedProject,
       selectedProjectDraftKey,
       legacyPlanModeEnabled,

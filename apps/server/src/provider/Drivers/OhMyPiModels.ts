@@ -1,3 +1,4 @@
+import { OH_MY_PI_DEFAULT_MODEL } from "@t3tools/contracts";
 import type { OhMyPiSettings, ServerProviderModel } from "@t3tools/contracts";
 import { createModelCapabilities } from "@t3tools/shared/model";
 import { resolveSpawnCommand } from "@t3tools/shared/shell";
@@ -6,23 +7,19 @@ import * as Schema from "effect/Schema";
 import { ChildProcess } from "effect/unstable/process";
 import { parseGenericCliVersion, spawnAndCollect } from "../providerSnapshot.ts";
 
-const ModelsOutput = Schema.Struct({
-  models: Schema.Array(
-    Schema.Struct({
-      provider: Schema.NonEmptyString,
-      id: Schema.NonEmptyString,
-      name: Schema.String,
-      thinking: Schema.optionalKey(Schema.NullOr(Schema.Array(Schema.NonEmptyString))),
-    }),
-  ),
+const CycleOrderOutput = Schema.Struct({
+  key: Schema.Literal("cycleOrder"),
+  value: Schema.Array(Schema.NonEmptyString),
+  type: Schema.Literal("array"),
+  description: Schema.String,
 });
-const decodeModels = Schema.decodeEffect(Schema.fromJsonString(ModelsOutput));
+const decodeCycleOrder = Schema.decodeEffect(Schema.fromJsonString(CycleOrderOutput));
 
 class OhMyPiModelsError extends Schema.TaggedError<OhMyPiModelsError>()("OhMyPiModelsError", {
   detail: Schema.String,
 }) {}
 
-/** Discover the installed CLI's catalog without authenticating or starting an ACP session. */
+/** Discover the installed CLI's configured model roles without starting an ACP session. */
 export const probeOhMyPiModels = Effect.fn("probeOhMyPiModels")(function* (
   settings: Pick<OhMyPiSettings, "binaryPath">,
   environment: NodeJS.ProcessEnv,
@@ -40,16 +37,16 @@ export const probeOhMyPiModels = Effect.fn("probeOhMyPiModels")(function* (
       }),
     );
   });
-  const [catalog, version] = yield* Effect.all(
+  const [cycleOrder, version] = yield* Effect.all(
     [
       Effect.gen(function* () {
-        const result = yield* run(["models", "--json"]);
+        const result = yield* run(["config", "get", "cycleOrder", "--json"]);
         if (result.code !== 0) {
           return yield* new OhMyPiModelsError({
-            detail: "omp models --json exited unsuccessfully.",
+            detail: "omp config get cycleOrder --json exited unsuccessfully.",
           });
         }
-        return yield* decodeModels(result.stdout);
+        return yield* decodeCycleOrder(result.stdout);
       }),
       run(["--version"]).pipe(
         Effect.timeout("4 seconds"),
@@ -60,35 +57,18 @@ export const probeOhMyPiModels = Effect.fn("probeOhMyPiModels")(function* (
     { concurrency: "unbounded" },
   );
   const seen = new Set<string>();
-  const models = catalog.models.flatMap((model): ServerProviderModel[] => {
-    const slug = `${model.provider}/${model.id}`;
-    if (seen.has(slug)) return [];
-    seen.add(slug);
-    const thinking = [...new Set(model.thinking ?? [])];
-    return [
-      {
-        slug,
-        name: model.name.trim() || model.id,
-        subProvider: model.provider,
-        isCustom: false,
-        capabilities: createModelCapabilities({
-          optionDescriptors:
-            thinking.length > 0
-              ? [
-                  {
-                    id: "thinking",
-                    label: "Thinking",
-                    type: "select",
-                    options: [...new Set(["off", "auto", ...thinking])].map((id) => ({
-                      id,
-                      label: id === "off" ? "Off" : id === "auto" ? "Auto" : id,
-                    })),
-                  },
-                ]
-              : [],
-        }),
-      },
-    ];
+  const roles = cycleOrder.value.filter((role) => {
+    if (seen.has(role)) return false;
+    seen.add(role);
+    return true;
   });
+  const defaultRole = roles.includes(OH_MY_PI_DEFAULT_MODEL) ? OH_MY_PI_DEFAULT_MODEL : roles[0];
+  const models = roles.map((role): ServerProviderModel => ({
+    slug: role,
+    name: role,
+    isDefault: role === defaultRole,
+    isCustom: false,
+    capabilities: createModelCapabilities({ optionDescriptors: [] }),
+  }));
   return { models, version };
 }, Effect.timeout("30 seconds"));

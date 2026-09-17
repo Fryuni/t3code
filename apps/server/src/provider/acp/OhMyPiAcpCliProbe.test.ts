@@ -18,7 +18,6 @@ it.effect.skipIf(process.env.T3_OH_MY_PI_ACP_PROBE !== "1")(
         childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
         environment: { ...process.env, PI_CODING_AGENT_DIR: agentDir },
         cwd,
-        runtimeMode: "approval-required",
         clientInfo: { name: "t3-omp-probe", version: "0.0.0" },
       });
       const initialized = yield* runtime.initialize();

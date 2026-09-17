@@ -7,7 +7,6 @@
 import {
   ApprovalRequestId,
   type OhMyPiSettings,
-  type ProviderOptionSelection,
   EventId,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
@@ -16,7 +15,6 @@ import {
   ProviderDriverKind,
   ProviderInstanceId,
   RuntimeRequestId,
-  type RuntimeMode,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -37,6 +35,7 @@ import * as Stream from "effect/Stream";
 import * as SynchronizedRef from "effect/SynchronizedRef";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 import * as EffectAcpErrors from "effect-acp/errors";
+import type { AcpError } from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
@@ -61,11 +60,7 @@ import {
 } from "../acp/AcpCoreRuntimeEvents.ts";
 import { parsePermissionRequest } from "../acp/AcpRuntimeModel.ts";
 import { makeAcpNativeLoggerFactory } from "../acp/AcpNativeLogging.ts";
-import {
-  applyOhMyPiAcpModelSelection,
-  makeOhMyPiAcpRuntime,
-  selectOhMyPiPermissionOption,
-} from "../acp/OhMyPiAcpSupport.ts";
+import { makeOhMyPiAcpRuntime, selectOhMyPiPermissionOption } from "../acp/OhMyPiAcpSupport.ts";
 import type { ProviderAdapterShape } from "../Services/ProviderAdapter.ts";
 import type { ProviderAdapterError } from "../Errors.ts";
 type OhMyPiAdapterShape = ProviderAdapterShape<ProviderAdapterError>;
@@ -142,33 +137,13 @@ function parseOhMyPiResume(raw: unknown): { sessionId: string } | undefined {
 
 function applyRequestedSessionConfiguration<E>(input: {
   readonly runtime: AcpSessionRuntime.AcpSessionRuntime["Service"];
-  readonly runtimeMode: RuntimeMode;
   readonly interactionMode: ProviderInteractionMode | undefined;
-  readonly modelSelection:
-    | {
-        readonly model: string;
-        readonly options?: ReadonlyArray<ProviderOptionSelection> | null | undefined;
-      }
-    | undefined;
   readonly mapError: (context: {
-    readonly cause: import("effect-acp/errors").AcpError;
-    readonly method: "session/set_config_option" | "session/set_mode";
+    readonly cause: AcpError;
+    readonly method: "session/set_mode";
   }) => E;
 }): Effect.Effect<void, E> {
   return Effect.gen(function* () {
-    if (input.modelSelection) {
-      yield* applyOhMyPiAcpModelSelection({
-        runtime: input.runtime,
-        model: input.modelSelection.model,
-        selections: input.modelSelection.options,
-        mapError: ({ cause }) =>
-          input.mapError({
-            cause,
-            method: "session/set_config_option",
-          }),
-      });
-    }
-
     const requestedModeId = input.interactionMode === "plan" ? "plan" : "default";
     const modes = yield* input.runtime.getModeState;
     if (!modes?.availableModes.some((mode) => mode.id === requestedModeId)) return;
@@ -419,7 +394,7 @@ export function makeOhMyPiAdapter(
             },
             childProcessSpawner,
             cwd,
-            runtimeMode: input.runtimeMode,
+            role: ohMyPiModelSelection?.model,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
             ...(mcpSession
@@ -463,16 +438,14 @@ export function makeOhMyPiAdapter(
                     params,
                     "acp.jsonrpc",
                   );
-                  if (input.runtimeMode === "full-access") {
-                    const autoApprovedOptionId = selectAutoApprovedPermissionOption(params);
-                    if (autoApprovedOptionId !== undefined) {
-                      return {
-                        outcome: {
-                          outcome: "selected" as const,
-                          optionId: autoApprovedOptionId,
-                        },
-                      };
-                    }
+                  const autoApprovedOptionId = selectAutoApprovedPermissionOption(params);
+                  if (autoApprovedOptionId !== undefined) {
+                    return {
+                      outcome: {
+                        outcome: "selected" as const,
+                        optionId: autoApprovedOptionId,
+                      },
+                    };
                   }
                   const permissionRequest = parsePermissionRequest(params);
                   const requestId = ApprovalRequestId.make(yield* randomUUIDv4);
@@ -535,9 +508,7 @@ export function makeOhMyPiAdapter(
 
           yield* applyRequestedSessionConfiguration({
             runtime: acp,
-            runtimeMode: input.runtimeMode,
             interactionMode: undefined,
-            modelSelection: ohMyPiModelSelection,
             mapError: ({ cause, method }) =>
               mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
           });
@@ -547,7 +518,7 @@ export function makeOhMyPiAdapter(
             provider: PROVIDER,
             providerInstanceId: boundInstanceId,
             status: "ready",
-            runtimeMode: input.runtimeMode,
+            runtimeMode: "full-access",
             cwd,
             model: ohMyPiModelSelection?.model,
             threadId: input.threadId,
@@ -752,30 +723,14 @@ export function makeOhMyPiAdapter(
             const dispatched = yield* Deferred.make<void>();
 
             const sending = yield* Effect.gen(function* () {
-              const turnModelSelection =
-                input.modelSelection?.instanceId === boundInstanceId
-                  ? input.modelSelection
-                  : undefined;
-              const model = turnModelSelection?.model ?? ctx.session.model;
+              const model = ctx.session.model;
               yield* applyRequestedSessionConfiguration({
                 runtime: ctx.acp,
-                runtimeMode: ctx.session.runtimeMode,
                 interactionMode: input.interactionMode,
-                modelSelection:
-                  model === undefined
-                    ? undefined
-                    : {
-                        model,
-                        options: turnModelSelection?.options,
-                      },
                 mapError: ({ cause, method }) =>
                   mapAcpToAdapterError(PROVIDER, input.threadId, method, cause),
               });
-              const modelConfig = (yield* ctx.acp.getConfigOptions).find(
-                (option) => option.category === "model",
-              );
-              const resolvedModel =
-                modelConfig?.type === "select" ? modelConfig.currentValue : model;
+              const resolvedModel = model;
               ctx.activeTurnId = turnId;
               if (steeringTurnId === undefined) {
                 ctx.lastPlanFingerprint = undefined;
@@ -1025,7 +980,7 @@ export function makeOhMyPiAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+      capabilities: { sessionModelSwitch: "unsupported", supportsConversationRollback: false },
       compaction: { type: "slash-command", command: "/compact" },
       startSession,
       sendTurn,

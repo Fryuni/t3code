@@ -1,4 +1,5 @@
 import { isTransportConnectionErrorMessage } from "@t3tools/client-runtime/errors";
+import { resolveProviderRuntimeMode } from "@t3tools/client-runtime/provider-runtime-mode";
 import {
   clampFileAttachmentUploadBytes,
   fileAttachmentTooLargeMessage,
@@ -99,7 +100,10 @@ export interface ThreadSettingsSnapshot {
 export function resolveQueuedThreadSettings(
   message: QueuedThreadMessage,
   thread: ThreadSettingsSnapshot,
-  providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "showInteractionModeToggle">> = [],
+  providers: ReadonlyArray<
+    Pick<ServerProvider, "instanceId" | "showInteractionModeToggle"> &
+      Partial<Pick<ServerProvider, "driver">>
+  > = [],
 ): ThreadSettingsSnapshot {
   const modelSelection = message.modelSelection ?? thread.modelSelection;
   const provider = providers.find(
@@ -107,7 +111,10 @@ export function resolveQueuedThreadSettings(
   );
   return {
     modelSelection,
-    runtimeMode: message.runtimeMode ?? thread.runtimeMode,
+    runtimeMode: resolveProviderRuntimeMode(
+      provider?.driver,
+      message.runtimeMode ?? thread.runtimeMode,
+    ),
     interactionMode: resolveProviderInteractionMode(
       provider,
       message.interactionMode ?? thread.interactionMode,

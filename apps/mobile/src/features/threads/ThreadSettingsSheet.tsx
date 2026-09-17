@@ -1,6 +1,7 @@
 import type {
   EnvironmentId,
   ModelSelection,
+  ProviderDriverKind,
   ProviderInstanceId,
   ProviderOptionDescriptor,
   ProviderOptionSelection,
@@ -62,7 +63,11 @@ import {
   NATIVE_MAIL_SEARCH_TOOLBAR_CONTENT_INSET,
   NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED,
 } from "../layout/native-mail-search-toolbar";
-import { RUNTIME_MODE_CHOICES, selectableChoices } from "./thread-settings-options";
+import {
+  RUNTIME_MODE_CHOICES,
+  runtimeModeChoicesForProvider,
+  selectableChoices,
+} from "./thread-settings-options";
 import {
   canCommitPendingModel,
   modelMatchesCatalogQuery,
@@ -319,6 +324,7 @@ type ThreadSettingsSubmenuPage =
 type ThreadSettingsSessionProps = {
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
+  readonly providerDriver?: ProviderDriverKind;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly selectedModel: ModelSelection | null;
   readonly onSelectModel: (option: ModelOption) => void;
@@ -372,6 +378,7 @@ export function useExistingThreadSettingsRoutePresentation() {
 type ThreadSettingsSessionValue = {
   readonly environmentId: EnvironmentId | null;
   readonly providerInstanceId?: ProviderInstanceId;
+  readonly providerDriver?: ProviderDriverKind;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly runtimeMode: RuntimeMode;
   readonly onUpdateRuntimeMode: (mode: RuntimeMode) => void;
@@ -500,6 +507,7 @@ function ThreadSettingsSessionProvider(
     () => ({
       environmentId: props.environmentId,
       providerInstanceId: props.providerInstanceId,
+      providerDriver: props.providerDriver,
       providerGroups: props.providerGroups,
       runtimeMode: props.runtimeMode,
       onUpdateRuntimeMode: props.onUpdateRuntimeMode,
@@ -530,6 +538,7 @@ function ThreadSettingsSessionProvider(
       isDisplayed,
       props.environmentId,
       props.providerInstanceId,
+      props.providerDriver,
       pendingModel,
       pressModel,
       providerFilter,
@@ -910,7 +919,7 @@ function ThreadSettingsChoiceContent(props: {
   const submenuContent =
     props.submenu.kind === "runtime"
       ? {
-          rows: RUNTIME_MODE_CHOICES.map((choice) => ({
+          rows: runtimeModeChoicesForProvider(session.providerDriver).map((choice) => ({
             id: choice.mode,
             label: choice.label,
             description: choice.description,
@@ -1302,6 +1311,7 @@ export function NewTaskThreadSettingsRouteScreen() {
     <ThreadSettingsSessionProvider
       environmentId={flow.selectedEnvironmentId}
       providerGroups={flow.providerGroups}
+      providerDriver={flow.selectedProviderStatus?.driver}
       selectedModel={flow.selectedModel}
       onSelectModel={(option) => flow.setSelectedModelKey(option.key, option.selection.options)}
       optionDescriptors={optionDescriptors}

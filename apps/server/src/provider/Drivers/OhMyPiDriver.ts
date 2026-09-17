@@ -1,10 +1,4 @@
-import {
-  OH_MY_PI_DEFAULT_MODEL,
-  OhMyPiSettings,
-  ProviderDriverKind,
-  TextGenerationError,
-} from "@t3tools/contracts";
-import { createModelCapabilities } from "@t3tools/shared/model";
+import { OhMyPiSettings, ProviderDriverKind, TextGenerationError } from "@t3tools/contracts";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
@@ -38,7 +32,6 @@ import { withInstanceIdentity } from "./instanceIdentity.ts";
 
 const DRIVER = ProviderDriverKind.make("ohMyPi");
 const decodeSettings = Schema.decodeSync(OhMyPiSettings);
-const capabilities = createModelCapabilities({ optionDescriptors: [] });
 
 export type OhMyPiDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
@@ -75,18 +68,14 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
       });
       const initial = {
         ...buildServerProvider({
-          presentation: { displayName: "OhMyPi", showInteractionModeToggle: true },
+          presentation: {
+            displayName: "OhMyPi",
+            showInteractionModeToggle: true,
+            requiresNewThreadForModelChange: true,
+          },
           enabled,
           checkedAt: DateTime.formatIso(yield* DateTime.now),
-          models: [
-            {
-              slug: OH_MY_PI_DEFAULT_MODEL,
-              name: "OhMyPi default",
-              isDefault: true,
-              isCustom: false,
-              capabilities,
-            },
-          ],
+          models: [],
           probe: {
             installed: false,
             version: null,
@@ -115,11 +104,11 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
               ...draft,
               installed: true,
               version: result.success.version,
-              models: [...initial.models, ...result.success.models],
+              models: result.success.models,
               status: "ready",
               checkedAt,
               message:
-                "Uses OhMyPi's local credentials. Run omp on the server to configure a model and sign in.",
+                "Uses OhMyPi's local credentials and configured model cycle. Run omp on the server to configure roles and sign in.",
             };
           }
           const cause = result.failure;
@@ -131,7 +120,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
             checkedAt,
             message: missing
               ? "OhMyPi CLI (omp) is not installed or not on PATH."
-              : "Could not load OhMyPi models. Check the binary path and run omp models --json on the server. The previous model list is unchanged.",
+              : "Could not load OhMyPi's configured model cycle. Check the binary path and run omp config get cycleOrder --json on the server. The previous model list is unchanged.",
           };
         });
         return yield* getSnapshot;

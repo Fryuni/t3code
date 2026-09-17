@@ -202,6 +202,7 @@ export function buildModelOptions(
       const provider = config?.providers.find(
         (candidate) => candidate.instanceId === fallbackModelSelection.instanceId,
       );
+      if (provider?.driver === "ohMyPi") return [...options.values()];
       const instanceConfig = config?.settings?.providerInstances[fallbackModelSelection.instanceId];
       const model = provider?.models.find(
         (candidate) => candidate.slug === fallbackModelSelection.model,
