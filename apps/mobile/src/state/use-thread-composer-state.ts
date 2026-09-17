@@ -16,6 +16,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { safeErrorLogAttributes } from "@t3tools/client-runtime/errors";
+import { resolveProviderRuntimeMode } from "@t3tools/client-runtime/provider-runtime-mode";
 import { clampFileAttachmentUploadBytes } from "@t3tools/client-runtime/state/attachments";
 import { nextPastedTextFileName, pastedTextDisposition } from "@t3tools/client-runtime/text-paste";
 import {
@@ -31,6 +32,7 @@ import { uuidv4 } from "../lib/uuid";
 import { makeQueuedMessageMetadata } from "../lib/commandMetadata";
 import { isModelSelectionUnavailable } from "../lib/modelOptions";
 import { resolveProviderInteractionMode } from "../features/threads/legacy-plan-mode";
+import { resolveExistingThreadDraftModelSelection } from "../features/threads/thread-draft-model-selection";
 import {
   convertPastedImagesToAttachments,
   createPastedTextComposerAttachment,
@@ -244,11 +246,31 @@ export function useThreadComposerState() {
   const draftAttachments = selectedDraft?.attachments ?? [];
   const selectedThreadQueueCount = selectedThreadQueuedMessages.length;
   const selectedThread = selectedThreadDetail ?? selectedThreadShell;
-  const modelSelection = selectedDraft?.modelSelection ?? selectedThread?.modelSelection ?? null;
-  const runtimeMode = selectedDraft?.runtimeMode ?? selectedThread?.runtimeMode ?? null;
+  const persistedModelSelection = selectedThread?.modelSelection ?? null;
+  const modelSelection = persistedModelSelection
+    ? resolveExistingThreadDraftModelSelection({
+        thread: persistedModelSelection,
+        draft: selectedDraft?.modelSelection,
+        hasStartedSession: selectedThread?.session !== null,
+        providers: selectedEnvironmentRuntime?.serverConfig?.providers ?? [],
+      })
+    : null;
+  const runtimeMode = selectedThread
+    ? (selectedDraft?.runtimeMode ?? selectedThread.runtimeMode)
+    : null;
   const selectedProvider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
     (provider) => provider.instanceId === modelSelection?.instanceId,
   );
+  useEffect(() => {
+    if (
+      selectedThreadKey &&
+      selectedDraft?.modelSelection &&
+      modelSelection &&
+      modelSelection !== selectedDraft.modelSelection
+    ) {
+      updateComposerDraftSettings(selectedThreadKey, { modelSelection });
+    }
+  }, [modelSelection, selectedDraft?.modelSelection, selectedThreadKey]);
   const interactionMode = selectedThread
     ? resolveProviderInteractionMode(
         selectedProvider,
@@ -372,7 +394,12 @@ export function useThreadComposerState() {
       return null;
     }
 
-    const modelSelection = draft.modelSelection ?? thread.modelSelection;
+    const modelSelection = resolveExistingThreadDraftModelSelection({
+      thread: thread.modelSelection,
+      draft: draft.modelSelection,
+      hasStartedSession: thread.session !== null,
+      providers: selectedEnvironmentRuntime?.serverConfig?.providers ?? [],
+    });
     const serverConfig = selectedEnvironmentRuntime?.serverConfig;
     if (
       selectedEnvironmentRuntime?.connectionState === "connected" &&
@@ -772,9 +799,17 @@ export function useThreadComposerState() {
       if (!selectedThreadKey) {
         return;
       }
-      updateComposerDraftSettings(selectedThreadKey, { runtimeMode: value });
+      const modelSelection =
+        getComposerDraftSnapshot(selectedThreadKey).modelSelection ??
+        selectedThread?.modelSelection;
+      const provider = selectedEnvironmentRuntime?.serverConfig?.providers.find(
+        (candidate) => candidate.instanceId === modelSelection?.instanceId,
+      );
+      updateComposerDraftSettings(selectedThreadKey, {
+        runtimeMode: resolveProviderRuntimeMode(provider, value),
+      });
     },
-    [selectedThreadKey],
+    [selectedEnvironmentRuntime?.serverConfig, selectedThread?.modelSelection, selectedThreadKey],
   );
 
   const onUpdateInteractionMode = useCallback(

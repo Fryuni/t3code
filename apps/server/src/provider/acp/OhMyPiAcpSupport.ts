@@ -1,14 +1,7 @@
-import {
-  OH_MY_PI_DEFAULT_MODEL,
-  type OhMyPiSettings,
-  type ProviderApprovalDecision,
-  type ProviderOptionSelection,
-  type RuntimeMode,
-} from "@t3tools/contracts";
+import { type OhMyPiSettings, type ProviderApprovalDecision } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
-import type * as AcpErrors from "effect-acp/errors";
 import type * as AcpSchema from "effect-acp/schema";
 import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 
@@ -19,7 +12,7 @@ interface OhMyPiAcpRuntimeInput extends Omit<
   readonly childProcessSpawner: ChildProcessSpawner.ChildProcessSpawner["Service"];
   readonly ohMyPiSettings: Pick<OhMyPiSettings, "binaryPath">;
   readonly environment?: NodeJS.ProcessEnv;
-  readonly runtimeMode?: RuntimeMode;
+  readonly role?: string | null | undefined;
 }
 
 export const makeOhMyPiAcpRuntime = Effect.fn("makeOhMyPiAcpRuntime")(function* (
@@ -30,10 +23,7 @@ export const makeOhMyPiAcpRuntime = Effect.fn("makeOhMyPiAcpRuntime")(function* 
       ...input,
       spawn: {
         command: input.ohMyPiSettings.binaryPath || "omp",
-        args: [
-          "acp",
-          ...(input.runtimeMode ? ["--approval-mode", ohMyPiApprovalMode(input.runtimeMode)] : []),
-        ],
+        args: ["acp", ...(input.role ? ["--model", input.role] : []), "--approval-mode", "yolo"],
         cwd: input.cwd,
         ...(input.environment ? { env: input.environment } : {}),
       },
@@ -67,48 +57,4 @@ export function selectOhMyPiPermissionOption(
       ? request.options.find((option) => option.kind === "allow_once")?.optionId
       : undefined)
   );
-}
-
-export const applyOhMyPiAcpModelSelection = Effect.fn("applyOhMyPiAcpModelSelection")(function* <
-  E,
->(input: {
-  readonly runtime: Pick<
-    AcpSessionRuntime.AcpSessionRuntime["Service"],
-    "getConfigOptions" | "setModel" | "setConfigOption"
-  >;
-  readonly model: string | null | undefined;
-  readonly selections: ReadonlyArray<ProviderOptionSelection> | null | undefined;
-  readonly mapError: (context: { readonly cause: AcpErrors.AcpError }) => E;
-}) {
-  if (input.model && input.model !== OH_MY_PI_DEFAULT_MODEL) {
-    yield* input.runtime
-      .setModel(input.model)
-      .pipe(Effect.mapError((cause) => input.mapError({ cause })));
-  }
-  // The model change can alter the available thinking levels.
-  const config = yield* input.runtime.getConfigOptions;
-  for (const selection of input.selections ?? []) {
-    const option = config.find(
-      (entry) => entry.id === selection.id && entry.category === "thought_level",
-    );
-    if (!option || option.type !== "select") continue;
-    const choices = option.options.flatMap((entry) => ("value" in entry ? [entry] : entry.options));
-    // A model switch can leave a saved thinking level that the new model lacks.
-    if (!choices.some((choice) => choice.value === selection.value)) continue;
-    yield* input.runtime
-      .setConfigOption(option.id, selection.value)
-      .pipe(Effect.mapError((cause) => input.mapError({ cause })));
-  }
-});
-
-export function ohMyPiApprovalMode(mode: RuntimeMode): string {
-  switch (mode) {
-    case "full-access":
-      return "yolo";
-    case "auto-accept-edits":
-      return "write";
-    case "auto":
-    case "approval-required":
-      return "always-ask";
-  }
 }

@@ -192,6 +192,7 @@ function getAppModelOptions(
   const options: AppModelOption[] = rawModels
     .filter((model) => !model.isCustom)
     .map(toAppModelOption);
+  if (provider === "ohMyPi") return options;
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
     Arr.filterMap(getProviderModels(providers, provider), (model) =>
@@ -245,6 +246,7 @@ export function getAppModelOptionsForInstance(
   const options: AppModelOption[] = entry.models
     .filter((model) => !model.isCustom)
     .map(toAppModelOption);
+  if (entry.driverKind === "ohMyPi") return options;
   const seen = new Set(options.map((option) => option.slug));
   const builtInModelSlugs = new Set(
     Arr.filterMap(entry.models, (model) =>
@@ -306,19 +308,21 @@ export function resolveAppModelSelectionForInstance(
   if (resolvedSelection) {
     return resolvedSelection;
   }
-  if (
-    resolutionOptions?.preserveUnavailableSelection &&
-    (entry.driverKind === "opencode" || entry.driverKind === "antigravity")
-  ) {
+  if (resolutionOptions?.preserveUnavailableSelection) {
     const unavailableSelection = normalizeCustomModelSlug(selectedModel);
-    const hiddenModels = readInstanceModelPreferences(settings, entry.instanceId).hiddenModels;
-    if (
-      unavailableSelection &&
-      !hiddenModels.includes(unavailableSelection) &&
-      resolveSelectableModel(entry.driverKind, selectedModel, entry.models) === null &&
-      (entry.driverKind !== "antigravity" || unavailableSelection !== ANTIGRAVITY_DEFAULT_MODEL)
-    ) {
+    if (entry.driverKind === "ohMyPi" && unavailableSelection) {
       return unavailableSelection;
+    }
+    if (entry.driverKind === "opencode" || entry.driverKind === "antigravity") {
+      const hiddenModels = readInstanceModelPreferences(settings, entry.instanceId).hiddenModels;
+      if (
+        unavailableSelection &&
+        !hiddenModels.includes(unavailableSelection) &&
+        resolveSelectableModel(entry.driverKind, selectedModel, entry.models) === null &&
+        (entry.driverKind !== "antigravity" || unavailableSelection !== ANTIGRAVITY_DEFAULT_MODEL)
+      ) {
+        return unavailableSelection;
+      }
     }
   }
   return options.find((option) => option.isDefault)?.slug ?? options[0]?.slug ?? null;

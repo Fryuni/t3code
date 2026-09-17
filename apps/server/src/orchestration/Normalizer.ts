@@ -1,6 +1,7 @@
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import {
   type ClientOrchestrationCommand,
@@ -10,6 +11,7 @@ import {
   type OrchestrationCommand,
   OrchestrationDispatchCommandError,
   PROVIDER_SEND_TURN_MAX_IMAGE_BYTES,
+  ProviderDriverKind,
 } from "@t3tools/contracts";
 
 import {
@@ -22,6 +24,65 @@ import {
 import { ServerConfig } from "../config.ts";
 import { parseBase64DataUrl } from "../imageMime.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
+import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+
+const OH_MY_PI_DRIVER = ProviderDriverKind.make("ohMyPi");
+
+export const normalizeProviderRuntimeMode = Effect.fn("Normalizer.normalizeProviderRuntimeMode")(
+  function* (command: OrchestrationCommand) {
+    if (
+      command.type !== "thread.create" &&
+      command.type !== "thread.turn.start" &&
+      command.type !== "thread.runtime-mode.set"
+    ) {
+      return command;
+    }
+
+    const projectionSnapshotQuery = yield* ProjectionSnapshotQuery;
+    const providerService = yield* ProviderService;
+    const thread =
+      command.type === "thread.create"
+        ? undefined
+        : Option.getOrUndefined(
+            yield* projectionSnapshotQuery.getThreadShellById(command.threadId),
+          );
+    const instanceId =
+      command.type === "thread.create"
+        ? command.modelSelection.instanceId
+        : command.type === "thread.turn.start"
+          ? (command.modelSelection?.instanceId ??
+            command.bootstrap?.createThread?.modelSelection.instanceId ??
+            thread?.modelSelection.instanceId)
+          : thread?.modelSelection.instanceId;
+    if (instanceId === undefined) {
+      return command;
+    }
+    const instanceInfo = yield* providerService.getInstanceInfo(instanceId);
+    if (instanceInfo.driverKind !== OH_MY_PI_DRIVER) {
+      return command;
+    }
+
+    if (command.type === "thread.create" || command.type === "thread.runtime-mode.set") {
+      return { ...command, runtimeMode: "full-access" as const };
+    }
+    return {
+      ...command,
+      runtimeMode: "full-access" as const,
+      ...(command.bootstrap?.createThread !== undefined
+        ? {
+            bootstrap: {
+              ...command.bootstrap,
+              createThread: {
+                ...command.bootstrap.createThread,
+                runtimeMode: "full-access" as const,
+              },
+            },
+          }
+        : {}),
+    };
+  },
+);
 
 export const canonicalizeClientCommandTimestamps = (
   command: ClientOrchestrationCommand,
@@ -379,3 +440,12 @@ export const cleanupFailedUploadedAttachments = Effect.fn(
   }
   yield* removeClaimedAttachmentPaths(claimedPaths);
 });
+
+export const normalizeCommandForDispatch = Effect.fn("Normalizer.normalizeCommandForDispatch")(
+  function* (command: ClientOrchestrationCommand) {
+    const normalizedCommand = yield* normalizeDispatchCommand(command);
+    return yield* normalizeProviderRuntimeMode(normalizedCommand).pipe(
+      Effect.tapError(() => cleanupFailedUploadedAttachments(command, normalizedCommand)),
+    );
+  },
+);

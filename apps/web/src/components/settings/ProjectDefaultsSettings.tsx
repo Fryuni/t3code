@@ -4,6 +4,10 @@ import {
   type ModelSelection,
   type ProviderInstanceId,
 } from "@t3tools/contracts";
+import {
+  resolveProviderRuntimeMode,
+  runtimeModeOptionsForProvider,
+} from "@t3tools/client-runtime/provider-runtime-mode";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useNavigate } from "@tanstack/react-router";
 
@@ -67,9 +71,17 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
     selection?.model,
   );
   const activeEntry = entries.find((entry) => entry.instanceId === selection?.instanceId);
+  const displayedRuntimeMode = resolveProviderRuntimeMode(
+    activeEntry?.driverKind,
+    settings.defaultRuntimeMode,
+  );
+  const availableRuntimeModes = runtimeModeOptionsForProvider(
+    activeEntry?.driverKind,
+    runtimeModeOptions,
+  );
   const mixedModel = useScopedSettingsMixed(["defaultModelSelection"]);
   const mixedPermissions = useScopedSettingsMixed(["defaultRuntimeMode"]);
-  const PermissionIcon = runtimeModeConfig[settings.defaultRuntimeMode].icon;
+  const PermissionIcon = runtimeModeConfig[displayedRuntimeMode].icon;
   const mixedWorkspace = useScopedSettingsMixed(["defaultThreadEnvMode"]);
   const mixedBrowser = useScopedSettingsMixed(["enableAgentBrowserAccess"]);
   const mixedAutoPull = useScopedSettingsMixed(["defaultAutoPull"]);
@@ -247,7 +259,8 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             }
             control={
               <Select
-                value={mixedPermissions ? null : settings.defaultRuntimeMode}
+                disabled={availableRuntimeModes.length === 1}
+                value={mixedPermissions ? null : displayedRuntimeMode}
                 onValueChange={(value) => {
                   if (value) updateSettings({ defaultRuntimeMode: value });
                 }}
@@ -257,13 +270,11 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                     <PermissionIcon className="size-3.5 shrink-0 text-muted-foreground" />
                   )}
                   <SelectValue>
-                    {mixedPermissions
-                      ? "Mixed"
-                      : runtimeModeConfig[settings.defaultRuntimeMode].label}
+                    {mixedPermissions ? "Mixed" : runtimeModeConfig[displayedRuntimeMode].label}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectPopup align="end" alignItemWithTrigger={false}>
-                  {runtimeModeOptions.map((mode) => {
+                  {availableRuntimeModes.map((mode) => {
                     const option = runtimeModeConfig[mode];
                     const Icon = option.icon;
                     return (

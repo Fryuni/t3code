@@ -81,8 +81,9 @@ device until you sign back into the same account.
 ## Custom models
 
 On web and desktop, use Settings → Providers → **Models** to add an unlisted model with a custom
-name and options. Only options supported by the provider integration affect turns. Antigravity and
-OhMyPi use their discovered catalogs and do not support custom models.
+name and options. Only options supported by the provider integration affect turns. Neither
+Antigravity nor OhMyPi supports custom models. Antigravity uses its discovered catalog, and OhMyPi
+uses its configured cycle roles.
 
 ## Model defaults
 

@@ -1181,6 +1181,8 @@ export function deriveEffectiveComposerModelState(input: {
    */
   selectedInstanceId?: ProviderInstanceId | null | undefined;
   threadModelSelection: ModelSelection | null | undefined;
+  /** True once the server thread has a provider session whose role is locked. */
+  threadSessionExists?: boolean;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
@@ -1227,20 +1229,33 @@ export function deriveEffectiveComposerModelState(input: {
   const activeSelectionInstanceId = instanceSelection
     ? (input.selectedInstanceId ?? ProviderInstanceId.make(input.selectedProvider))
     : ProviderInstanceId.make(input.selectedProvider);
-  const selectedModel = activeSelection?.model
+  const retainedThreadSelection =
+    input.threadSessionExists === true &&
+    input.selectedProvider === "ohMyPi" &&
+    input.selectedInstanceId !== null &&
+    input.selectedInstanceId !== undefined &&
+    input.threadModelSelection?.instanceId === input.selectedInstanceId
+      ? input.threadModelSelection
+      : null;
+  const selectionToResolve = retainedThreadSelection ?? activeSelection;
+  const selectedModel = selectionToResolve?.model
     ? (resolveAppModelSelectionForInstance(
-        activeSelectionInstanceId,
+        retainedThreadSelection?.instanceId ?? activeSelectionInstanceId,
         input.settings,
         input.providers,
-        activeSelection.model,
-        { preserveUnavailableSelection: true },
+        selectionToResolve.model,
+        {
+          preserveUnavailableSelection:
+            retainedThreadSelection !== null ||
+            (activeSelection !== undefined && input.selectedProvider !== "ohMyPi"),
+        },
       ) ??
       (input.selectedProvider === "antigravity" ? "" : null) ??
       resolveAppModelSelection(
         input.selectedProvider,
         input.settings,
         input.providers,
-        activeSelection.model,
+        selectionToResolve.model,
       ))
     : baseModel;
   const modelOptions =
@@ -4214,6 +4229,8 @@ export function useEffectiveComposerModelState(input: {
    */
   selectedInstanceId?: ProviderInstanceId | null | undefined;
   threadModelSelection: ModelSelection | null | undefined;
+  /** True once the server thread has a provider session whose role is locked. */
+  threadSessionExists: boolean;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
@@ -4227,6 +4244,7 @@ export function useEffectiveComposerModelState(input: {
         selectedProvider: input.selectedProvider,
         selectedInstanceId: input.selectedInstanceId,
         threadModelSelection: input.threadModelSelection,
+        threadSessionExists: input.threadSessionExists,
         projectModelSelection: input.projectModelSelection,
         settings: input.settings,
       }),
@@ -4238,6 +4256,7 @@ export function useEffectiveComposerModelState(input: {
       input.selectedInstanceId,
       input.selectedProvider,
       input.threadModelSelection,
+      input.threadSessionExists,
     ],
   );
 }

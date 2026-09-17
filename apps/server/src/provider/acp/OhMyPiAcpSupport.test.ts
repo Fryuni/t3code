@@ -1,124 +1,45 @@
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import { describe, expect, it } from "@effect/vitest";
-import { OH_MY_PI_DEFAULT_MODEL } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
+import * as FileSystem from "effect/FileSystem";
 import type * as AcpSchema from "effect-acp/schema";
-import {
-  applyOhMyPiAcpModelSelection,
-  ohMyPiApprovalMode,
-  selectOhMyPiPermissionOption,
-} from "./OhMyPiAcpSupport.ts";
-
-const config: ReadonlyArray<AcpSchema.SessionConfigOption> = [
-  {
-    id: "model",
-    category: "model",
-    name: "Model",
-    type: "select",
-    currentValue: "anthropic/sonnet",
-    options: [
-      { value: "anthropic/sonnet", name: "Sonnet" },
-      { value: "openai/gpt", name: "GPT" },
-    ],
-  },
-  {
-    id: "thinking",
-    category: "thought_level",
-    name: "Thinking",
-    type: "select",
-    currentValue: "high",
-    options: [
-      { value: "off", name: "Off" },
-      { value: "high", name: "High" },
-    ],
-  },
-];
+import { ChildProcessSpawner } from "effect/unstable/process";
+import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
+import { makeOhMyPiAcpRuntime, selectOhMyPiPermissionOption } from "./OhMyPiAcpSupport.ts";
 
 describe("OhMyPi ACP", () => {
-  it("overrides OMP's default yolo policy with the selected permission mode", () => {
-    expect(ohMyPiApprovalMode("approval-required")).toBe("always-ask");
-    expect(ohMyPiApprovalMode("auto")).toBe("always-ask");
-    expect(ohMyPiApprovalMode("auto-accept-edits")).toBe("write");
-    expect(ohMyPiApprovalMode("full-access")).toBe("yolo");
-  });
-  it.effect("keeps the configured default and applies thinking after changing models", () =>
+  it.effect("launches the selected role in yolo mode without ACP model or thinking overrides", () =>
     Effect.gen(function* () {
-      const calls: unknown[] = [];
-      const runtime = {
-        getConfigOptions: Effect.succeed(config),
-        setModel: (model: string) =>
-          Effect.sync(() => {
-            calls.push(["model", model]);
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const logPath = `${directory}/requests.jsonl`;
+      const argvPath = `${directory}/argv.txt`;
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-role-mock",
+          env: { T3_ACP_REQUEST_LOG_PATH: logPath },
+          source: execScriptSource({
+            scriptPath: new URL("../../../scripts/acp-mock-agent.ts", import.meta.url).pathname,
+            argvLogPath: argvPath,
           }),
-        setConfigOption: (id: string, value: string | boolean) =>
-          Effect.sync(() => {
-            calls.push([id, value]);
-            return { configOptions: config };
-          }),
-      };
-      yield* applyOhMyPiAcpModelSelection({
-        runtime,
-        model: OH_MY_PI_DEFAULT_MODEL,
-        selections: [],
-        mapError: ({ cause }) => cause,
+        }),
+      );
+      const runtime = yield* makeOhMyPiAcpRuntime({
+        ohMyPiSettings: { binaryPath },
+        childProcessSpawner: yield* ChildProcessSpawner.ChildProcessSpawner,
+        cwd: directory,
+        role: "slow",
+        clientInfo: { name: "test", version: "0" },
       });
-      expect(calls).toEqual([]);
-      yield* applyOhMyPiAcpModelSelection({
-        runtime,
-        model: "openai/gpt",
-        selections: [
-          { id: "thinking", value: "high" },
-          { id: "mode", value: "plan" },
-        ],
-        mapError: ({ cause }) => cause,
-      });
-      expect(calls).toEqual([
-        ["model", "openai/gpt"],
-        ["thinking", "high"],
-      ]);
-    }),
-  );
-
-  it.effect("keeps the new model's default when a saved thinking level is unavailable", () =>
-    Effect.gen(function* () {
-      let currentConfig = config;
-      const applied: unknown[] = [];
-      const runtime = {
-        getConfigOptions: Effect.sync(() => currentConfig),
-        setModel: (_model: string) =>
-          Effect.sync(() => {
-            currentConfig = [
-              {
-                id: "thinking",
-                category: "thought_level",
-                name: "Thinking",
-                type: "select",
-                currentValue: "low",
-                options: [{ value: "low", name: "Low" }],
-              },
-            ];
-          }),
-        setConfigOption: (id: string, value: string | boolean) =>
-          Effect.sync(() => {
-            applied.push([id, value]);
-            return { configOptions: currentConfig };
-          }),
-      };
-      yield* applyOhMyPiAcpModelSelection({
-        runtime,
-        model: "openai/gpt",
-        selections: [{ id: "thinking", value: "high" }],
-        mapError: ({ cause }) => cause,
-      });
-      expect(applied).toEqual([]);
-      expect(currentConfig[0]?.currentValue).toBe("low");
-      yield* applyOhMyPiAcpModelSelection({
-        runtime,
-        model: "openai/gpt",
-        selections: [{ id: "thinking", value: "low" }],
-        mapError: ({ cause }) => cause,
-      });
-      expect(applied).toEqual([["thinking", "low"]]);
-    }),
+      yield* runtime.start();
+      expect(yield* fs.readFileString(argvPath)).toContain(
+        "acp\t--model\tslow\t--approval-mode\tyolo",
+      );
+      const requests = yield* fs.readFileString(logPath);
+      expect(requests).not.toContain("session/set_config_option");
+      expect(requests).not.toContain("session/set_model");
+    }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
   );
 
   it("uses opaque permission IDs and cancels unavailable choices", () => {

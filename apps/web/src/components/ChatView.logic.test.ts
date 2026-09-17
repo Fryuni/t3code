@@ -1,5 +1,6 @@
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
+  OH_MY_PI_DEFAULT_MODEL,
   CheckpointRef,
   EnvironmentId,
   EventId,
@@ -1683,9 +1684,11 @@ describe("buildExpiredTerminalContextToastCopy", () => {
 describe("getStartedThreadModelChangeBlockReason", () => {
   const providers = [
     {
+      driver: ProviderDriverKind.make("codex"),
       instanceId: ProviderInstanceId.make("codex"),
     },
     {
+      driver: ProviderDriverKind.make("grok"),
       instanceId: ProviderInstanceId.make("grok"),
       requiresNewThreadForModelChange: true,
     },
@@ -1723,6 +1726,67 @@ describe("getStartedThreadModelChangeBlockReason", () => {
         },
       }),
     ).toBeNull();
+  });
+
+  it("treats the upgraded OMP default role as unchanged but blocks a different role", () => {
+    const ompInstanceId = ProviderInstanceId.make("omp");
+    const ompProviders = [
+      {
+        driver: ProviderDriverKind.make("ohMyPi"),
+        instanceId: ompInstanceId,
+        requiresNewThreadForModelChange: true,
+      },
+    ];
+    const currentModelSelection = {
+      instanceId: ompInstanceId,
+      model: "oh-my-pi-default",
+    };
+
+    expect(
+      getStartedThreadModelChangeBlockReason({
+        providers: ompProviders,
+        hasStartedSession: true,
+        currentModelSelection,
+        nextModelSelection: {
+          instanceId: ompInstanceId,
+          model: OH_MY_PI_DEFAULT_MODEL,
+        },
+      }),
+    ).toBeNull();
+    expect(
+      getStartedThreadModelChangeBlockReason({
+        providers: ompProviders,
+        hasStartedSession: true,
+        currentModelSelection,
+        nextModelSelection: {
+          instanceId: ompInstanceId,
+          model: "plan",
+        },
+      }),
+    ).toEqual({
+      title: "Start a new chat to change models",
+      description:
+        "This provider does not allow switching models after a conversation has started.",
+    });
+  });
+
+  it("does not treat the OMP legacy default as an alias for another driver", () => {
+    const instanceId = ProviderInstanceId.make("not-omp");
+
+    expect(
+      getStartedThreadModelChangeBlockReason({
+        providers: [
+          {
+            driver: ProviderDriverKind.make("opencode"),
+            instanceId,
+            requiresNewThreadForModelChange: true,
+          },
+        ],
+        hasStartedSession: true,
+        currentModelSelection: { instanceId, model: "oh-my-pi-default" },
+        nextModelSelection: { instanceId, model: OH_MY_PI_DEFAULT_MODEL },
+      }),
+    ).not.toBeNull();
   });
 
   it("blocks started-session model changes when either provider requires a new thread", () => {

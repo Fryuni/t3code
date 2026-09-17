@@ -162,8 +162,8 @@ export const PREFERRED_DEFAULT_CODEX_MODELS: ReadonlyArray<string> = [
   "gpt-5.6-terra",
 ];
 export const DEFAULT_TEXT_GENERATION_MODEL = "gpt-5.6-luna";
-/** Keep OhMyPi's configured model. Never send this alias to ACP. */
-export const OH_MY_PI_DEFAULT_MODEL = "oh-my-pi-default";
+/** OhMyPi's configured default model role. */
+export const OH_MY_PI_DEFAULT_MODEL = "default";
 /** Keep the official Antigravity session's current model. Never send this ID to ACP. */
 export const ANTIGRAVITY_DEFAULT_MODEL = "antigravity-default";
 export const DEFAULT_TEXT_GENERATION_REASONING_EFFORT = "low";

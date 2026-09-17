@@ -129,17 +129,17 @@ machine. Set **Binary path** if it is not on the server's `PATH`. T3 Code launch
 `omp acp` using the CLI's existing credentials; remote and mobile clients use that
 same environment.
 
-Available models and thinking levels load from OhMyPi before you start a thread.
-Refresh provider status after changing your OhMyPi credentials or model configuration.
-Choose **OhMyPi default** to use the model configured in OhMyPi, or select a model
-from the picker. You can switch models, stop turns, and continue a saved session
-after reconnecting.
+The picker lists the roles in OhMyPi's configured cycle order. Choose a role as
+the entry point for a new thread; OhMyPi applies that role's model and thinking
+level. Configure roles and thinking in OhMyPi, then refresh provider status in
+T3 Code after changing the cycle. Roles outside that cycle do not appear in the
+picker. Selecting a different entry role requires a new thread;
+saved sessions can continue after reconnecting.
 OhMyPi's native slash commands appear once a session has started in that workspace.
 
-**Auto** uses the same approval policy as **Supervised**. **Auto-accept edits**
-allows workspace writes, and **Full access** allows all tool tiers. OhMyPi's
-structured question dialogs, conversation rollback, and background title, branch,
-commit, and PR generation are not currently supported in T3 Code.
+OhMyPi supports only **Full access** in T3 Code. Its structured question dialogs,
+conversation rollback, and background title, branch, commit, and PR generation
+are not currently supported in T3 Code.
 
 ## Next steps
 

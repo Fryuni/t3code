@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  OH_MY_PI_DEFAULT_MODEL,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
@@ -116,6 +117,28 @@ const turnStartKeyForEvent = (event: ProviderIntentEvent): string =>
 const HANDLED_TURN_START_KEY_MAX = 10_000;
 const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
+const OH_MY_PI_DRIVER = ProviderDriverKind.make("ohMyPi");
+const OH_MY_PI_LEGACY_DEFAULT_MODEL = "oh-my-pi-default";
+
+function authoritativeRuntimeMode(
+  driverKind: ProviderDriverKind,
+  requested: RuntimeMode,
+): RuntimeMode {
+  return driverKind === OH_MY_PI_DRIVER ? "full-access" : requested;
+}
+
+function isEquivalentOhMyPiDefaultModel(
+  driverKind: ProviderDriverKind,
+  currentModel: string,
+  requestedModel: string,
+): boolean {
+  return (
+    driverKind === OH_MY_PI_DRIVER &&
+    ((currentModel === OH_MY_PI_LEGACY_DEFAULT_MODEL &&
+      requestedModel === OH_MY_PI_DEFAULT_MODEL) ||
+      (currentModel === OH_MY_PI_DEFAULT_MODEL && requestedModel === OH_MY_PI_LEGACY_DEFAULT_MODEL))
+  );
+}
 
 function providerErrorLabel(value: string | undefined): string {
   const normalized = value?.trim();
@@ -523,12 +546,18 @@ const make = Effect.gen(function* () {
     readonly threadId: ThreadId;
     readonly currentModelSelection: ModelSelection;
     readonly requestedModelSelection: ModelSelection | undefined;
+    readonly driverKind: ProviderDriverKind;
   }) {
     const requestedModelSelection = input.requestedModelSelection;
     if (
       requestedModelSelection === undefined ||
       (input.currentModelSelection.instanceId === requestedModelSelection.instanceId &&
-        input.currentModelSelection.model === requestedModelSelection.model)
+        (input.currentModelSelection.model === requestedModelSelection.model ||
+          isEquivalentOhMyPiDefaultModel(
+            input.driverKind,
+            input.currentModelSelection.model,
+            requestedModelSelection.model,
+          )))
     ) {
       return;
     }
@@ -564,7 +593,7 @@ const make = Effect.gen(function* () {
       return yield* Effect.die(new Error(`Thread '${threadId}' was not found in read model.`));
     }
 
-    const desiredRuntimeMode = thread.runtimeMode;
+    const requestedRuntimeMode = thread.runtimeMode;
     const requestedModelSelection = options?.modelSelection;
     const resolveActiveSession = (threadId: ThreadId) =>
       providerService
@@ -631,22 +660,6 @@ const make = Effect.gen(function* () {
       });
     }
     const preferredProvider: ProviderDriverKind = desiredDriverKind;
-    if (options?.pendingTurnStart === true && thread.session?.status !== "running") {
-      yield* setThreadSession({
-        threadId,
-        session: {
-          threadId,
-          status: "starting",
-          providerName: activeSession?.provider ?? preferredProvider,
-          providerInstanceId: activeSession?.providerInstanceId ?? desiredInstanceId,
-          runtimeMode: desiredRuntimeMode,
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: createdAt,
-        },
-        createdAt,
-      });
-    }
     if (thread.session !== null) {
       yield* rejectStartedThreadModelChangeIfRequired({
         threadId,
@@ -659,6 +672,7 @@ const make = Effect.gen(function* () {
               }
             : thread.modelSelection,
         requestedModelSelection,
+        driverKind: currentInfo.driverKind,
       });
     }
     if (
@@ -683,6 +697,32 @@ const make = Effect.gen(function* () {
           detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
         });
       }
+    }
+    const desiredRuntimeMode = authoritativeRuntimeMode(desiredDriverKind, requestedRuntimeMode);
+    if (desiredRuntimeMode !== thread.runtimeMode) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: yield* serverCommandId("provider-runtime-mode-normalized"),
+        threadId,
+        runtimeMode: desiredRuntimeMode,
+        createdAt,
+      });
+    }
+    if (options?.pendingTurnStart === true && thread.session?.status !== "running") {
+      yield* setThreadSession({
+        threadId,
+        session: {
+          threadId,
+          status: "starting",
+          providerName: activeSession?.provider ?? preferredProvider,
+          providerInstanceId: activeSession?.providerInstanceId ?? desiredInstanceId,
+          runtimeMode: desiredRuntimeMode,
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
     }
     const project = yield* resolveProject(thread.projectId);
     const effectiveCwd = resolveThreadWorkspaceCwd({
@@ -731,7 +771,7 @@ const make = Effect.gen(function* () {
                 : mapProviderSessionStatusToOrchestrationStatus(session.status),
             providerName: session.provider,
             providerInstanceId: session.providerInstanceId,
-            runtimeMode: desiredRuntimeMode,
+            runtimeMode: session.runtimeMode,
             // Provider turn ids are not orchestration turn ids.
             activeTurnId: null,
             lastError: session.lastError ?? null,
@@ -744,13 +784,21 @@ const make = Effect.gen(function* () {
     const existingSessionThreadId =
       thread.session && thread.session.status !== "stopped" && activeSession ? thread.id : null;
     if (existingSessionThreadId) {
-      const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
+      const runtimeModeChanged = desiredRuntimeMode !== thread.session?.runtimeMode;
       const cwdChanged = effectiveCwd !== activeSession?.cwd;
       const sessionModelSwitch = (yield* providerService.getCapabilities(desiredInstanceId))
         .sessionModelSwitch;
       const modelChanged =
         requestedModelSelection !== undefined &&
-        requestedModelSelection.model !== activeSession?.model;
+        requestedModelSelection.model !== activeSession?.model &&
+        !(
+          activeSession?.model !== undefined &&
+          isEquivalentOhMyPiDefaultModel(
+            desiredDriverKind,
+            activeSession.model,
+            requestedModelSelection.model,
+          )
+        );
       const instanceChanged =
         requestedModelSelection !== undefined &&
         activeSession?.providerInstanceId !== requestedModelSelection.instanceId;
@@ -783,7 +831,7 @@ const make = Effect.gen(function* () {
         desiredInstanceId,
         desiredProvider: desiredModelSelection.instanceId,
         currentRuntimeMode: thread.session?.runtimeMode,
-        desiredRuntimeMode: thread.runtimeMode,
+        desiredRuntimeMode,
         runtimeModeChanged,
         previousCwd: activeSession?.cwd,
         desiredCwd: effectiveCwd,

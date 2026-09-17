@@ -2,7 +2,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import {
-  ApprovalRequestId,
   OH_MY_PI_DEFAULT_MODEL,
   ProviderInstanceId,
   ThreadId,
@@ -60,14 +59,14 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
   );
 
   it.effect(
-    "refreshes the CLI catalog, excludes custom models, and retains models on discovery errors",
+    "publishes configured cycle roles in order without thinking and retains roles on discovery errors",
     () =>
       Effect.gen(function* () {
         const fs = yield* FileSystem.FileSystem;
         const path = yield* Path.Path;
         const { cwd } = yield* ServerConfig;
         const directory = yield* fs.makeTempDirectoryScoped();
-        const catalogFile = path.join(directory, "models.json");
+        const cycleOrderFile = path.join(directory, "cycle-order.json");
         const binaryPath = yield* Effect.sync(() =>
           writeFakeCli({
             directory,
@@ -75,9 +74,9 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
             source: `
         if (process.cwd() !== process.env.T3_OMP_EXPECTED_CWD) process.exit(3);
         if (process.argv[2] === "--version") { process.stdout.write("omp/18.1.14"); process.exit(0); }
-        if (process.argv[2] !== "models" || process.argv[3] !== "--json") process.exit(4);
+        if (process.argv[2] !== "config" || process.argv[3] !== "get" || process.argv[4] !== "cycleOrder" || process.argv[5] !== "--json") process.exit(4);
         const fs = await import("node:fs");
-        const output = fs.readFileSync(process.env.T3_OMP_MODEL_FILE, "utf8");
+        const output = fs.readFileSync(process.env.T3_OMP_CYCLE_ORDER_FILE, "utf8");
         if (output === "exit") process.exit(5);
         process.stdout.write(output);
       `,
@@ -88,38 +87,44 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           displayName: undefined,
           enabled: true,
           environment: [
-            { name: "T3_OMP_MODEL_FILE", value: catalogFile, sensitive: false },
+            { name: "T3_OMP_CYCLE_ORDER_FILE", value: cycleOrderFile, sensitive: false },
             { name: "T3_OMP_EXPECTED_CWD", value: cwd, sensitive: false },
           ],
           config: { ...OhMyPiDriver.defaultConfig(), binaryPath, customModels: ["custom/model"] },
         });
+        expect((yield* instance.snapshot.getSnapshot).models).toEqual([]);
         yield* fs.writeFileString(
-          catalogFile,
-          '{"models":[{"provider":"openai","id":"gpt","name":"GPT","thinking":["low","high"]},{"provider":"openai","id":"gpt","name":"duplicate"}]}',
+          cycleOrderFile,
+          '{"key":"cycleOrder","value":["smol","default","slow","smol"],"type":"array","description":""}',
         );
         const first = yield* instance.snapshot.refresh;
         expect(first.status).toBe("ready");
-        expect(first.models.map((model) => model.slug)).toEqual([
-          OH_MY_PI_DEFAULT_MODEL,
-          "openai/gpt",
-        ]);
-        expect(first.models[1]?.capabilities?.optionDescriptors).toMatchObject([
-          {
-            id: "thinking",
-            options: [{ id: "off" }, { id: "auto" }, { id: "low" }, { id: "high" }],
-          },
-        ]);
-        for (const output of ["not json", "exit", '{"models":[{"name":"missing ID"}]}']) {
-          yield* fs.writeFileString(catalogFile, output);
+        expect(first.requiresNewThreadForModelChange).toBe(true);
+        expect(first.models.map((model) => model.slug)).toEqual(["smol", "default", "slow"]);
+        expect(first.models.map((model) => model.name)).toEqual(["smol", "default", "slow"]);
+        expect(first.models.map((model) => model.isDefault)).toEqual([false, true, false]);
+        expect(first.models.every((model) => model.subProvider === undefined)).toBe(true);
+        expect(
+          first.models.every((model) => model.capabilities?.optionDescriptors?.length === 0),
+        ).toBe(true);
+        for (const output of [
+          "not json",
+          "exit",
+          '{"models":[{"provider":"openai","id":"gpt"}]}',
+        ]) {
+          yield* fs.writeFileString(cycleOrderFile, output);
           const failed = yield* instance.snapshot.refresh;
           expect(failed.status).toBe("error");
           expect(failed.models).toEqual(first.models);
-          expect(failed.message).toContain("omp models --json");
+          expect(failed.message).toContain("omp config get cycleOrder --json");
         }
-        yield* fs.writeFileString(catalogFile, '{"models":[]}');
+        yield* fs.writeFileString(
+          cycleOrderFile,
+          '{"key":"cycleOrder","value":[],"type":"array","description":""}',
+        );
         const empty = yield* instance.snapshot.refresh;
         expect(empty.status).toBe("ready");
-        expect(empty.models.map((model) => model.slug)).toEqual([OH_MY_PI_DEFAULT_MODEL]);
+        expect(empty.models).toEqual([]);
       }).pipe(Effect.scoped),
   );
 
@@ -166,8 +171,6 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           .sendTurn({
             threadId,
             input: "long task",
-            // Forces asynchronous configuration before the first prompt dispatch.
-            modelSelection: { instanceId, model: "composer-2" },
           })
           .pipe(Effect.forkChild);
         const seen: ProviderRuntimeEvent[] = [];
@@ -298,9 +301,8 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
       yield* instance.adapter.stopAll();
     }).pipe(Effect.scoped),
   );
-
   it.effect.skipIf(process.env.T3_OH_MY_PI_MODELS_PROBE !== "1")(
-    "discovers models from the installed OhMyPi CLI",
+    "discovers configured model roles from the installed OhMyPi CLI",
     () =>
       Effect.gen(function* () {
         const instance = yield* OhMyPiDriver.create({
@@ -315,9 +317,9 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         });
         const snapshot = yield* instance.snapshot.refresh;
         expect(snapshot.status).toBe("ready");
-        expect(
-          snapshot.models.filter((model) => model.slug !== OH_MY_PI_DEFAULT_MODEL).length,
-        ).toBeGreaterThan(0);
+        expect(snapshot.models.length).toBeGreaterThan(0);
+        expect(snapshot.models.every((model) => model.slug === model.name)).toBe(true);
+        expect(snapshot.models.every((model) => model.isCustom === false)).toBe(true);
         expect(yield* instance.adapter.listSessions()).toEqual([]);
       }).pipe(Effect.scoped),
   );
@@ -448,12 +450,14 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
                 process.stdout.write("omp/18.1.14");
                 process.exit(0);
               }
-              if (process.argv[2] === "models") {
-                if (process.argv[3] !== "--json") process.exit(2);
-                process.stdout.write(JSON.stringify({ models: [
-                  { provider: "anthropic", id: "sonnet", name: "Sonnet", thinking: ["low", "high"] },
-                  { provider: "openai", id: "gpt", name: "GPT", thinking: ["high", "xhigh"] },
-                ] }));
+              if (process.argv[2] === "config") {
+                if (process.argv[3] !== "get" || process.argv[4] !== "cycleOrder" || process.argv[5] !== "--json") process.exit(2);
+                process.stdout.write(JSON.stringify({
+                  key: "cycleOrder",
+                  value: ["smol", "default", "slow"],
+                  type: "array",
+                  description: "",
+                }));
                 process.exit(0);
               }
             ` +
@@ -473,9 +477,11 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
         });
         const refreshed = yield* instance.snapshot.refresh;
-        expect(refreshed.status).toBe("ready");
-        expect(refreshed.models.map((model) => model.slug)).toContain("anthropic/sonnet");
-        expect(refreshed.models.map((model) => model.slug)).toContain("openai/gpt");
+        expect(refreshed.models.map((model) => model.slug)).toEqual(["smol", "default", "slow"]);
+        expect(refreshed.models.find((model) => model.isDefault)?.slug).toBe("default");
+        expect(
+          refreshed.models.every((model) => model.capabilities?.optionDescriptors?.length === 0),
+        ).toBe(true);
         expect(refreshed.version).toBe("18.1.14");
         expect(yield* fs.exists(logPath)).toBe(false);
         const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
@@ -490,52 +496,45 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           modelSelection: { instanceId, model: OH_MY_PI_DEFAULT_MODEL },
         });
         expect(session.provider).toBe("ohMyPi");
+        expect(session.runtimeMode).toBe("full-access");
+        expect(session.model).toBe("default");
+        expect(instance.adapter.capabilities.sessionModelSwitch).toBe("unsupported");
         expect((yield* instance.snapshot.getSnapshot).models).toEqual(refreshed.models);
-        const turn = yield* instance.adapter
-          .sendTurn({
-            threadId,
-            input: "hello",
-            attachments: [],
-            modelSelection: { instanceId, model: "composer-2" },
-          })
-          .pipe(Effect.forkChild);
+        const turn = yield* instance.adapter.sendTurn({
+          threadId,
+          input: "hello",
+          attachments: [],
+        });
+        expect(turn.threadId).toBe(threadId);
         const seen: ProviderRuntimeEvent[] = [];
         while (true) {
           const event = yield* Queue.take(events);
           seen.push(event);
-          if (event.type === "request.opened") {
-            yield* instance.adapter.respondToRequest(
-              threadId,
-              ApprovalRequestId.make(event.requestId!),
-              "accept",
-            );
-          }
           if (event.type === "turn.completed") break;
         }
-        yield* Fiber.join(turn);
-        // Session model/config changes must not rewrite the shared catalog or default.
+        // Session activity must not rewrite the shared role catalog or expose approvals in yolo mode.
         expect((yield* instance.snapshot.getSnapshot).models).toEqual(refreshed.models);
         expect(seen.some((event) => event.type === "content.delta")).toBe(true);
-        expect(seen.some((event) => event.type === "request.resolved")).toBe(true);
+        expect(seen.some((event) => event.type === "request.opened")).toBe(false);
         yield* instance.adapter.stopSession(threadId);
-        yield* instance.adapter.startSession({
+        const resumed = yield* instance.adapter.startSession({
           threadId,
           cwd: directory,
           runtimeMode: "approval-required",
+          modelSelection: { instanceId, model: "oh-my-pi-default" },
           resumeCursor: session.resumeCursor,
         });
-        const interruptedTurn = yield* instance.adapter
-          .sendTurn({ threadId, input: "wait for approval", attachments: [] })
-          .pipe(Effect.forkChild);
-        while ((yield* Queue.take(events)).type !== "request.opened") {}
-        yield* instance.adapter.interruptTurn(threadId);
-        yield* Fiber.join(interruptedTurn).pipe(Effect.exit);
+        expect(resumed.runtimeMode).toBe("full-access");
+        expect(resumed.model).toBe(OH_MY_PI_DEFAULT_MODEL);
         expect(yield* instance.adapter.hasSession(threadId)).toBe(true);
         const requests = yield* fs.readFileString(logPath);
         expect(requests).toContain('"methodId":"agent"');
         expect(requests).toContain('"method":"session/load"');
-        expect(requests).not.toContain('"value":"oh-my-pi-default"');
-        expect(yield* fs.readFileString(argvPath)).toContain("acp\t--approval-mode\talways-ask");
+        expect(requests).not.toContain('"method":"session/set_config_option"');
+        expect(requests).not.toContain('"method":"session/set_model"');
+        const argv = yield* fs.readFileString(argvPath);
+        expect(argv).toContain("acp\t--model\tdefault\t--approval-mode\tyolo");
+        expect(argv).not.toContain("oh-my-pi-default");
         yield* instance.adapter.stopAll();
         expect(yield* instance.adapter.listSessions()).toEqual([]);
       }).pipe(Effect.scoped),

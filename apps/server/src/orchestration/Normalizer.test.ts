@@ -1,14 +1,20 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import {
   CommandId,
   type ClientOrchestrationCommand,
   MessageId,
   ProjectId,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
+import * as Effect from "effect/Effect";
+import * as Layer from "effect/Layer";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
+import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 
-import { canonicalizeClientCommandTimestamps } from "./Normalizer.ts";
+import { canonicalizeClientCommandTimestamps, normalizeProviderRuntimeMode } from "./Normalizer.ts";
 
 const clientCreatedAt = "2031-01-01T00:00:00.000Z";
 const serverReceivedAt = "2026-07-18T00:00:00.000Z";
@@ -70,4 +76,90 @@ describe("canonicalizeClientCommandTimestamps", () => {
     expect(result.createdAt).toBe(serverReceivedAt);
     expect(result.bootstrap?.createThread?.createdAt).toBe(serverReceivedAt);
   });
+});
+
+describe("normalizeProviderRuntimeMode", () => {
+  const command = {
+    type: "thread.turn.start",
+    commandId: CommandId.make("command-stale-mode"),
+    threadId: ThreadId.make("thread-1"),
+    message: {
+      messageId: MessageId.make("message-stale-mode"),
+      role: "user",
+      text: "Continue",
+      attachments: [],
+    },
+    runtimeMode: "approval-required",
+    interactionMode: "default",
+    createdAt: serverReceivedAt,
+  } satisfies ClientOrchestrationCommand;
+
+  it.effect("forces stale OhMyPi turn requests to persist full access", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("custom-omp");
+      const getInstanceInfo = vi.fn(() =>
+        Effect.succeed({
+          instanceId,
+          driverKind: ProviderDriverKind.make("ohMyPi"),
+          displayName: undefined,
+          enabled: true,
+          continuationIdentity: {
+            driverKind: ProviderDriverKind.make("ohMyPi"),
+            continuationKey: "ohMyPi:instance:custom-omp",
+          },
+        }),
+      );
+      const normalized = yield* normalizeProviderRuntimeMode(command).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(ProviderService, { getInstanceInfo } as never),
+            Layer.succeed(ProjectionSnapshotQuery, {
+              getThreadShellById: () =>
+                Effect.succeedSome({
+                  modelSelection: { instanceId, model: "default" },
+                } as never),
+            } as never),
+          ),
+        ),
+      );
+
+      if (normalized.type !== "thread.turn.start") throw new Error("Expected turn start");
+      expect(normalized.runtimeMode).toBe("full-access");
+      expect(getInstanceInfo).toHaveBeenCalledWith(instanceId);
+    }),
+  );
+
+  it.effect("preserves stale runtime mode requests for other provider drivers", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("custom-codex");
+      const normalized = yield* normalizeProviderRuntimeMode(command).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.succeed(ProviderService, {
+              getInstanceInfo: () =>
+                Effect.succeed({
+                  instanceId,
+                  driverKind: ProviderDriverKind.make("codex"),
+                  displayName: undefined,
+                  enabled: true,
+                  continuationIdentity: {
+                    driverKind: ProviderDriverKind.make("codex"),
+                    continuationKey: "codex:instance:custom-codex",
+                  },
+                }),
+            } as never),
+            Layer.succeed(ProjectionSnapshotQuery, {
+              getThreadShellById: () =>
+                Effect.succeedSome({
+                  modelSelection: { instanceId, model: "gpt-5" },
+                } as never),
+            } as never),
+          ),
+        ),
+      );
+
+      if (normalized.type !== "thread.turn.start") throw new Error("Expected turn start");
+      expect(normalized.runtimeMode).toBe("approval-required");
+    }),
+  );
 });

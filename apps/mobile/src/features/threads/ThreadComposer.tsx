@@ -15,6 +15,7 @@ import {
   type ServerConfig as T3ServerConfig,
   type UsageLimitsReport,
 } from "@t3tools/contracts";
+import { resolveProviderRuntimeMode } from "@t3tools/client-runtime/provider-runtime-mode";
 import {
   collectProviderUsageLimits,
   hasProviderUsageLimits,
@@ -327,7 +328,7 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ? "Queue"
       : "Send";
   const currentModelSelection = props.selectedThread.modelSelection;
-  const currentRuntimeMode = props.selectedThread.runtimeMode;
+  const unresolvedRuntimeMode = props.selectedThread.runtimeMode;
   const modelUnavailable =
     props.connectionState === "connected" &&
     isModelSelectionUnavailable(props.serverConfig, currentModelSelection);
@@ -339,6 +340,10 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ) ?? null
     );
   }, [props.serverConfig, props.selectedThread.modelSelection.instanceId]);
+  const currentRuntimeMode = resolveProviderRuntimeMode(
+    selectedProviderStatus,
+    unresolvedRuntimeMode,
+  );
   const composerOwnerKey = scopedThreadKey(props.environmentId, props.selectedThread.id);
   const openDraftDocument = (attachment: ComposerDocumentAttachment) => {
     Keyboard.dismiss();
@@ -559,8 +564,12 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       ownerId: settingsOwnerId,
       environmentId: props.environmentId,
       providerInstanceId: currentModelSelection.instanceId,
+      providerDriver: selectedProviderStatus?.driver,
       providerGroups: threadProviderGroups,
       selectedModel: currentModelSelection,
+      hasStartedSession: props.selectedThread.session !== null,
+      requiresNewThreadForModelChange:
+        selectedProviderStatus?.requiresNewThreadForModelChange === true,
       onSelectModel: (option) => props.onUpdateModelSelection(option.selection),
       optionDescriptors: providerOptionDescriptors,
       onUpdateOptionSelections: (options) =>
@@ -573,6 +582,9 @@ export const ThreadComposer = memo(function ThreadComposer(props: ThreadComposer
       currentRuntimeMode,
       props.onUpdateModelSelection,
       props.onUpdateRuntimeMode,
+      selectedProviderStatus?.driver,
+      selectedProviderStatus?.requiresNewThreadForModelChange,
+      props.selectedThread.session,
       providerOptionDescriptors,
       settingsOwnerId,
       threadProviderGroups,

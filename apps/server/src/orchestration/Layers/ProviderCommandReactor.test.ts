@@ -171,6 +171,8 @@ describe("ProviderCommandReactor", () => {
     readonly initialTitle?: string;
     readonly deferReactorStart?: boolean;
     readonly threadModelSelection?: ModelSelection;
+    readonly providerDriverKind?: ProviderDriverKind;
+    readonly providerDriverKindForInstance?: (instanceId: ProviderInstanceId) => ProviderDriverKind;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
     readonly requiresNewThreadForModelChange?: boolean;
     readonly unreadableHistory?: boolean;
@@ -371,15 +373,18 @@ describe("ProviderCommandReactor", () => {
       assertConversationRollbackSupported: () => unsupported(),
       getInstanceInfo: (instanceId) => {
         const raw = String(instanceId);
-        const driverKind = ProviderDriverKind.make(
-          raw.startsWith("claude")
-            ? "claudeAgent"
-            : raw.startsWith("codex")
-              ? "codex"
-              : raw.startsWith("antigravity")
-                ? "antigravity"
-                : raw,
-        );
+        const driverKind =
+          input?.providerDriverKindForInstance?.(instanceId) ??
+          input?.providerDriverKind ??
+          ProviderDriverKind.make(
+            raw.startsWith("claude")
+              ? "claudeAgent"
+              : raw.startsWith("codex")
+                ? "codex"
+                : raw.startsWith("antigravity")
+                  ? "antigravity"
+                  : raw,
+          );
         return Effect.succeed({
           instanceId,
           driverKind,
@@ -3000,6 +3005,120 @@ describe("ProviderCommandReactor", () => {
     ).toBeUndefined();
   });
 
+  effectIt.effect("binds OhMyPi sessions with the runtime mode returned by the provider", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          threadModelSelection: {
+            instanceId: ProviderInstanceId.make("custom-omp"),
+            model: "default",
+          },
+          providerDriverKind: ProviderDriverKind.make("ohMyPi"),
+          startSessionEffect: (session) =>
+            Effect.succeed({ ...session, runtimeMode: "full-access" }),
+        }),
+      );
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-omp-stale-runtime-mode"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-omp-stale-runtime-mode"),
+          role: "user",
+          text: "continue",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: "2026-01-01T00:00:00.000Z",
+      });
+
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+      expect(harness.startSession.mock.calls[0]?.[1]).toMatchObject({
+        provider: ProviderDriverKind.make("ohMyPi"),
+        runtimeMode: "full-access",
+      });
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      );
+      expect(thread?.runtimeMode).toBe("full-access");
+      expect(thread?.session?.runtimeMode).toBe("full-access");
+    }),
+  );
+
+  effectIt.effect(
+    "recovers the legacy OhMyPi default role without treating other role changes as equal",
+    () =>
+      Effect.gen(function* () {
+        const harness = yield* Effect.promise(() =>
+          createHarness({
+            threadModelSelection: {
+              instanceId: ProviderInstanceId.make("custom-omp"),
+              model: "oh-my-pi-default",
+            },
+            providerDriverKind: ProviderDriverKind.make("ohMyPi"),
+            sessionModelSwitch: "unsupported",
+            requiresNewThreadForModelChange: true,
+          }),
+        );
+        yield* harness.engine.dispatch({
+          type: "thread.session.set",
+          commandId: CommandId.make("cmd-omp-legacy-session"),
+          threadId: ThreadId.make("thread-1"),
+          session: {
+            threadId: ThreadId.make("thread-1"),
+            providerName: ProviderDriverKind.make("ohMyPi"),
+            providerInstanceId: ProviderInstanceId.make("custom-omp"),
+            status: "ready",
+            runtimeMode: "full-access",
+            activeTurnId: null,
+            lastError: null,
+            updatedAt: "2026-01-01T00:00:00.000Z",
+          },
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+        harness.runtimeSessions.push({
+          provider: ProviderDriverKind.make("ohMyPi"),
+          providerInstanceId: ProviderInstanceId.make("custom-omp"),
+          threadId: ThreadId.make("thread-1"),
+          status: "ready",
+          runtimeMode: "full-access",
+          model: "oh-my-pi-default",
+          cwd: "/tmp/provider-project",
+          resumeCursor: { opaque: "legacy-omp-resume" },
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        yield* harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make("cmd-omp-default-recovery"),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId("user-message-omp-default-recovery"),
+            role: "user",
+            text: "continue",
+            attachments: [],
+          },
+          modelSelection: {
+            instanceId: ProviderInstanceId.make("custom-omp"),
+            model: "default",
+          },
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "full-access",
+          createdAt: "2026-01-01T00:00:00.000Z",
+        });
+
+        yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+        expect(harness.startSession).not.toHaveBeenCalled();
+        expect(harness.runtimeSessions).toHaveLength(1);
+        expect(harness.runtimeSessions[0]?.resumeCursor).toEqual({
+          opaque: "legacy-omp-resume",
+        });
+      }),
+  );
+
   it("reuses the same provider session when runtime mode is unchanged", async () => {
     const harness = await createHarness();
     const now = "2026-01-01T00:00:00.000Z";
@@ -3518,6 +3637,77 @@ describe("ProviderCommandReactor", () => {
       },
     });
   });
+
+  effectIt.effect("does not persist OhMyPi full access when rejecting a cross-driver switch", () =>
+    Effect.gen(function* () {
+      const harness = yield* Effect.promise(() =>
+        createHarness({
+          providerDriverKindForInstance: (instanceId) =>
+            String(instanceId) === "custom-omp"
+              ? ProviderDriverKind.make("ohMyPi")
+              : ProviderDriverKind.make("codex"),
+        }),
+      );
+      const now = "2026-01-01T00:00:00.000Z";
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-rejected-omp-switch-1"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-rejected-omp-switch-1"),
+          role: "user",
+          text: "first",
+          attachments: [],
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() => waitFor(() => harness.sendTurn.mock.calls.length === 1));
+
+      yield* harness.engine.dispatch({
+        type: "thread.turn.start",
+        commandId: CommandId.make("cmd-turn-start-rejected-omp-switch-2"),
+        threadId: ThreadId.make("thread-1"),
+        message: {
+          messageId: asMessageId("user-message-rejected-omp-switch-2"),
+          role: "user",
+          text: "switch to omp",
+          attachments: [],
+        },
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("custom-omp"),
+          model: "default",
+        },
+        interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+        runtimeMode: "approval-required",
+        createdAt: now,
+      });
+
+      yield* Effect.promise(() =>
+        waitFor(async () => {
+          const thread = (await harness.readModel()).threads.find(
+            (entry) => entry.id === ThreadId.make("thread-1"),
+          );
+          return (
+            thread?.activities.some((activity) => activity.kind === "provider.turn.start.failed") ??
+            false
+          );
+        }),
+      );
+
+      expect(harness.startSession).toHaveBeenCalledTimes(1);
+      expect(harness.sendTurn).toHaveBeenCalledTimes(1);
+      const thread = (yield* Effect.promise(() => harness.readModel())).threads.find(
+        (entry) => entry.id === ThreadId.make("thread-1"),
+      );
+      expect(thread?.runtimeMode).toBe("approval-required");
+      expect(thread?.session?.providerName).toBe("codex");
+      expect(thread?.session?.runtimeMode).toBe("approval-required");
+    }),
+  );
 
   it("rejects cross-driver provider changes after the existing thread session has stopped", async () => {
     const harness = await createHarness();

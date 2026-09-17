@@ -10,6 +10,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import {
   CommandId,
   EnvironmentOrchestrationHttpApi,
+  ProviderDriverKind,
   ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
@@ -52,6 +53,7 @@ import * as WorkspacePaths from "./workspace/WorkspacePaths.ts";
 import * as ServerSecretStore from "./auth/ServerSecretStore.ts";
 import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import { environmentAuthenticatedAuthLayer } from "./auth/http.ts";
+import * as ProviderService from "./provider/Services/ProviderService.ts";
 
 import packageJson from "../package.json" with { type: "json" };
 
@@ -369,6 +371,19 @@ const withLiveProjectCliServer = <A, E, R>(
 ) =>
   Effect.gen(function* () {
     const config = { ...(yield* makeCliTestServerConfig(baseDir)), mode };
+    const providerServiceLayer = Layer.mock(ProviderService.ProviderService)({
+      getInstanceInfo: (instanceId) =>
+        Effect.succeed({
+          instanceId,
+          driverKind: ProviderDriverKind.make("codex"),
+          displayName: undefined,
+          enabled: true,
+          continuationIdentity: {
+            driverKind: ProviderDriverKind.make("codex"),
+            continuationKey: `codex:instance:${instanceId}`,
+          },
+        }),
+    });
     const routesLayer = HttpApiBuilder.layer(ProjectCliHttpApi).pipe(
       Layer.provide(
         orchestrationHttpApiLayer.pipe(
@@ -405,6 +420,7 @@ const withLiveProjectCliServer = <A, E, R>(
         ),
       ),
       Layer.provideMerge(makeProjectPersistenceLayer(config)),
+      Layer.provideMerge(providerServiceLayer),
       Layer.provideMerge(
         NodeHttpServer.layer(NodeHttp.createServer, {
           host: "127.0.0.1",
