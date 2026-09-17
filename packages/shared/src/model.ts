@@ -269,7 +269,7 @@ export function getModelProviderLabel(model: {
 
   const qualifier = qualifiers.join("/") || undefined;
   const missingQualifier =
-    qualifier && subProvider?.localeCompare(qualifier, undefined, { sensitivity: "accent" }) === 0
+    qualifier && subProvider && normalizeName(subProvider) === normalizeName(qualifier)
       ? undefined
       : qualifier;
 

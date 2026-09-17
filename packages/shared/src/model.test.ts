@@ -206,6 +206,13 @@ describe("getModelProviderLabel", () => {
     ).toBe("GitHub Copilot");
     expect(
       getModelProviderLabel({
+        slug: "github-copilot.claude-fable-5",
+        name: "Claude Fable 5",
+        subProvider: "GitHub Copilot",
+      }),
+    ).toBe("GitHub Copilot");
+    expect(
+      getModelProviderLabel({
         slug: "anthropic/claude-fable-5",
         name: "Claude Fable 5",
       }),
