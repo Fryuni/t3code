@@ -2,7 +2,7 @@ import type { ProviderDriverKind, RuntimeMode, ServerProvider } from "@t3tools/c
 
 const FULL_ACCESS_RUNTIME_MODE = "full-access" satisfies RuntimeMode;
 
-export function isFullAccessOnlyProvider(
+function isFullAccessOnlyProvider(
   provider: Pick<ServerProvider, "driver"> | ProviderDriverKind | null | undefined,
 ): boolean {
   const driver = typeof provider === "string" ? provider : provider?.driver;
