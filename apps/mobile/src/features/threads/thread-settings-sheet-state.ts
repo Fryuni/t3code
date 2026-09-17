@@ -1,7 +1,8 @@
+import { OH_MY_PI_DEFAULT_MODEL } from "@t3tools/contracts";
+
 import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
 
 const OH_MY_PI_DRIVER = "ohMyPi";
-const OH_MY_PI_DEFAULT_MODEL = "default";
 const OH_MY_PI_LEGACY_DEFAULT_MODEL = "oh-my-pi-default";
 
 function comparableModel(model: string, providerDriver: string | undefined): string {

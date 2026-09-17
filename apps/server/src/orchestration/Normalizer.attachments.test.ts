@@ -10,6 +10,7 @@ import {
   ApprovalRequestId,
   MessageId,
   type OrchestrationMessageContext,
+  ProviderInstanceId,
   ThreadId,
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
@@ -17,13 +18,35 @@ import * as Layer from "effect/Layer";
 import * as Schema from "effect/Schema";
 
 import * as ServerConfig from "../config.ts";
+import { ProviderUnsupportedError } from "../provider/Errors.ts";
+import { ProviderService } from "../provider/Services/ProviderService.ts";
 import * as WorkspacePaths from "../workspace/WorkspacePaths.ts";
-import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
+import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
+import {
+  cleanupFailedUploadedAttachments,
+  normalizeCommandForDispatch,
+  normalizeDispatchCommand,
+} from "./Normalizer.ts";
 
 const testLayer = Layer.mergeAll(
   WorkspacePaths.layer,
   ServerConfig.layerTest(process.cwd(), { prefix: "t3-normalizer-attachments-" }),
 ).pipe(Layer.provideMerge(NodeServices.layer));
+
+const failedProviderNormalizationLayer = Layer.mergeAll(
+  testLayer,
+  Layer.succeed(ProviderService, {
+    getInstanceInfo: (instanceId: ProviderInstanceId) =>
+      Effect.fail(
+        new ProviderUnsupportedError({
+          provider: instanceId,
+        }),
+      ),
+  } as never),
+  Layer.succeed(ProjectionSnapshotQuery, {
+    getThreadShellById: () => Effect.succeedNone,
+  } as never),
+);
 
 const attachmentUuid = "00000000-0000-4000-8000-0000000000aa";
 const isClientCommand = Schema.is(ClientOrchestrationCommand);
@@ -282,6 +305,32 @@ describe("normalizeDispatchCommand attachments", () => {
       }
       expect(retried.message.attachments[0]?.id.startsWith("thread-retry-")).toBe(true);
     }).pipe(Effect.provide(testLayer)),
+  );
+
+  it.effect("removes claimed copies when provider normalization fails", () =>
+    Effect.gen(function* () {
+      const config = yield* ServerConfig.ServerConfig;
+      const pendingPath = NodePath.join(config.attachmentsDir, `pending-${attachmentUuid}.png`);
+      NodeFS.writeFileSync(pendingPath, Buffer.from("pixels"));
+      const command = turnStartCommand({
+        attachments: [{ id: `pending-${attachmentUuid}`, sizeBytes: 6 }],
+      });
+      if (command.type !== "thread.turn.start") {
+        throw new Error("Expected a thread.turn.start command.");
+      }
+      const commandWithSelection: ClientOrchestrationCommand = {
+        ...command,
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("removed-provider"),
+          model: "stale-model",
+        },
+      };
+
+      const failure = yield* normalizeCommandForDispatch(commandWithSelection).pipe(Effect.flip);
+
+      expect(failure).toBeInstanceOf(Error);
+      expect(NodeFS.readdirSync(config.attachmentsDir)).toEqual([`pending-${attachmentUuid}.png`]);
+    }).pipe(Effect.provide(failedProviderNormalizationLayer)),
   );
 
   it.effect("removes failed attachment claims without deleting their pending uploads", () =>

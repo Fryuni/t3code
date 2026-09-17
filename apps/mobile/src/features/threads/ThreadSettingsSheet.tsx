@@ -125,6 +125,7 @@ function ModelRow(props: {
       }}
       accessibilityHint={props.disabledReason ?? undefined}
       disabled={props.option.isUnavailable || props.disabledReason !== null}
+      onPress={props.onPress}
       className={cn(
         "mx-4 min-h-11 flex-row items-center gap-2 bg-card px-4 py-2 active:bg-subtle",
         selectedMaterialRow && "bg-thread-selected",

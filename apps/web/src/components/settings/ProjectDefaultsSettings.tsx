@@ -259,6 +259,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
             }
             control={
               <Select
+                disabled={availableRuntimeModes.length === 1}
                 value={mixedPermissions ? null : displayedRuntimeMode}
                 onValueChange={(value) => {
                   if (value) updateSettings({ defaultRuntimeMode: value });

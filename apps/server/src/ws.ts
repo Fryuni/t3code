@@ -97,8 +97,8 @@ import { makeThreadLiveEventCoalescer } from "./orchestration/ThreadLiveEventCoa
 import { makeLiveStreamBudget, type RetainedLiveItem } from "./orchestration/LiveStreamBudget.ts";
 import {
   cleanupFailedUploadedAttachments,
+  normalizeCommandForDispatch,
   normalizeDispatchCommand,
-  normalizeProviderRuntimeMode,
 } from "./orchestration/Normalizer.ts";
 import * as OrchestrationEngine from "./orchestration/Services/OrchestrationEngine.ts";
 import * as ProjectionSnapshotQuery from "./orchestration/Services/ProjectionSnapshotQuery.ts";
@@ -1823,9 +1823,7 @@ const makeWsRpcLayer = (
             ORCHESTRATION_WS_METHODS.dispatchCommand,
             Effect.gen(function* () {
               yield* ProjectCloneTracker.rejectCommandsDuringClone(projectCloneTracker, command);
-              const normalizedCommand = yield* normalizeProviderRuntimeMode(
-                yield* normalizeDispatchCommand(command),
-              );
+              const normalizedCommand = yield* normalizeCommandForDispatch(command);
               // Archive removes the thread from the client, so this transport
               // closes its session and terminals after the command lands.
               // Settlement cleanup is driven by thread.settled events in the

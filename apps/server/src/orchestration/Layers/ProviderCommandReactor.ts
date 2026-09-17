@@ -659,33 +659,7 @@ const make = Effect.gen(function* () {
         detail: `Requested provider instance '${desiredInstanceId}' uses unknown provider driver '${desiredDriverKind}'. The driver is not installed in this build.`,
       });
     }
-    const desiredRuntimeMode = authoritativeRuntimeMode(desiredDriverKind, requestedRuntimeMode);
-    if (desiredRuntimeMode !== thread.runtimeMode) {
-      yield* orchestrationEngine.dispatch({
-        type: "thread.runtime-mode.set",
-        commandId: yield* serverCommandId("provider-runtime-mode-normalized"),
-        threadId,
-        runtimeMode: desiredRuntimeMode,
-        createdAt,
-      });
-    }
     const preferredProvider: ProviderDriverKind = desiredDriverKind;
-    if (options?.pendingTurnStart === true && thread.session?.status !== "running") {
-      yield* setThreadSession({
-        threadId,
-        session: {
-          threadId,
-          status: "starting",
-          providerName: activeSession?.provider ?? preferredProvider,
-          providerInstanceId: activeSession?.providerInstanceId ?? desiredInstanceId,
-          runtimeMode: desiredRuntimeMode,
-          activeTurnId: null,
-          lastError: null,
-          updatedAt: createdAt,
-        },
-        createdAt,
-      });
-    }
     if (thread.session !== null) {
       yield* rejectStartedThreadModelChangeIfRequired({
         threadId,
@@ -723,6 +697,32 @@ const make = Effect.gen(function* () {
           detail: `Thread '${threadId}' cannot switch from instance '${currentInstanceId}' to '${desiredInstanceId}' because their provider resume state is incompatible.`,
         });
       }
+    }
+    const desiredRuntimeMode = authoritativeRuntimeMode(desiredDriverKind, requestedRuntimeMode);
+    if (desiredRuntimeMode !== thread.runtimeMode) {
+      yield* orchestrationEngine.dispatch({
+        type: "thread.runtime-mode.set",
+        commandId: yield* serverCommandId("provider-runtime-mode-normalized"),
+        threadId,
+        runtimeMode: desiredRuntimeMode,
+        createdAt,
+      });
+    }
+    if (options?.pendingTurnStart === true && thread.session?.status !== "running") {
+      yield* setThreadSession({
+        threadId,
+        session: {
+          threadId,
+          status: "starting",
+          providerName: activeSession?.provider ?? preferredProvider,
+          providerInstanceId: activeSession?.providerInstanceId ?? desiredInstanceId,
+          runtimeMode: desiredRuntimeMode,
+          activeTurnId: null,
+          lastError: null,
+          updatedAt: createdAt,
+        },
+        createdAt,
+      });
     }
     const project = yield* resolveProject(thread.projectId);
     const effectiveCwd = resolveThreadWorkspaceCwd({
@@ -790,7 +790,15 @@ const make = Effect.gen(function* () {
         .sessionModelSwitch;
       const modelChanged =
         requestedModelSelection !== undefined &&
-        requestedModelSelection.model !== activeSession?.model;
+        requestedModelSelection.model !== activeSession?.model &&
+        !(
+          activeSession?.model !== undefined &&
+          isEquivalentOhMyPiDefaultModel(
+            desiredDriverKind,
+            activeSession.model,
+            requestedModelSelection.model,
+          )
+        );
       const instanceChanged =
         requestedModelSelection !== undefined &&
         activeSession?.providerInstanceId !== requestedModelSelection.instanceId;

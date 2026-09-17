@@ -440,3 +440,12 @@ export const cleanupFailedUploadedAttachments = Effect.fn(
   }
   yield* removeClaimedAttachmentPaths(claimedPaths);
 });
+
+export const normalizeCommandForDispatch = Effect.fn("Normalizer.normalizeCommandForDispatch")(
+  function* (command: ClientOrchestrationCommand) {
+    const normalizedCommand = yield* normalizeDispatchCommand(command);
+    return yield* normalizeProviderRuntimeMode(normalizedCommand).pipe(
+      Effect.tapError(() => cleanupFailedUploadedAttachments(command, normalizedCommand)),
+    );
+  },
+);

@@ -8,11 +8,7 @@ import * as Option from "effect/Option";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
-import {
-  cleanupFailedUploadedAttachments,
-  normalizeDispatchCommand,
-  normalizeProviderRuntimeMode,
-} from "./Normalizer.ts";
+import { cleanupFailedUploadedAttachments, normalizeCommandForDispatch } from "./Normalizer.ts";
 import {
   annotateEnvironmentRequest,
   failEnvironmentInternal,
@@ -107,19 +103,12 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
               failEnvironmentInternal("orchestration_dispatch_failed", cause),
             ),
           );
-          const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
+          const normalizedCommand = yield* normalizeCommandForDispatch(args.payload).pipe(
             Effect.catchTag("OrchestrationDispatchCommandError", () =>
               failEnvironmentInvalidRequest("invalid_command"),
             ),
             Effect.catch((cause) =>
               failEnvironmentInternal("orchestration_dispatch_failed", cause),
-            ),
-            Effect.flatMap((command) =>
-              normalizeProviderRuntimeMode(command).pipe(
-                Effect.catch((cause) =>
-                  failEnvironmentInternal("orchestration_dispatch_failed", cause),
-                ),
-              ),
             ),
           );
           const result = yield* orchestrationEngine.dispatch(normalizedCommand).pipe(
