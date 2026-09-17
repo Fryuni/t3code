@@ -1154,10 +1154,14 @@ const handleSessionUpdate = ({
     }
     for (const event of parsed.events) {
       if (event._tag === "ToolCallUpdated") {
-        yield* closeActiveAssistantSegment({
-          queue,
-          assistantSegmentRef,
-        });
+        // Background tool progress can arrive between chunks of one assistant message.
+        // Only a new tool call marks a boundary, not updates to an existing call.
+        if (params.update.sessionUpdate === "tool_call") {
+          yield* closeActiveAssistantSegment({
+            queue,
+            assistantSegmentRef,
+          });
+        }
         const { merged, decision } = yield* Ref.modify(toolCallsRef, (current) => {
           const tracked = current.get(event.toolCall.toolCallId);
           const previous = tracked?.state;
