@@ -73,6 +73,8 @@ import {
   modelMatchesCatalogQuery,
   pendingModelAfterPress,
   providerSectionIsCollapsed,
+  startedThreadModelChangeBlockReason,
+  threadRoleSelectionsMatch,
 } from "./thread-settings-sheet-state";
 
 /**
@@ -107,6 +109,7 @@ function ModelRow(props: {
   readonly option: ModelOption;
   readonly selected: boolean;
   readonly onPress: () => void;
+  readonly disabledReason: string | null;
   readonly isFirst: boolean;
   readonly isLast: boolean;
 }) {
@@ -118,10 +121,10 @@ function ModelRow(props: {
       accessibilityRole="radio"
       accessibilityState={{
         checked: props.selected,
-        disabled: props.option.isUnavailable === true,
+        disabled: props.option.isUnavailable === true || props.disabledReason !== null,
       }}
-      disabled={props.option.isUnavailable}
-      onPress={props.onPress}
+      accessibilityHint={props.disabledReason ?? undefined}
+      disabled={props.option.isUnavailable || props.disabledReason !== null}
       className={cn(
         "mx-4 min-h-11 flex-row items-center gap-2 bg-card px-4 py-2 active:bg-subtle",
         selectedMaterialRow && "bg-thread-selected",
@@ -149,6 +152,8 @@ function ModelRow(props: {
           ) : null}
           {props.option.isUnavailable ? (
             <Text className="text-xs text-foreground">Unavailable</Text>
+          ) : props.disabledReason ? (
+            <Text className="text-xs text-foreground-muted">New chat required</Text>
           ) : null}
         </View>
         {props.option.subtitle ? (
@@ -327,6 +332,8 @@ type ThreadSettingsSessionProps = {
   readonly providerDriver?: ProviderDriverKind;
   readonly providerGroups: ReadonlyArray<ProviderGroup>;
   readonly selectedModel: ModelSelection | null;
+  readonly hasStartedSession: boolean;
+  readonly requiresNewThreadForModelChange: boolean;
   readonly onSelectModel: (option: ModelOption) => void;
   readonly optionDescriptors: ReadonlyArray<ProviderOptionDescriptor>;
   readonly onUpdateOptionSelections: (selections: ReadonlyArray<ProviderOptionSelection>) => void;
@@ -393,6 +400,7 @@ type ThreadSettingsSessionValue = {
   readonly commitPendingModel: () => boolean;
   readonly isApplied: (option: ModelOption) => boolean;
   readonly isDisplayed: (option: ModelOption) => boolean;
+  readonly modelChangeBlockReason: (option: ModelOption) => string | null;
   readonly pressModel: (option: ModelOption) => void;
   readonly setProviderFilter: (providerKey: string | null) => void;
   readonly setSearchQuery: (query: string) => void;
@@ -413,12 +421,21 @@ function ThreadSettingsSessionProvider(
     () => new Set(),
   );
   const [pendingModel, setPendingModel] = useState<ModelOption | null>(null);
-
   const isApplied = useCallback(
     (option: ModelOption) =>
       option.selection.instanceId === props.selectedModel?.instanceId &&
       option.selection.model === props.selectedModel.model,
     [props.selectedModel],
+  );
+  const isAppliedRole = useCallback(
+    (option: ModelOption) =>
+      props.selectedModel !== null &&
+      threadRoleSelectionsMatch({
+        providerDriver: props.providerDriver,
+        current: props.selectedModel,
+        next: option.selection,
+      }),
+    [props.providerDriver, props.selectedModel],
   );
   // The list highlights the staged pick; Save turns it into the applied one.
   const isDisplayed = useCallback(
@@ -446,8 +463,29 @@ function ThreadSettingsSessionProvider(
     () => props.providerGroups.some((group) => group.models.some((model) => model.isLegacy)),
     [props.providerGroups],
   );
+  const modelChangeBlockReason = useCallback(
+    (option: ModelOption) =>
+      startedThreadModelChangeBlockReason({
+        hasStartedSession: props.hasStartedSession,
+        requiresNewThreadForModelChange: props.requiresNewThreadForModelChange,
+        providerDriver: props.providerDriver,
+        current: props.selectedModel,
+        next: option.selection,
+      }),
+    [
+      props.hasStartedSession,
+      props.providerDriver,
+      props.requiresNewThreadForModelChange,
+      props.selectedModel,
+    ],
+  );
   const commitPendingModel = useCallback(() => {
     if (pendingModel) {
+      const blockReason = modelChangeBlockReason(pendingModel);
+      if (blockReason) {
+        Alert.alert("Start a new chat to change roles", blockReason);
+        return false;
+      }
       if (!canCommitPendingModel(pendingModel, props.providerGroups)) {
         Alert.alert(
           "Model unavailable",
@@ -459,7 +497,7 @@ function ThreadSettingsSessionProvider(
       props.onSelectModel(pendingModel);
     }
     return true;
-  }, [pendingModel, props.onSelectModel, props.providerGroups]);
+  }, [modelChangeBlockReason, pendingModel, props.onSelectModel, props.providerGroups]);
 
   const applyOptionChange = useCallback(
     (id: string, value: string | boolean) => {
@@ -491,16 +529,19 @@ function ThreadSettingsSessionProvider(
 
   const pressModel = useCallback(
     (option: ModelOption) => {
+      if (modelChangeBlockReason(option)) {
+        return;
+      }
       void Haptics.selectionAsync();
       setPendingModel((current) =>
         pendingModelAfterPress({
           current,
           pressed: option,
-          pressedIsApplied: isApplied(option),
+          pressedIsApplied: isAppliedRole(option),
         }),
       );
     },
-    [isApplied],
+    [isAppliedRole, modelChangeBlockReason],
   );
 
   const value = useMemo<ThreadSettingsSessionValue>(
@@ -522,6 +563,7 @@ function ThreadSettingsSessionProvider(
       commitPendingModel,
       isApplied,
       isDisplayed,
+      modelChangeBlockReason,
       pressModel,
       setProviderFilter,
       setSearchQuery,
@@ -536,6 +578,7 @@ function ThreadSettingsSessionProvider(
       hasLegacyModels,
       isApplied,
       isDisplayed,
+      modelChangeBlockReason,
       props.environmentId,
       props.providerInstanceId,
       props.providerDriver,
@@ -609,8 +652,10 @@ function ThreadSettingsModelListRow(props: {
     [props.option, session.pressModel],
   );
 
+  const disabledReason = session.modelChangeBlockReason(props.option);
   return (
     <ModelRow
+      disabledReason={disabledReason}
       isFirst={props.isFirst}
       isLast={props.isLast}
       onPress={onPress}
@@ -1313,6 +1358,8 @@ export function NewTaskThreadSettingsRouteScreen() {
       providerGroups={flow.providerGroups}
       providerDriver={flow.selectedProviderStatus?.driver}
       selectedModel={flow.selectedModel}
+      hasStartedSession={false}
+      requiresNewThreadForModelChange={false}
       onSelectModel={(option) => flow.setSelectedModelKey(option.key, option.selection.options)}
       optionDescriptors={optionDescriptors}
       onUpdateOptionSelections={flow.setSelectedModelOptions}

@@ -1,6 +1,7 @@
 import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import {
   ANTIGRAVITY_DEFAULT_MODEL,
+  OH_MY_PI_DEFAULT_MODEL,
   type AssetCreateUrlInput,
   type AssetCreateUrlResult,
   type ChatFileAttachment,
@@ -1113,7 +1114,9 @@ export function deriveLockedProvider(input: {
 }
 
 export function getStartedThreadModelChangeBlockReason(input: {
-  providers: ReadonlyArray<Pick<ServerProvider, "instanceId" | "requiresNewThreadForModelChange">>;
+  providers: ReadonlyArray<
+    Pick<ServerProvider, "driver" | "instanceId" | "requiresNewThreadForModelChange">
+  >;
   hasStartedSession: boolean;
   currentModelSelection: ModelSelection;
   currentProviderInstanceId?: ModelSelection["instanceId"] | null | undefined;
@@ -1126,15 +1129,19 @@ export function getStartedThreadModelChangeBlockReason(input: {
     ...input.currentModelSelection,
     instanceId: input.currentProviderInstanceId ?? input.currentModelSelection.instanceId,
   };
-  if (
-    currentModelSelection.instanceId === input.nextModelSelection.instanceId &&
-    currentModelSelection.model === input.nextModelSelection.model
-  ) {
-    return null;
-  }
   const currentProvider = input.providers.find(
     (snapshot) => snapshot.instanceId === currentModelSelection.instanceId,
   );
+  const isSameModel =
+    currentModelSelection.model === input.nextModelSelection.model ||
+    (currentProvider?.driver === "ohMyPi" &&
+      ((currentModelSelection.model === "oh-my-pi-default" &&
+        input.nextModelSelection.model === OH_MY_PI_DEFAULT_MODEL) ||
+        (currentModelSelection.model === OH_MY_PI_DEFAULT_MODEL &&
+          input.nextModelSelection.model === "oh-my-pi-default")));
+  if (currentModelSelection.instanceId === input.nextModelSelection.instanceId && isSameModel) {
+    return null;
+  }
   const nextProvider = input.providers.find(
     (snapshot) => snapshot.instanceId === input.nextModelSelection.instanceId,
   );

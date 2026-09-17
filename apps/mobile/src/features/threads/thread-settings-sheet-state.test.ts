@@ -7,6 +7,7 @@ import {
   canCommitPendingModel,
   modelMatchesCatalogQuery,
   pendingModelAfterPress,
+  startedThreadModelChangeBlockReason,
 } from "./thread-settings-sheet-state";
 
 function modelOption(
@@ -115,5 +116,60 @@ describe("thread settings sheet state", () => {
         },
       ]),
     ).toBe(false);
+  });
+
+  it("blocks a different role for a started provider that binds roles to threads", () => {
+    expect(
+      startedThreadModelChangeBlockReason({
+        hasStartedSession: true,
+        requiresNewThreadForModelChange: true,
+        providerDriver: "ohMyPi",
+        current: modelOption("default").selection,
+        next: modelOption("slow").selection,
+      }),
+    ).toBe("This provider fixes the role after a conversation has started.");
+  });
+
+  it("allows role choices before the provider session starts", () => {
+    expect(
+      startedThreadModelChangeBlockReason({
+        hasStartedSession: false,
+        requiresNewThreadForModelChange: true,
+        providerDriver: "ohMyPi",
+        current: modelOption("default").selection,
+        next: modelOption("slow").selection,
+      }),
+    ).toBeNull();
+  });
+
+  it("allows the current role and the OMP legacy-default equivalent", () => {
+    const input = {
+      hasStartedSession: true,
+      requiresNewThreadForModelChange: true,
+      providerDriver: "ohMyPi",
+      current: modelOption("oh-my-pi-default").selection,
+    } as const;
+
+    expect(
+      startedThreadModelChangeBlockReason({
+        ...input,
+        next: modelOption("oh-my-pi-default").selection,
+      }),
+    ).toBeNull();
+    expect(
+      startedThreadModelChangeBlockReason({ ...input, next: modelOption("default").selection }),
+    ).toBeNull();
+  });
+
+  it("does not equate the OMP sentinel and default for other providers", () => {
+    expect(
+      startedThreadModelChangeBlockReason({
+        hasStartedSession: true,
+        requiresNewThreadForModelChange: true,
+        providerDriver: "codex",
+        current: modelOption("oh-my-pi-default").selection,
+        next: modelOption("default").selection,
+      }),
+    ).toBe("This provider fixes the role after a conversation has started.");
   });
 });
