@@ -419,20 +419,20 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           threadId,
           cwd: directory,
           runtimeMode: "approval-required",
-          modelSelection: { instanceId, model: OH_MY_PI_DEFAULT_MODEL },
+          modelSelection: { instanceId, model: "oh-my-pi-default" },
           resumeCursor: session.resumeCursor,
         });
         expect(resumed.runtimeMode).toBe("full-access");
-        expect(resumed.model).toBe("default");
+        expect(resumed.model).toBe(OH_MY_PI_DEFAULT_MODEL);
         expect(yield* instance.adapter.hasSession(threadId)).toBe(true);
         const requests = yield* fs.readFileString(logPath);
         expect(requests).toContain('"methodId":"agent"');
         expect(requests).toContain('"method":"session/load"');
         expect(requests).not.toContain('"method":"session/set_config_option"');
         expect(requests).not.toContain('"method":"session/set_model"');
-        expect(yield* fs.readFileString(argvPath)).toContain(
-          "acp\t--model\tdefault\t--approval-mode\tyolo",
-        );
+        const argv = yield* fs.readFileString(argvPath);
+        expect(argv).toContain("acp\t--model\tdefault\t--approval-mode\tyolo");
+        expect(argv).not.toContain("oh-my-pi-default");
         yield* instance.adapter.stopAll();
         expect(yield* instance.adapter.listSessions()).toEqual([]);
       }).pipe(Effect.scoped),

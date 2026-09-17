@@ -6,8 +6,9 @@
 
 import {
   ApprovalRequestId,
-  type OhMyPiSettings,
   EventId,
+  OH_MY_PI_DEFAULT_MODEL,
+  type OhMyPiSettings,
   type ProviderApprovalDecision,
   type ProviderInteractionMode,
   type ProviderRuntimeEvent,
@@ -69,6 +70,8 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonStri
 
 const PROVIDER = ProviderDriverKind.make("ohMyPi");
 const OH_MY_PI_RESUME_VERSION = 1 as const;
+const LEGACY_OH_MY_PI_DEFAULT_MODEL = "oh-my-pi-default";
+
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
@@ -360,8 +363,12 @@ export function makeOhMyPiAdapter(
           }
 
           const cwd = path.resolve(input.cwd.trim());
-          const ohMyPiModelSelection =
-            input.modelSelection?.instanceId === boundInstanceId ? input.modelSelection : undefined;
+          const selectedRole =
+            input.modelSelection?.instanceId === boundInstanceId
+              ? input.modelSelection.model === LEGACY_OH_MY_PI_DEFAULT_MODEL
+                ? OH_MY_PI_DEFAULT_MODEL
+                : input.modelSelection.model
+              : undefined;
           const existing = sessions.get(input.threadId);
           if (existing && !existing.stopped) {
             yield* stopSessionInternal(existing);
@@ -394,7 +401,7 @@ export function makeOhMyPiAdapter(
             },
             childProcessSpawner,
             cwd,
-            role: ohMyPiModelSelection?.model,
+            role: selectedRole,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
             ...(mcpSession
@@ -520,7 +527,7 @@ export function makeOhMyPiAdapter(
             status: "ready",
             runtimeMode: "full-access",
             cwd,
-            model: ohMyPiModelSelection?.model,
+            model: selectedRole,
             threadId: input.threadId,
             resumeCursor: {
               schemaVersion: OH_MY_PI_RESUME_VERSION,

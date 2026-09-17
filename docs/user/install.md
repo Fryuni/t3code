@@ -132,8 +132,8 @@ same environment.
 The picker lists the roles in OhMyPi's configured cycle order. Choose a role as
 the entry point for a new thread; OhMyPi applies that role's model and thinking
 level. Configure roles and thinking in OhMyPi, then refresh provider status in
-T3 Code after changing the cycle. Roles used only by OhMyPi's internal agents do
-not appear in the picker. Selecting a different entry role requires a new thread;
+T3 Code after changing the cycle. Roles outside that cycle do not appear in the
+picker. Selecting a different entry role requires a new thread;
 saved sessions can continue after reconnecting.
 OhMyPi's native slash commands appear once a session has started in that workspace.
 

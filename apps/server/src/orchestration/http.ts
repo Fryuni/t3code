@@ -8,7 +8,11 @@ import * as Option from "effect/Option";
 import * as HttpApiBuilder from "effect/unstable/httpapi/HttpApiBuilder";
 
 import { projectThreadDetailSnapshot } from "./ActivityPayloadProjection.ts";
-import { cleanupFailedUploadedAttachments, normalizeDispatchCommand } from "./Normalizer.ts";
+import {
+  cleanupFailedUploadedAttachments,
+  normalizeDispatchCommand,
+  normalizeProviderRuntimeMode,
+} from "./Normalizer.ts";
 import {
   annotateEnvironmentRequest,
   failEnvironmentInternal,
@@ -104,6 +108,7 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
             ),
           );
           const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
+            Effect.flatMap(normalizeProviderRuntimeMode),
             Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
           );
           const result = yield* orchestrationEngine.dispatch(normalizedCommand).pipe(
