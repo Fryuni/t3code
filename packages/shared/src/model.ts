@@ -239,6 +239,10 @@ export function getModelProviderLabel(model: {
   const subProvider = model.subProvider?.trim() || undefined;
   const normalizeName = (name: string) => name.toLowerCase().replace(/[-_\s]+/g, "");
   const inferDotQualifier = (value: string): string | undefined => {
+    if (codexModelFamily(value) !== value) {
+      return "openai";
+    }
+
     for (let index = value.indexOf("."); index > 0; index = value.indexOf(".", index + 1)) {
       const suffix = normalizeName(value.slice(index + 1));
       if (

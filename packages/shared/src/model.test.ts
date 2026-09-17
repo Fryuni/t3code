@@ -212,17 +212,17 @@ describe("getModelProviderLabel", () => {
     ).toBe("anthropic");
   });
 
-  it("infers dot qualifiers only when the remaining suffix is a model name", () => {
+  it("infers known or name-backed dot qualifiers without treating version dots as prefixes", () => {
     expect(
       getModelProviderLabel({
         slug: "openai.gpt-5.6-sol",
-        name: "GPT-5.6 Sol",
+        name: "Sol",
       }),
     ).toBe("openai");
     expect(
       getModelProviderLabel({
         slug: "gpt-5.6-sol",
-        name: "GPT-5.6 Sol",
+        name: "Sol",
       }),
     ).toBeUndefined();
     expect(
