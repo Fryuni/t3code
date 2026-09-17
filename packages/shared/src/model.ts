@@ -237,15 +237,16 @@ export function getModelProviderLabel(model: {
   subProvider?: string | undefined;
 }): string | undefined {
   const subProvider = model.subProvider?.trim() || undefined;
-  const names = [model.name, model.shortName].filter(
-    (name): name is string => typeof name === "string" && name.length > 0,
-  );
+  const normalizeName = (name: string) => name.toLowerCase().replace(/[-_\s]+/g, "");
   const inferDotQualifier = (value: string): string | undefined => {
-    const lowerValue = value.toLowerCase();
-    for (const name of names) {
-      const suffix = `.${name.toLowerCase()}`;
-      if (lowerValue.endsWith(suffix)) {
-        return value.slice(0, -suffix.length) || undefined;
+    for (let index = value.indexOf("."); index > 0; index = value.indexOf(".", index + 1)) {
+      const suffix = normalizeName(value.slice(index + 1));
+      if (
+        suffix &&
+        (suffix === normalizeName(model.name) ||
+          (model.shortName && suffix === normalizeName(model.shortName)))
+      ) {
+        return value.slice(0, index);
       }
     }
     return undefined;
