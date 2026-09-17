@@ -103,6 +103,59 @@ describe("mobile model options", () => {
     ]);
   });
 
+  it("preserves nested and qualified model providers in subtitles", () => {
+    const config = {
+      providers: [
+        {
+          instanceId: "opencode_work",
+          driver: "opencode",
+          displayName: "OpenCode Work",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [
+            {
+              slug: "loem/azure.glm-5.3-Flash",
+              name: "GLM-5.3-Flash",
+              subProvider: "Loem",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        },
+        {
+          instanceId: "codex",
+          driver: "codex",
+          displayName: "Codex",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [
+            {
+              slug: "azure.glm-5.3-Flash",
+              name: "glm-5.3-Flash",
+              isCustom: false,
+              capabilities: null,
+            },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+
+    expect(buildModelOptions(config, null)).toMatchObject([
+      {
+        label: "GLM-5.3-Flash",
+        subtitle: "Loem · azure",
+        selection: { model: "loem/azure.glm-5.3-Flash" },
+      },
+      {
+        label: "glm-5.3-Flash",
+        subtitle: "azure",
+        selection: { model: "azure.glm-5.3-Flash" },
+      },
+    ]);
+  });
+
   it("does not materialize catalog defaults for missing stored options", () => {
     const config = {
       providers: [

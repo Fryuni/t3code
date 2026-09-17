@@ -230,6 +230,56 @@ export function codexModelFamily(slug: string): string {
   return slug.startsWith("openai.gpt-") ? slug.slice("openai.".length) : slug;
 }
 
+export function getModelProviderLabel(model: {
+  slug: string;
+  name: string;
+  shortName?: string | undefined;
+  subProvider?: string | undefined;
+}): string | undefined {
+  const subProvider = model.subProvider?.trim() || undefined;
+  const normalizeName = (name: string) => name.toLowerCase().replace(/[-_\s]+/g, "");
+  const inferDotQualifier = (value: string): string | undefined => {
+    if (codexModelFamily(value) !== value) {
+      return "openai";
+    }
+
+    for (let index = value.indexOf("."); index > 0; index = value.indexOf(".", index + 1)) {
+      const suffix = normalizeName(value.slice(index + 1));
+      if (
+        suffix &&
+        (suffix === normalizeName(model.name) ||
+          (model.shortName && suffix === normalizeName(model.shortName)))
+      ) {
+        return value.slice(0, index);
+      }
+    }
+    return undefined;
+  };
+
+  const slashParts = model.slug.split("/");
+  const modelId = slashParts.pop() ?? model.slug;
+  if (subProvider) {
+    slashParts.shift();
+  }
+  const qualifiers = slashParts.filter(Boolean);
+  const dotQualifier = inferDotQualifier(modelId);
+  if (dotQualifier) {
+    qualifiers.push(dotQualifier);
+  }
+
+  const qualifier = qualifiers.join("/") || undefined;
+  const missingQualifier =
+    qualifier && subProvider && normalizeName(subProvider) === normalizeName(qualifier)
+      ? undefined
+      : qualifier;
+
+  return (
+    [subProvider, missingQualifier]
+      .filter((value): value is string => Boolean(value))
+      .join(" · ") || undefined
+  );
+}
+
 export function normalizeModelSlug(
   model: string | null | undefined,
   provider: ProviderDriverKind = DEFAULT_PROVIDER_DRIVER_KIND,
