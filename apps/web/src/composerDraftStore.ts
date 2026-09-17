@@ -1227,20 +1227,32 @@ export function deriveEffectiveComposerModelState(input: {
   const activeSelectionInstanceId = instanceSelection
     ? (input.selectedInstanceId ?? ProviderInstanceId.make(input.selectedProvider))
     : ProviderInstanceId.make(input.selectedProvider);
-  const selectedModel = activeSelection?.model
+  const retainedThreadSelection =
+    input.selectedProvider === "ohMyPi" &&
+    input.selectedInstanceId !== null &&
+    input.selectedInstanceId !== undefined &&
+    input.threadModelSelection?.instanceId === input.selectedInstanceId
+      ? input.threadModelSelection
+      : null;
+  const selectionToResolve = retainedThreadSelection ?? activeSelection;
+  const selectedModel = selectionToResolve?.model
     ? (resolveAppModelSelectionForInstance(
-        activeSelectionInstanceId,
+        retainedThreadSelection?.instanceId ?? activeSelectionInstanceId,
         input.settings,
         input.providers,
-        activeSelection.model,
-        { preserveUnavailableSelection: true },
+        selectionToResolve.model,
+        {
+          preserveUnavailableSelection:
+            retainedThreadSelection !== null ||
+            (activeSelection !== undefined && input.selectedProvider !== "ohMyPi"),
+        },
       ) ??
       (input.selectedProvider === "antigravity" ? "" : null) ??
       resolveAppModelSelection(
         input.selectedProvider,
         input.settings,
         input.providers,
-        activeSelection.model,
+        selectionToResolve.model,
       ))
     : baseModel;
   const modelOptions =

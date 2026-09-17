@@ -108,8 +108,19 @@ export const orchestrationHttpApiLayer = HttpApiBuilder.group(
             ),
           );
           const normalizedCommand = yield* normalizeDispatchCommand(args.payload).pipe(
-            Effect.flatMap(normalizeProviderRuntimeMode),
-            Effect.catch(() => failEnvironmentInvalidRequest("invalid_command")),
+            Effect.catchTag("OrchestrationDispatchCommandError", () =>
+              failEnvironmentInvalidRequest("invalid_command"),
+            ),
+            Effect.catch((cause) =>
+              failEnvironmentInternal("orchestration_dispatch_failed", cause),
+            ),
+            Effect.flatMap((command) =>
+              normalizeProviderRuntimeMode(command).pipe(
+                Effect.catch((cause) =>
+                  failEnvironmentInternal("orchestration_dispatch_failed", cause),
+                ),
+              ),
+            ),
           );
           const result = yield* orchestrationEngine.dispatch(normalizedCommand).pipe(
             Effect.tapError(() =>

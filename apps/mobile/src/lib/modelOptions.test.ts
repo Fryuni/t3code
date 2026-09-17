@@ -79,6 +79,38 @@ describe("mobile model options", () => {
     ).toEqual(["review", "build"]);
   });
 
+  it("keeps existing OhMyPi identity separate from new-task role resolution", () => {
+    const instanceId = ProviderInstanceId.make("ohMyPi");
+    const saved = { instanceId, model: "review" };
+    const config = {
+      providers: [
+        {
+          instanceId,
+          driver: "ohMyPi",
+          enabled: true,
+          installed: true,
+          auth: { status: "authenticated" },
+          models: [
+            { slug: "build", name: "Build", isCustom: false, capabilities: null },
+            { slug: "plan", name: "Plan", isCustom: false, capabilities: null },
+          ],
+        },
+      ],
+    } as unknown as ServerConfig;
+    const options = buildModelOptions(config, saved);
+
+    expect(saved.model).toBe("review");
+    expect(options.map((option) => option.selection.model)).toEqual(["build", "plan"]);
+    expect(
+      resolveNewTaskModelSelection({
+        draftSelection: resolveSelectableModelSelection(config, saved),
+        projectDefaultSelection: null,
+        stickySelection: null,
+        modelOptions: options,
+      })?.model,
+    ).toBe("build");
+  });
+
   it("distinguishes same-name OpenCode models without changing their routing", () => {
     const sources = [
       { id: "anthropic", label: "Anthropic" },

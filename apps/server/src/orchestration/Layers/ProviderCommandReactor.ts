@@ -4,6 +4,7 @@ import {
   EventId,
   type ModelSelection,
   type OrchestrationEvent,
+  OH_MY_PI_DEFAULT_MODEL,
   ProviderDriverKind,
   type ProjectId,
   type OrchestrationSession,
@@ -118,7 +119,6 @@ const HANDLED_TURN_START_KEY_TTL = Duration.minutes(30);
 const DEFAULT_RUNTIME_MODE: RuntimeMode = "full-access";
 const OH_MY_PI_DRIVER = ProviderDriverKind.make("ohMyPi");
 const OH_MY_PI_LEGACY_DEFAULT_MODEL = "oh-my-pi-default";
-const OH_MY_PI_DEFAULT_MODEL = "default";
 
 function authoritativeRuntimeMode(
   driverKind: ProviderDriverKind,

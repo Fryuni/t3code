@@ -87,8 +87,10 @@ export function isModelSelectionUnavailable(
 
 /**
  * Keep Antigravity selections when setup or catalog changes make them
- * unavailable. Other providers fall through to the server default when they
- * are disabled, missing, or signed out. Without config, keep stored selections.
+ * unavailable. OhMyPi drafts must still name a role in the current cycle;
+ * existing threads retain their saved identity directly from the thread shell.
+ * Other providers fall through to the server default when they are disabled,
+ * missing, or signed out. Without config, keep stored selections.
  */
 export function resolveSelectableModelSelection(
   config: T3ServerConfig | null | undefined,
@@ -104,6 +106,9 @@ export function resolveSelectableModelSelection(
     provider?.driver ?? config.settings?.providerInstances[selection.instanceId]?.driver;
   if (driver === "antigravity") {
     return selection;
+  }
+  if (driver === "ohMyPi") {
+    return provider?.models.some((model) => model.slug === selection.model) ? selection : null;
   }
   return provider &&
     provider.enabled &&

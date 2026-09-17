@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it } from "@effect/vitest";
+import { vi } from "vite-plus/test";
 import {
   CommandId,
   type ClientOrchestrationCommand,
@@ -10,7 +11,6 @@ import {
 } from "@t3tools/contracts";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
-import * as Option from "effect/Option";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 import { ProjectionSnapshotQuery } from "./Services/ProjectionSnapshotQuery.ts";
 
@@ -94,47 +94,45 @@ describe("normalizeProviderRuntimeMode", () => {
     createdAt: serverReceivedAt,
   } satisfies ClientOrchestrationCommand;
 
-  it("forces stale OhMyPi turn requests to persist full access", async () => {
-    const instanceId = ProviderInstanceId.make("custom-omp");
-    const getInstanceInfo = vi.fn(() =>
-      Effect.succeed({
-        instanceId,
-        driverKind: ProviderDriverKind.make("ohMyPi"),
-        displayName: undefined,
-        enabled: true,
-        continuationIdentity: {
+  it.effect("forces stale OhMyPi turn requests to persist full access", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("custom-omp");
+      const getInstanceInfo = vi.fn(() =>
+        Effect.succeed({
+          instanceId,
           driverKind: ProviderDriverKind.make("ohMyPi"),
-          continuationKey: "ohMyPi:instance:custom-omp",
-        },
-      }),
-    );
-    const normalized = await Effect.runPromise(
-      normalizeProviderRuntimeMode(command).pipe(
+          displayName: undefined,
+          enabled: true,
+          continuationIdentity: {
+            driverKind: ProviderDriverKind.make("ohMyPi"),
+            continuationKey: "ohMyPi:instance:custom-omp",
+          },
+        }),
+      );
+      const normalized = yield* normalizeProviderRuntimeMode(command).pipe(
         Effect.provide(
           Layer.mergeAll(
             Layer.succeed(ProviderService, { getInstanceInfo } as never),
             Layer.succeed(ProjectionSnapshotQuery, {
               getThreadShellById: () =>
-                Effect.succeed(
-                  Option.some({
-                    modelSelection: { instanceId, model: "default" },
-                  } as never),
-                ),
+                Effect.succeedSome({
+                  modelSelection: { instanceId, model: "default" },
+                } as never),
             } as never),
           ),
         ),
-      ),
-    );
+      );
 
-    if (normalized.type !== "thread.turn.start") throw new Error("Expected turn start");
-    expect(normalized.runtimeMode).toBe("full-access");
-    expect(getInstanceInfo).toHaveBeenCalledWith(instanceId);
-  });
+      if (normalized.type !== "thread.turn.start") throw new Error("Expected turn start");
+      expect(normalized.runtimeMode).toBe("full-access");
+      expect(getInstanceInfo).toHaveBeenCalledWith(instanceId);
+    }),
+  );
 
-  it("preserves stale runtime mode requests for other provider drivers", async () => {
-    const instanceId = ProviderInstanceId.make("custom-codex");
-    const normalized = await Effect.runPromise(
-      normalizeProviderRuntimeMode(command).pipe(
+  it.effect("preserves stale runtime mode requests for other provider drivers", () =>
+    Effect.gen(function* () {
+      const instanceId = ProviderInstanceId.make("custom-codex");
+      const normalized = yield* normalizeProviderRuntimeMode(command).pipe(
         Effect.provide(
           Layer.mergeAll(
             Layer.succeed(ProviderService, {
@@ -152,18 +150,16 @@ describe("normalizeProviderRuntimeMode", () => {
             } as never),
             Layer.succeed(ProjectionSnapshotQuery, {
               getThreadShellById: () =>
-                Effect.succeed(
-                  Option.some({
-                    modelSelection: { instanceId, model: "gpt-5" },
-                  } as never),
-                ),
+                Effect.succeedSome({
+                  modelSelection: { instanceId, model: "gpt-5" },
+                } as never),
             } as never),
           ),
         ),
-      ),
-    );
+      );
 
-    if (normalized.type !== "thread.turn.start") throw new Error("Expected turn start");
-    expect(normalized.runtimeMode).toBe("approval-required");
-  });
+      if (normalized.type !== "thread.turn.start") throw new Error("Expected turn start");
+      expect(normalized.runtimeMode).toBe("approval-required");
+    }),
+  );
 });

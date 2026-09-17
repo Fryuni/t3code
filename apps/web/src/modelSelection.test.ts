@@ -75,6 +75,43 @@ it("keeps the OhMyPi role catalog in server cycle order without custom model inj
   ]);
 });
 
+it("keeps a removed OhMyPi thread role for dispatch without adding it to the picker", () => {
+  const instanceId = ProviderInstanceId.make("ohMyPi-work");
+  const driver = ProviderDriverKind.make("ohMyPi");
+  const saved = createModelSelection(instanceId, "review");
+  const providers = [provider({ provider: driver, instanceId, models: ["build", "plan"] })];
+  const entry = deriveProviderInstanceEntries(providers)[0]!;
+
+  const existingThread = deriveEffectiveComposerModelState({
+    draft: null,
+    providers,
+    selectedProvider: driver,
+    selectedInstanceId: instanceId,
+    threadModelSelection: saved,
+    projectModelSelection: null,
+    settings: DEFAULT_UNIFIED_SETTINGS,
+  });
+  const newDraft = deriveEffectiveComposerModelState({
+    draft: {
+      activeProvider: instanceId,
+      modelSelectionByProvider: { [instanceId]: saved },
+    },
+    providers,
+    selectedProvider: driver,
+    selectedInstanceId: instanceId,
+    threadModelSelection: null,
+    projectModelSelection: null,
+    settings: DEFAULT_UNIFIED_SETTINGS,
+  });
+
+  expect(existingThread.selectedModel).toBe("review");
+  expect(getAppModelOptionsForInstance(DEFAULT_UNIFIED_SETTINGS, entry, "review")).toEqual([
+    expect.objectContaining({ slug: "build" }),
+    expect.objectContaining({ slug: "plan" }),
+  ]);
+  expect(newDraft.selectedModel).toBe("build");
+});
+
 function settingsWithProviderInstances(): UnifiedSettings {
   return {
     ...DEFAULT_UNIFIED_SETTINGS,
