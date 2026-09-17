@@ -322,6 +322,108 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
       }).pipe(Effect.scoped),
   );
 
+  it.effect("keeps assistant text contiguous across progress updates for one background tool", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-background-tool-updates-mock",
+          env: { T3_ACP_EMIT_ASSISTANT_DURING_TOOL_UPDATES: "1" },
+          source: execScriptSource({
+            scriptPath: NodeURL.fileURLToPath(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+          }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      yield* instance.adapter.streamEvents.pipe(
+        Stream.runForEach((event) => Queue.offer(events, event)),
+        Effect.forkChild,
+      );
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* instance.adapter
+        .sendTurn({ threadId, input: "report CI status", attachments: [] })
+        .pipe(Effect.forkChild);
+      const seen: ProviderRuntimeEvent[] = [];
+      while (true) {
+        const event = yield* Queue.take(events);
+        seen.push(event);
+        if (event.type === "turn.completed") break;
+      }
+      yield* Fiber.join(turn);
+
+      const assistantTextByItem = new Map<string, string>();
+      for (const event of seen) {
+        if (event.type !== "content.delta" || event.payload.streamKind !== "assistant_text") {
+          continue;
+        }
+        const itemId = String(event.itemId);
+        assistantTextByItem.set(
+          itemId,
+          (assistantTextByItem.get(itemId) ?? "") + event.payload.delta,
+        );
+      }
+      expect([...assistantTextByItem.values()]).toEqual([
+        "Before tool",
+        "All 7 CI checks passed on `fa8717a68`.",
+        "Deployment is ready.",
+      ]);
+
+      const firstMiddleDelta = seen.find(
+        (event) =>
+          event.type === "content.delta" &&
+          event.payload.delta === "All 7 CI checks passed on `fa871",
+      );
+      expect(firstMiddleDelta?.type).toBe("content.delta");
+      const finalMiddleDeltaIndex = seen.findIndex(
+        (event) => event.type === "content.delta" && event.payload.delta === "a68`.",
+      );
+      const middleCompletionIndex = seen.findIndex(
+        (event) =>
+          event.type === "item.completed" &&
+          event.payload.itemType === "assistant_message" &&
+          String(event.itemId) === String(firstMiddleDelta?.itemId),
+      );
+      expect(finalMiddleDeltaIndex).toBeGreaterThanOrEqual(0);
+      expect(middleCompletionIndex).toBeGreaterThan(finalMiddleDeltaIndex);
+
+      const backgroundToolEvents = seen.filter(
+        (event) =>
+          (event.type === "item.started" ||
+            event.type === "item.updated" ||
+            event.type === "item.completed") &&
+          String(event.itemId) === "tool-call-background-1",
+      );
+      expect(backgroundToolEvents).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "item.updated",
+            payload: expect.objectContaining({ status: "inProgress" }),
+          }),
+          expect.objectContaining({
+            type: "item.completed",
+            payload: expect.objectContaining({ status: "completed" }),
+          }),
+        ]),
+      );
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
+  );
+
   it.effect(
     "discovers models without starting ACP, streams a turn, handles approvals and resumes through ACP",
     () =>
