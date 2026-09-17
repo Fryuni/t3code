@@ -1870,6 +1870,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProvider,
     selectedInstanceId,
     threadModelSelection: activeThreadModelSelection,
+    threadSessionExists: activeThread?.session != null,
     projectModelSelection: activeProjectDefaultModelSelection,
     settings,
   });

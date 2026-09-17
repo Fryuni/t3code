@@ -71,6 +71,7 @@ import {
 import {
   canCommitPendingModel,
   modelMatchesCatalogQuery,
+  modelIsDisplayed,
   pendingModelAfterPress,
   providerSectionIsCollapsed,
   startedThreadModelChangeBlockReason,
@@ -440,8 +441,14 @@ function ThreadSettingsSessionProvider(
   );
   // The list highlights the staged pick; Save turns it into the applied one.
   const isDisplayed = useCallback(
-    (option: ModelOption) => (pendingModel ? option.key === pendingModel.key : isApplied(option)),
-    [isApplied, pendingModel],
+    (option: ModelOption) =>
+      modelIsDisplayed({
+        pending: pendingModel,
+        option,
+        providerDriver: props.providerDriver,
+        current: props.selectedModel,
+      }),
+    [pendingModel, props.providerDriver, props.selectedModel],
   );
 
   // While a model is staged, the settings rows describe and edit the staged

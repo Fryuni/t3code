@@ -1181,6 +1181,8 @@ export function deriveEffectiveComposerModelState(input: {
    */
   selectedInstanceId?: ProviderInstanceId | null | undefined;
   threadModelSelection: ModelSelection | null | undefined;
+  /** True once the server thread has a provider session whose role is locked. */
+  threadSessionExists?: boolean;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
@@ -1228,6 +1230,7 @@ export function deriveEffectiveComposerModelState(input: {
     ? (input.selectedInstanceId ?? ProviderInstanceId.make(input.selectedProvider))
     : ProviderInstanceId.make(input.selectedProvider);
   const retainedThreadSelection =
+    input.threadSessionExists === true &&
     input.selectedProvider === "ohMyPi" &&
     input.selectedInstanceId !== null &&
     input.selectedInstanceId !== undefined &&
@@ -4226,6 +4229,8 @@ export function useEffectiveComposerModelState(input: {
    */
   selectedInstanceId?: ProviderInstanceId | null | undefined;
   threadModelSelection: ModelSelection | null | undefined;
+  /** True once the server thread has a provider session whose role is locked. */
+  threadSessionExists: boolean;
   projectModelSelection: ModelSelection | null | undefined;
   settings: UnifiedSettings;
 }): EffectiveComposerModelState {
@@ -4239,6 +4244,7 @@ export function useEffectiveComposerModelState(input: {
         selectedProvider: input.selectedProvider,
         selectedInstanceId: input.selectedInstanceId,
         threadModelSelection: input.threadModelSelection,
+        threadSessionExists: input.threadSessionExists,
         projectModelSelection: input.projectModelSelection,
         settings: input.settings,
       }),
@@ -4250,6 +4256,7 @@ export function useEffectiveComposerModelState(input: {
       input.selectedInstanceId,
       input.selectedProvider,
       input.threadModelSelection,
+      input.threadSessionExists,
     ],
   );
 }

@@ -25,6 +25,26 @@ export function threadRoleSelectionsMatch(input: {
   );
 }
 
+/** Prefer a staged model; otherwise highlight the applied provider role. */
+export function modelIsDisplayed(input: {
+  readonly pending: ModelOption | null;
+  readonly option: ModelOption;
+  readonly providerDriver: string | undefined;
+  readonly current: ModelOption["selection"] | null;
+}): boolean {
+  if (input.pending !== null) {
+    return input.pending.key === input.option.key;
+  }
+  return (
+    input.current !== null &&
+    threadRoleSelectionsMatch({
+      providerDriver: input.providerDriver,
+      current: input.current,
+      next: input.option.selection,
+    })
+  );
+}
+
 /** A provider session that binds its role cannot switch to a different role in-place. */
 export function startedThreadModelChangeBlockReason(input: {
   readonly hasStartedSession: boolean;

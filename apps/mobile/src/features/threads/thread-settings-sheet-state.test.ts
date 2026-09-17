@@ -6,6 +6,7 @@ import type { ModelOption } from "../../lib/modelOptions";
 import {
   canCommitPendingModel,
   modelMatchesCatalogQuery,
+  modelIsDisplayed,
   pendingModelAfterPress,
   startedThreadModelChangeBlockReason,
 } from "./thread-settings-sheet-state";
@@ -66,6 +67,70 @@ describe("thread settings sheet state", () => {
     expect(modelMatchesCatalogQuery({ model, providerLabel: "OpenCode", query: "copilot" })).toBe(
       false,
     );
+  });
+
+  it("highlights the canonical OMP default for a legacy applied selection", () => {
+    const option = {
+      ...modelOption("default"),
+      providerDriver: "ohMyPi" as const,
+    };
+
+    expect(
+      modelIsDisplayed({
+        pending: null,
+        option,
+        providerDriver: "ohMyPi",
+        current: { ...option.selection, model: "oh-my-pi-default" },
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps equivalent OMP defaults as an applied no-op", () => {
+    const option = {
+      ...modelOption("default"),
+      providerDriver: "ohMyPi" as const,
+    };
+    const current = { ...option.selection, model: "oh-my-pi-default" };
+    const displayed = modelIsDisplayed({
+      pending: null,
+      option,
+      providerDriver: "ohMyPi",
+      current,
+    });
+
+    expect(displayed).toBe(true);
+    expect(
+      pendingModelAfterPress({ current: null, pressed: option, pressedIsApplied: displayed }),
+    ).toBeNull();
+  });
+
+  it("gives a staged different role display precedence", () => {
+    const applied = {
+      ...modelOption("default"),
+      providerDriver: "ohMyPi" as const,
+    };
+    const pending = { ...modelOption("slow"), providerDriver: "ohMyPi" as const };
+    const current = { ...applied.selection, model: "oh-my-pi-default" };
+
+    expect(modelIsDisplayed({ pending, option: applied, providerDriver: "ohMyPi", current })).toBe(
+      false,
+    );
+    expect(modelIsDisplayed({ pending, option: pending, providerDriver: "ohMyPi", current })).toBe(
+      true,
+    );
+  });
+
+  it("preserves the provider boundary for default aliases", () => {
+    const option = modelOption("default");
+
+    expect(
+      modelIsDisplayed({
+        pending: null,
+        option,
+        providerDriver: "codex",
+        current: { ...option.selection, model: "oh-my-pi-default" },
+      }),
+    ).toBe(false);
   });
 
   it("clears staging when the applied model is pressed", () => {

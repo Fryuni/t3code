@@ -88,6 +88,7 @@ it("keeps a removed OhMyPi thread role for dispatch without adding it to the pic
     selectedProvider: driver,
     selectedInstanceId: instanceId,
     threadModelSelection: saved,
+    threadSessionExists: true,
     projectModelSelection: null,
     settings: DEFAULT_UNIFIED_SETTINGS,
   });
@@ -110,6 +111,71 @@ it("keeps a removed OhMyPi thread role for dispatch without adding it to the pic
     expect.objectContaining({ slug: "plan" }),
   ]);
   expect(newDraft.selectedModel).toBe("build");
+});
+
+it("keeps an explicit OhMyPi role on a new draft", () => {
+  const instanceId = ProviderInstanceId.make("ohMyPi-work");
+  const driver = ProviderDriverKind.make("ohMyPi");
+  const explicitDraftSelection = createModelSelection(instanceId, "build");
+  const state = deriveEffectiveComposerModelState({
+    draft: {
+      activeProvider: instanceId,
+      modelSelectionByProvider: { [instanceId]: explicitDraftSelection },
+    },
+    providers: [provider({ provider: driver, instanceId, models: ["review", "build"] })],
+    selectedProvider: driver,
+    selectedInstanceId: instanceId,
+    threadModelSelection: null,
+    threadSessionExists: false,
+    projectModelSelection: createModelSelection(instanceId, "review"),
+    settings: DEFAULT_UNIFIED_SETTINGS,
+  });
+
+  expect(state.selectedModel).toBe("build");
+});
+
+it("keeps an explicit OhMyPi role on a server thread before its session starts", () => {
+  const instanceId = ProviderInstanceId.make("ohMyPi-work");
+  const driver = ProviderDriverKind.make("ohMyPi");
+  const state = deriveEffectiveComposerModelState({
+    draft: {
+      activeProvider: instanceId,
+      modelSelectionByProvider: {
+        [instanceId]: createModelSelection(instanceId, "build"),
+      },
+    },
+    providers: [provider({ provider: driver, instanceId, models: ["review", "build"] })],
+    selectedProvider: driver,
+    selectedInstanceId: instanceId,
+    threadModelSelection: createModelSelection(instanceId, "review"),
+    threadSessionExists: false,
+    projectModelSelection: null,
+    settings: DEFAULT_UNIFIED_SETTINGS,
+  });
+
+  expect(state.selectedModel).toBe("build");
+});
+
+it("locks an OhMyPi role after the server thread session starts", () => {
+  const instanceId = ProviderInstanceId.make("ohMyPi-work");
+  const driver = ProviderDriverKind.make("ohMyPi");
+  const state = deriveEffectiveComposerModelState({
+    draft: {
+      activeProvider: instanceId,
+      modelSelectionByProvider: {
+        [instanceId]: createModelSelection(instanceId, "build"),
+      },
+    },
+    providers: [provider({ provider: driver, instanceId, models: ["review", "build"] })],
+    selectedProvider: driver,
+    selectedInstanceId: instanceId,
+    threadModelSelection: createModelSelection(instanceId, "review"),
+    threadSessionExists: true,
+    projectModelSelection: null,
+    settings: DEFAULT_UNIFIED_SETTINGS,
+  });
+
+  expect(state.selectedModel).toBe("review");
 });
 
 function settingsWithProviderInstances(): UnifiedSettings {
