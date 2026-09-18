@@ -121,7 +121,7 @@ export function BranchToolbarBranchSelector({
   effectiveEnvModeOverride,
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
-  createNewBranch,
+  createNewBranch: createNewBranchProp,
   onCreateNewBranchChange,
   startFromOrigin,
   onStartFromOriginChange,
@@ -131,6 +131,10 @@ export function BranchToolbarBranchSelector({
   const composerFloatingLayerProps = useComposerMenuProps();
   const startFromOriginSwitchId = useId();
   const createNewBranchSwitchId = useId();
+  // Fan-out gives every model its own worktree on its own generated branch, so
+  // checking out one existing branch cannot be honored: the bootstrap below
+  // always supplies a fresh `t3code/*` ref. Force the mode on and lock it.
+  const createNewBranch = forceNewWorktree || createNewBranchProp;
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
@@ -927,6 +931,7 @@ export function BranchToolbarBranchSelector({
                       <Switch
                         id={createNewBranchSwitchId}
                         checked={createNewBranch}
+                        disabled={forceNewWorktree}
                         size="sm"
                         aria-label="Create new branch for worktree"
                         onCheckedChange={(checked) => {
@@ -940,8 +945,9 @@ export function BranchToolbarBranchSelector({
                   }
                 />
                 <TooltipPopup side="top" className="max-w-72 whitespace-normal leading-tight">
-                  Turn off to check out the selected local branch in a new worktree. The branch must
-                  not already be checked out.
+                  {forceNewWorktree
+                    ? "Each model starts in its own worktree, so each one needs its own new branch."
+                    : "Turn off to check out the selected local branch in a new worktree. The branch must not already be checked out."}
                 </TooltipPopup>
               </Tooltip>
               <Tooltip>

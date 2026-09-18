@@ -5815,9 +5815,14 @@ export default function ChatView(props: ChatViewProps) {
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
       : (activeThread?.branch ?? null);
-  const createNewBranch = isLocalDraftThread
-    ? (draftThread?.createNewBranch ?? true)
-    : (pendingServerThreadCreateNewBranchByThreadId[activeThread?.id ?? ""] ?? true);
+  // Fan-out always bootstraps each model onto its own generated branch, so a
+  // stale "check out this branch" choice from before multi-select cannot be
+  // honored. The toolbar locks the switch on for the same reason.
+  const createNewBranch =
+    multipleModelSelections !== null ||
+    (isLocalDraftThread
+      ? (draftThread?.createNewBranch ?? true)
+      : (pendingServerThreadCreateNewBranchByThreadId[activeThread?.id ?? ""] ?? true));
   const startFromOrigin = isLocalDraftThread
     ? (draftThread?.startFromOrigin ?? false)
     : canOverrideServerThreadEnvMode
@@ -9429,6 +9434,7 @@ export default function ChatView(props: ChatViewProps) {
     workLocallyResendReady,
   ]);
   const onCreateNewBranchChange = (nextCreateNewBranch: boolean) => {
+    if (multipleModelSelections !== null) return;
     if (canOverrideServerThreadEnvMode && activeThread) {
       setPendingServerThreadCreateNewBranchByThreadId((current) => ({
         ...current,
