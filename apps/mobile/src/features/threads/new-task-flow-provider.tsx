@@ -100,6 +100,7 @@ import {
   resolveNewTaskLocalWorkspaceSelection,
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
+import { resolveAutomaticWorktreeBaseBranch } from "./new-task-branch-default";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 
 type WorkspaceMode = "local" | "worktree";
@@ -472,6 +473,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
   const startFromOrigin =
     draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin;
+  const defaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
   const defaultRuntimeMode = editingPendingTask
     ? (editingPendingTask.runtimeMode ?? DEFAULT_RUNTIME_MODE)
     : projectSettings.settings.defaultRuntimeMode;
@@ -879,18 +881,19 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     ) {
       return;
     }
-    // The default may only exist as origin/<default> (isRemote), which
-    // availableBranches filters out — search the unfiltered refs for it.
-    const preferredBranch =
-      allBranchRefs.find((branch) => branch.isDefault) ??
-      availableBranches.find((branch) => branch.current) ??
-      null;
-    if (preferredBranch) {
-      selectBranch(preferredBranch);
-    }
+    // The configured name remains authoritative even when it is absent from
+    // the current refs page: creation should surface the normal git error,
+    // never silently start work from another branch.
+    const preferredBranch = resolveAutomaticWorktreeBaseBranch({
+      configuredBranch: defaultThreadBaseBranch,
+      refs: allBranchRefs,
+      localRefs: availableBranches,
+    });
+    if (preferredBranch) selectBranch(preferredBranch);
   }, [
     allBranchRefs,
     availableBranches,
+    defaultThreadBaseBranch,
     defaultWorkspaceModeSettled,
     selectBranch,
     selectedBranchName,

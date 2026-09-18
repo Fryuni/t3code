@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 import * as Schema from "effect/Schema";
 
+import { ProjectId } from "./baseSchemas.ts";
 import { ProviderDriverKind, ProviderInstanceId } from "./providerInstance.ts";
 import {
   ClientSettingsSchema,
@@ -103,6 +104,44 @@ describe("ServerSettings default permissions", () => {
         projectSettingsOverrides: { project: { defaultRuntimeMode: "unsupported" } },
       }),
     ).toThrow();
+  });
+});
+
+describe("project default thread base branch", () => {
+  const projectId = ProjectId.make("project");
+  it("round-trips only inside a project override and trims the branch name", () => {
+    const input = {
+      projectSettingsOverrides: {
+        project: { defaultThreadBaseBranch: "  dev  ", defaultAutoPull: true },
+      },
+    };
+    const settings = decodeServerSettings(input);
+    expect(settings.projectSettingsOverrides[projectId]).toEqual({
+      defaultThreadBaseBranch: "dev",
+      defaultAutoPull: true,
+    });
+    expect(encodeServerSettings(settings).projectSettingsOverrides?.[projectId]).toEqual({
+      defaultThreadBaseBranch: "dev",
+      defaultAutoPull: true,
+    });
+    expect(decodeServerSettingsPatch(input).projectSettingsOverrides?.[projectId]).toEqual({
+      defaultThreadBaseBranch: "dev",
+      defaultAutoPull: true,
+    });
+  });
+
+  it("rejects an empty project branch and does not expose a global setting", () => {
+    expect(() =>
+      decodeServerSettingsPatch({
+        projectSettingsOverrides: { project: { defaultThreadBaseBranch: "   " } },
+      }),
+    ).toThrow();
+    expect(decodeServerSettings({ defaultThreadBaseBranch: "dev" })).not.toHaveProperty(
+      "defaultThreadBaseBranch",
+    );
+    expect(decodeServerSettingsPatch({ defaultThreadBaseBranch: "dev" })).not.toHaveProperty(
+      "defaultThreadBaseBranch",
+    );
   });
 });
 

@@ -1034,15 +1034,17 @@ export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
 export type ProjectScopedServerSettingKey = (typeof PROJECT_SCOPED_SERVER_SETTING_KEYS)[number];
 
 /**
- * One project's overrides. An absent key inherits the environment value;
- * `null` is a real value where the environment type is nullable (no default
- * model, no dedicated writer model, never auto-settle).
+ * One project's overrides. An absent inheritable key uses the environment
+ * value; `null` is a real value where the environment type is nullable (no
+ * default model, no dedicated writer model, never auto-settle).
+ * `defaultThreadBaseBranch` is project-only and has no environment value.
  */
 export const ProjectSettingsOverrides = Schema.Struct({
   worktreeCleanup: Schema.optionalKey(WorktreeCleanup),
   defaultModelSelection: Schema.optionalKey(Schema.NullOr(ModelSelection)),
   defaultRuntimeMode: Schema.optionalKey(RuntimeMode),
   defaultThreadEnvMode: Schema.optionalKey(ThreadEnvMode),
+  defaultThreadBaseBranch: Schema.optionalKey(TrimmedNonEmptyString),
   newWorktreesStartFromOrigin: Schema.optionalKey(Schema.Boolean),
   defaultAutoPull: Schema.optionalKey(Schema.Boolean),
   defaultProjectScripts: Schema.optionalKey(Schema.Array(ProjectScript)),
@@ -1056,7 +1058,9 @@ export const ProjectSettingsOverrides = Schema.Struct({
   sidebarAutoSettleAfterDays: Schema.optionalKey(Schema.NullOr(SidebarAutoSettleAfterDays)),
   continueThreadsAfterServerUpdate: Schema.optionalKey(Schema.Boolean),
   responseStreamingMode: Schema.optionalKey(ResponseStreamingMode),
-} satisfies Record<ProjectScopedServerSettingKey, unknown>);
+} satisfies Record<ProjectScopedServerSettingKey, unknown> & {
+  readonly defaultThreadBaseBranch: unknown;
+});
 export type ProjectSettingsOverrides = typeof ProjectSettingsOverrides.Type;
 
 export const StorageCleanupSettings = Schema.Struct({
@@ -1122,8 +1126,9 @@ export const ServerSettings = Schema.Struct({
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_RUNTIME_MODE)),
   ),
   /**
-   * Per-project overrides of the keys in `PROJECT_SCOPED_SERVER_SETTING_KEYS`.
-   * The source of truth for project settings; `projectAgentBrowserAccessOverrides`,
+   * Per-project overrides of the inheritable keys in
+   * `PROJECT_SCOPED_SERVER_SETTING_KEYS` plus project-only settings. The source
+   * of truth for project settings; `projectAgentBrowserAccessOverrides`,
    * `projectAutoPullOverrides` and `projectScriptOverrides` are derived views
    * kept for one release so older clients keep reading them.
    */

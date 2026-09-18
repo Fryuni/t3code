@@ -94,6 +94,14 @@ export function resolveLockedWorkspaceLabel(activeWorktreePath: string | null): 
   return activeWorktreePath ? "Worktree" : "Local checkout";
 }
 
+export function resolveAutomaticWorktreeBaseBranch(input: {
+  projectOverride: string | null | undefined;
+  gitDefault: string | null;
+  currentBranch: string | null;
+}): string | null {
+  return input.projectOverride ?? input.gitDefault ?? input.currentBranch;
+}
+
 export interface PreviousWorktreeSeed {
   branch: string | null;
   worktreePath: string;

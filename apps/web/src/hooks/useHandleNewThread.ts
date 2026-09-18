@@ -142,6 +142,7 @@ export function useNewThreadHandler() {
         projectSettings.sources.defaultThreadEnvMode === "project"
           ? projectSettings.settings.defaultThreadEnvMode
           : undefined;
+      const projectDefaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
       const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
         resolveNewThreadModelSelectionOverride({
           projectDefaultSelection: projectDefaultModelSelection ?? null,
@@ -255,7 +256,8 @@ export function useNewThreadHandler() {
               return null;
             }
             workspaceContext = {
-              branch: null,
+              branch:
+                defaultEnvMode === "worktree" ? (projectDefaultThreadBaseBranch ?? null) : null,
               worktreePath: null,
               envMode: defaultEnvMode,
               startFromOrigin: resolveNewDraftStartFromOrigin({
@@ -408,7 +410,11 @@ export function useNewThreadHandler() {
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
           createdAt,
-          branch: options?.branch ?? null,
+          branch: hasBranchOption
+            ? (options?.branch ?? null)
+            : initialEnvMode === "worktree"
+              ? (projectDefaultThreadBaseBranch ?? null)
+              : null,
           worktreePath: options?.worktreePath ?? null,
           envMode: initialEnvMode,
           startFromOrigin:

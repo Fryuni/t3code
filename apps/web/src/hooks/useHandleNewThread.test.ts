@@ -9,6 +9,7 @@ const testState = vi.hoisted(() => {
     newWorktreesStartFromOrigin: false,
     defaultModelSelection: null,
     defaultRuntimeMode: "full-access" as RuntimeMode,
+    projectSettingsOverrides: {} as Record<string, { defaultThreadBaseBranch?: string }>,
   };
   let storedDraft: {
     readonly draftId: string;
@@ -57,6 +58,7 @@ const testState = vi.hoisted(() => {
         defaultThreadEnvMode: workspaceDefaults.envMode,
         newWorktreesStartFromOrigin: workspaceDefaults.startFromOrigin,
         defaultModelSelection: null,
+        projectSettingsOverrides: {},
         defaultRuntimeMode: "full-access",
       };
       router.state.location.href = "/";
@@ -98,12 +100,10 @@ vi.mock("@t3tools/contracts", () => ({
   DEFAULT_SERVER_SETTINGS: {},
 }));
 vi.mock("@t3tools/shared/projectSettings", () => ({
-  // Environment settings pass through; the tests set project fields on the
-  // project record, which the hook still honors until the server folds them.
-  resolveProjectSettings: (settings: Record<string, unknown>) => ({
+  resolveProjectSettings: (settings: typeof testState.targetSettings) => ({
     settings,
     sources: { defaultModelSelection: "environment", defaultThreadEnvMode: "environment" },
-    overrides: {},
+    overrides: settings.projectSettingsOverrides["project-remote"] ?? {},
   }),
 }));
 vi.mock("@t3tools/shared/threadEnvMode", () => ({
@@ -258,6 +258,49 @@ describe.each([
       }
     },
   );
+
+  it("uses the project base branch for automatic worktree drafts", async () => {
+    testState.reset(draft, { envMode: "worktree", startFromOrigin: false });
+    testState.targetSettings.projectSettingsOverrides = {
+      "project-remote": { defaultThreadBaseBranch: "dev" },
+    };
+    const projectRef = {
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never;
+    const pendingOpen = useNewThreadHandler()(projectRef);
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      expect.objectContaining({ envMode: "worktree", branch: "dev" }),
+    );
+  });
+
+  it("keeps an explicit branch ahead of the project base branch", async () => {
+    testState.reset(draft, { envMode: "worktree", startFromOrigin: false });
+    testState.targetSettings.projectSettingsOverrides = {
+      "project-remote": { defaultThreadBaseBranch: "dev" },
+    };
+    const projectRef = {
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never;
+    const opened = await useNewThreadHandler()(projectRef, {
+      envMode: "worktree",
+      branch: "release",
+    });
+
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      expect.objectContaining({ envMode: "worktree", branch: "release" }),
+    );
+  });
 
   it.each([true, false])(
     "preserves an explicit start-from-origin choice of %s",

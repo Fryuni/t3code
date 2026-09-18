@@ -1,6 +1,6 @@
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
 import { SymbolView } from "../../components/AppSymbol";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/AppText";
 import {
   type ResponseStreamingMode,
   type ServerSettings,
@@ -9,7 +9,7 @@ import {
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
   type ProjectScopedServerSettingKey,
 } from "@t3tools/contracts";
-import { useRef, useState, type ComponentProps } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { Alert, Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -26,6 +26,7 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 import {
+  planMobileProjectOverridePatch,
   planMobileScopedSettingsClear,
   planMobileScopedSettingsPatch,
   resolveMobileSettingsTargets,
@@ -148,7 +149,45 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   };
   const clearProjectOverrides = () => {
     if (writeInFlight.current) return;
-    const writes = planMobileScopedSettingsClear(targets, PAGE_PROJECT_KEYS[props.page]);
+    const keys =
+      props.page === "source-control"
+        ? ([...PAGE_PROJECT_KEYS[props.page], "defaultThreadBaseBranch"] as const)
+        : PAGE_PROJECT_KEYS[props.page];
+    const writes = planMobileScopedSettingsClear(targets, keys);
+    if (writes.length === 0) return;
+    writeInFlight.current = true;
+    setPendingTargets(targets);
+    setPendingWrites((count) => count + 1);
+    void Promise.allSettled(
+      writes.map((entry) =>
+        updateSettings({ environmentId: entry.environmentId, input: { patch: entry.patch } }),
+      ),
+    ).finally(() => {
+      writeInFlight.current = false;
+      setPendingTargets(null);
+      setPendingWrites((count) => count - 1);
+    });
+  };
+  const writeProjectOverrides = (patch: { readonly defaultThreadBaseBranch?: string }) => {
+    if (writeInFlight.current || !projectSelected || !hasConnectedSelection) return;
+    const writes = planMobileProjectOverridePatch(targets, patch);
+    if (writes.length === 0) return;
+    writeInFlight.current = true;
+    setPendingTargets(targets);
+    setPendingWrites((count) => count + 1);
+    void Promise.allSettled(
+      writes.map((entry) =>
+        updateSettings({ environmentId: entry.environmentId, input: { patch: entry.patch } }),
+      ),
+    ).finally(() => {
+      writeInFlight.current = false;
+      setPendingTargets(null);
+      setPendingWrites((count) => count - 1);
+    });
+  };
+  const clearDefaultThreadBaseBranch = () => {
+    if (writeInFlight.current || !projectSelected) return;
+    const writes = planMobileScopedSettingsClear(targets, ["defaultThreadBaseBranch"]);
     if (writes.length === 0) return;
     writeInFlight.current = true;
     setPendingTargets(targets);
@@ -205,8 +244,13 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
               {projectSelected ? (
                 <SettingsProjectOverridesSection
                   projectLabel={selectedProject?.label ?? "Unavailable project"}
-                  hasOverrides={targets.some((target) =>
-                    PAGE_PROJECT_KEYS[props.page].some((key) => target.sources[key] === "project"),
+                  hasOverrides={targets.some(
+                    (target) =>
+                      PAGE_PROJECT_KEYS[props.page].some(
+                        (key) => target.sources[key] === "project",
+                      ) ||
+                      (props.page === "source-control" &&
+                        Object.hasOwn(target.overrides, "defaultThreadBaseBranch")),
                   )}
                   supportsOverrides={supportsProjectOverrides}
                   pending={pendingWrites > 0}
@@ -271,14 +315,35 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     />
                   </SettingsSection>
                   <SettingsSection title="Worktrees">
-                    <FanoutSwitchRow
-                      icon="arrow.triangle.branch"
-                      label="Start from origin"
-                      subtitle="Base new worktrees on the remote branch."
-                      value={uniform("newWorktreesStartFromOrigin")}
-                      disabled={disabledFor("newWorktreesStartFromOrigin")}
-                      onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
-                    />
+                    {projectSelected ? (
+                      <DefaultBaseBranchField
+                        key={selectedProjectKey}
+                        value={
+                          targets.every(
+                            (target) =>
+                              target.overrides.defaultThreadBaseBranch ===
+                              reference.overrides.defaultThreadBaseBranch,
+                          )
+                            ? (reference.overrides.defaultThreadBaseBranch ?? "")
+                            : null
+                        }
+                        disabled={disabled}
+                        onSave={(value) =>
+                          writeProjectOverrides({ defaultThreadBaseBranch: value })
+                        }
+                        onClear={clearDefaultThreadBaseBranch}
+                      />
+                    ) : null}
+                    <View className={projectSelected ? "border-t border-border-subtle" : undefined}>
+                      <FanoutSwitchRow
+                        icon="arrow.triangle.branch"
+                        label="Start from origin"
+                        subtitle="Base new worktrees on the remote branch."
+                        value={uniform("newWorktreesStartFromOrigin")}
+                        disabled={disabledFor("newWorktreesStartFromOrigin")}
+                        onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
+                      />
+                    </View>
                   </SettingsSection>
                 </>
               ) : null}
@@ -371,6 +436,58 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
         </ScrollView>
       </SettingsScreen>
     </>
+  );
+}
+
+function DefaultBaseBranchField(props: {
+  readonly value: string | null;
+  readonly disabled: boolean;
+  readonly onSave: (value: string) => void;
+  readonly onClear: () => void;
+}) {
+  const [draft, setDraft] = useState(props.value ?? "");
+  useEffect(() => setDraft(props.value ?? ""), [props.value]);
+  const current = props.value ?? "";
+  const trimmed = draft.trim();
+  const changed = trimmed !== current;
+  const commit = () => {
+    if (props.disabled || !changed) return;
+    if (trimmed.length === 0) {
+      if (props.value !== null) props.onClear();
+    } else props.onSave(trimmed);
+  };
+  return (
+    <View className="gap-2 p-4">
+      <Text className="text-lg text-foreground">Default base branch</Text>
+      <Text className="text-sm leading-normal text-foreground-muted">
+        New worktree threads use this branch. Clear it to use the repository default.
+      </Text>
+      <View className="flex-row items-center gap-3">
+        <AppTextInput
+          accessibilityLabel="Default base branch"
+          autoCapitalize="none"
+          autoCorrect={false}
+          className="min-h-11 min-w-0 flex-1 rounded-xl border-continuous bg-card px-3 text-base text-foreground"
+          editable={!props.disabled}
+          placeholder={props.value === null ? "Mixed" : "Repository default"}
+          returnKeyType="done"
+          value={draft}
+          onChangeText={setDraft}
+          onSubmitEditing={commit}
+        />
+        {changed ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Save default base branch"
+            disabled={props.disabled}
+            onPress={commit}
+            className="rounded-full bg-subtle-strong px-4 py-2 active:opacity-70 disabled:opacity-40"
+          >
+            <Text className="text-sm font-t3-medium text-foreground">Save</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
   );
 }
 

@@ -79,6 +79,7 @@ export interface ScopedSettingsTarget {
   readonly projectId: ProjectId | null;
   readonly settings: ServerSettings;
   readonly sources: Readonly<Record<ProjectScopedServerSettingKey, ProjectSettingSource>>;
+  readonly overrides: ProjectSettingsOverrides;
 }
 
 /** Effective settings per connected target: members at project scope, environments otherwise. */
@@ -101,6 +102,7 @@ export function resolveScopedSettingsTargets(
           projectId: member.id,
           settings: resolved.settings,
           sources: resolved.sources,
+          overrides: resolved.overrides,
         },
       ];
     });
@@ -114,6 +116,7 @@ export function resolveScopedSettingsTargets(
             projectId: null,
             settings: environment.serverConfig.settings,
             sources: resolveProjectSettings(environment.serverConfig.settings, null).sources,
+            overrides: {},
           },
         ]
       : [],
@@ -278,6 +281,32 @@ export function planScopedSettingsPatch(
             ? "Connect the selected checkouts, or update their environments, to save a project override."
             : `Connect ${scope.kind === "environment" ? scope.label : "an environment"} to save this setting.`;
   return { clientPatch, hasClientWrite, serverWrites, unavailableReason };
+}
+
+/** Write or clear the project-only default branch without treating it as an inheritable setting. */
+export function planProjectDefaultThreadBaseBranchPatch(
+  scope: ResolvedSettingsScope,
+  environments: readonly ScopedSettingsEnvironment[],
+  branch: string | null,
+) {
+  const serverWrites =
+    scope.kind === "project" || scope.kind === "checkout"
+      ? projectOverrideWrites(scope, environments, (current) => {
+          const next = { ...current };
+          if (branch === null) delete next.defaultThreadBaseBranch;
+          else next.defaultThreadBaseBranch = branch;
+          return Object.keys(next).length === 0 ? null : next;
+        })
+      : [];
+  return {
+    clientPatch: {} as ClientSettingsPatch,
+    hasClientWrite: false,
+    serverWrites,
+    unavailableReason:
+      serverWrites.length > 0
+        ? null
+        : "Connect the selected checkouts, or update their environments, to save this project setting.",
+  };
 }
 
 /** Remove the keys' project overrides so each member inherits its environment value again. */
