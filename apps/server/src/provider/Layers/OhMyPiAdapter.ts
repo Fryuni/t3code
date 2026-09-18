@@ -158,8 +158,8 @@ function parseOhMyPiTaskEntry(value: unknown): OhMyPiTaskEntry | undefined {
   const index = nonNegativeNumber(value.index);
   const status = nonEmptyString(value.status);
   const agent = nonEmptyString(value.agent);
-  // These fields are native TaskTool progress/result evidence. Requiring at least
-  // an agent and status/exit result avoids promoting unrelated tool output.
+  // Entry fields are validated only after their container has established the
+  // native TaskTool envelope (or an explicit eval/hub agent marker).
   const exitCode = typeof value.exitCode === "number" ? value.exitCode : undefined;
   if (agent === undefined || (status === undefined && exitCode === undefined)) return undefined;
   return {
@@ -185,12 +185,26 @@ function parseOhMyPiTaskEntry(value: unknown): OhMyPiTaskEntry | undefined {
     exitCode,
   };
 }
-
+function isOhMyPiTaskToolDetails(value: Record<string, unknown>): value is Record<
+  string,
+  unknown
+> & {
+  readonly projectAgentsDir: string | null;
+  readonly totalDurationMs: number;
+  readonly results: ReadonlyArray<unknown>;
+} {
+  return (
+    (value.projectAgentsDir === null || typeof value.projectAgentsDir === "string") &&
+    nonNegativeNumber(value.totalDurationMs) !== undefined &&
+    Array.isArray(value.results)
+  );
+}
 function parseOhMyPiTaskSnapshot(rawOutput: unknown): OhMyPiTaskSnapshot | undefined {
   if (!isUnknownRecord(rawOutput)) return undefined;
   const details = isUnknownRecord(rawOutput.details) ? rawOutput.details : rawOutput;
-  const progressValues = Array.isArray(details.progress) ? details.progress : [];
-  const resultValues = Array.isArray(details.results) ? details.results : [];
+  const isTaskTool = isOhMyPiTaskToolDetails(details);
+  const progressValues = isTaskTool && Array.isArray(details.progress) ? details.progress : [];
+  const resultValues = isTaskTool ? details.results : [];
   const statusValues = Array.isArray(details.statusEvents)
     ? details.statusEvents.filter((value) => isUnknownRecord(value) && value.op === "agent")
     : [];
@@ -484,18 +498,19 @@ export function makeOhMyPiAdapter(
         ) {
           continue;
         }
-        const summary = boundedTaskText(
-          entry.abortReason ??
-            entry.error ??
-            entry.output ??
-            entry.stderr ??
-            entry.lastIntent ??
+        const terminal = status === "completed" || status === "failed" || status === "stopped";
+        const terminalSummary = entry.abortReason ?? entry.error ?? entry.output ?? entry.stderr;
+        const fallbackSummary = boundedTaskText(
+          entry.lastIntent ??
             entry.currentTool ??
             entry.description ??
             entry.assignment ??
             entry.task ??
             title,
         );
+        const summary = terminal
+          ? terminalSummary && boundedTaskText(terminalSummary)
+          : fallbackSummary;
         const typedUsage =
           entry.tokens !== undefined
             ? {
@@ -506,7 +521,8 @@ export function makeOhMyPiAdapter(
             : undefined;
         const fingerprint = [
           status,
-          summary,
+          summary ?? "",
+          entry.currentTool ?? "",
           entry.tokens ?? "",
           entry.toolCount ?? "",
           entry.durationMs ?? "",
@@ -515,7 +531,7 @@ export function makeOhMyPiAdapter(
         ].join("\u001f");
         if (state.fingerprint === fingerprint) continue;
         state.fingerprint = fingerprint;
-        if (status === "completed" || status === "failed" || status === "stopped") {
+        if (terminal) {
           yield* offerRuntimeEvent({
             type: "task.completed",
             ...(yield* makeEventStamp()),
@@ -525,7 +541,7 @@ export function makeOhMyPiAdapter(
             payload: {
               ...linkage,
               status,
-              summary,
+              ...(summary ? { summary } : {}),
               ...(typedUsage ? { typedUsage } : {}),
             },
           });
@@ -540,8 +556,8 @@ export function makeOhMyPiAdapter(
           turnId: state.turnId,
           payload: {
             ...linkage,
-            description: summary,
-            summary,
+            description: fallbackSummary,
+            summary: fallbackSummary,
             status,
             ...(entry.currentTool ? { lastToolName: entry.currentTool } : {}),
             ...(typedUsage ? { typedUsage } : {}),
@@ -716,6 +732,8 @@ export function makeOhMyPiAdapter(
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,
+            shouldEmitToolCallUpdate: (toolCall) =>
+              parseOhMyPiTaskSnapshot(toolCall.data.rawOutput) !== undefined,
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
             ...(mcpSession

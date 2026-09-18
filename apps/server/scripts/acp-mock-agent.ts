@@ -953,6 +953,7 @@ const program = Effect.gen(function* () {
           tokens?: number;
           durationMs?: number;
           lastIntent?: string;
+          currentTool?: string;
         }) => ({
           agentSource: "bundled",
           recentTools: [],
@@ -979,6 +980,7 @@ const program = Effect.gen(function* () {
             tokens: 21,
             durationMs: 40,
             lastIntent: "Reading auth flow",
+            currentTool: "read",
           }),
           child({
             id: "storage-child",
@@ -1014,6 +1016,8 @@ const program = Effect.gen(function* () {
             status: "in_progress",
             rawOutput: {
               details: {
+                projectAgentsDir: null,
+                totalDurationMs: 40,
                 progress,
                 results: [],
                 async: { state: "running", jobId: "job-task-1", type: "task" },
@@ -1029,6 +1033,8 @@ const program = Effect.gen(function* () {
             status: "completed",
             rawOutput: {
               details: {
+                projectAgentsDir: null,
+                totalDurationMs: 40,
                 progress,
                 results: [],
                 async: { state: "running", jobId: "job-task-1", type: "task" },
@@ -1044,6 +1050,25 @@ const program = Effect.gen(function* () {
             status: "in_progress",
             rawOutput: {
               details: {
+                projectAgentsDir: null,
+                totalDurationMs: 40,
+                progress: [{ ...progress[0], currentTool: "grep" }, progress[1], progress[2]],
+                results: [],
+                async: { state: "running", jobId: "job-task-1", type: "task" },
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "in_progress",
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 70,
                 progress: [
                   {
                     ...progress[0],
@@ -1068,6 +1093,7 @@ const program = Effect.gen(function* () {
             },
           },
         });
+        if (promptCount === 1) return { stopReason: "end_turn" };
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,
           update: {
@@ -1076,6 +1102,8 @@ const program = Effect.gen(function* () {
             status: "completed",
             rawOutput: {
               details: {
+                projectAgentsDir: null,
+                totalDurationMs: 90,
                 progress: [
                   { ...progress[0], status: "completed", tokens: 34, durationMs: 90 },
                   { ...progress[1], status: "failed", tokens: 18, durationMs: 80 },
@@ -1134,12 +1162,61 @@ const program = Effect.gen(function* () {
           sessionId: requestedSessionId,
           update: {
             sessionUpdate: "tool_call",
+            toolCallId: "sync-task-1",
+            title: "Synchronous delegation",
+            kind: "other",
+            status: "completed",
+            rawInput: { task: "Check synchronous task", agent: "scout", name: "SyncScout" },
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 25,
+                results: [
+                  {
+                    id: "sync-child",
+                    index: 0,
+                    agent: "scout",
+                    task: "Check synchronous task",
+                    exitCode: 0,
+                    output: "Synchronous task finished",
+                    durationMs: 25,
+                    tokens: 7,
+                  },
+                ],
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
             toolCallId: "ordinary-read-1",
             title: "Read file",
             kind: "read",
             status: "completed",
             rawInput: { path: "README.md" },
-            rawOutput: { content: "ordinary tool" },
+            rawOutput: {
+              details: {
+                progress: [
+                  {
+                    id: "ordinary-false-agent",
+                    agent: "scout",
+                    status: "completed",
+                    currentTool: "read",
+                  },
+                ],
+                results: [
+                  {
+                    id: "ordinary-false-agent",
+                    agent: "scout",
+                    exitCode: 0,
+                    output: "ordinary tool",
+                  },
+                ],
+                async: { state: "completed", jobId: "not-a-task-tool", type: "task" },
+              },
+            },
           },
         });
         yield* agent.client.sessionUpdate({
