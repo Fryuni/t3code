@@ -31,11 +31,11 @@ class WakeCommandError extends Schema.TaggedError<WakeCommandError>()("WakeComma
 
 export const wakeCommand = Command.make("wake", {
   baseDir: baseDirFlag,
-  threadId: Argument.string("thread-id").pipe(
+  threadId: Argument.String("thread-id").pipe(
     Argument.withSchema(ThreadId),
     Argument.withDescription("ID of the existing thread to wake."),
   ),
-  message: Argument.string("message").pipe(
+  message: Argument.String("message").pipe(
     Argument.withDescription("Message to send to the agent (quote messages containing spaces)."),
   ),
 }).pipe(
