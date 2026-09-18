@@ -160,7 +160,6 @@ const formatPairOutput = (input: {
     "",
   ].join("\n");
 
-
 const awaitEnvironmentDescriptor = Effect.fn(function* (baseUrl: string) {
   let last: EnvironmentProbeResult = { _tag: "unreachable" };
   for (let attempt = 0; attempt < TAILSCALE_PROBE_ATTEMPTS; attempt += 1) {
