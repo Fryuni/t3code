@@ -15,7 +15,7 @@ import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useRightPanelStore } from "../rightPanelStore";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 
-import { useProjects, useServerConfigs } from "../state/entities";
+import { readThreadShell, useProjects, useServerConfigs } from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 
 export {
@@ -60,12 +60,21 @@ function matchesChangeRequestAuthority(
  * identity is the full path below the host where one was recorded — which is what nested GitLab
  * groups and Azure project paths need — and the host is the first segment of the canonical
  * remote, so github.com and an Enterprise install stay apart.
+ *
+ * One environment can hold two checkouts of the same repository under different projects, and
+ * both match. `preferredProjectId` — the thread the link is opened beside — wins then, so the
+ * panel shows the thread's own pull request as its own rather than as somebody else's branch.
  */
 export function findProjectForChangeRequest(
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
+  preferredProjectId?: string,
 ): EnvironmentProject | undefined {
-  return projects.find((project) => {
+  const preferred =
+    preferredProjectId === undefined
+      ? undefined
+      : projects.find((project) => project.id === preferredProjectId);
+  return (preferred === undefined ? projects : [preferred, ...projects]).find((project) => {
     const identity = project.repositoryIdentity;
     if (!identity || !matchesChangeRequestAuthority(project, link)) return false;
     const kind = identity.provider as SourceControlProviderKind | undefined;
@@ -104,8 +113,9 @@ export function findProjectForChangeRequest(
 export function findProjectOnChangeRequestHost(
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
+  preferredProjectId?: string,
 ): EnvironmentProject | undefined {
-  const own = findProjectForChangeRequest(projects, link);
+  const own = findProjectForChangeRequest(projects, link, preferredProjectId);
   if (own !== undefined) return own;
   // Azure CLI reads use the checkout's organization and project, not host-wide credentials.
   if (
@@ -186,6 +196,11 @@ export function useOpenChangeRequestLink(
       const reads = (environmentId: string) =>
         serverConfigs.get(environmentId as EnvironmentId)?.environment.capabilities.pullRequests ===
         true;
+      // Beside a thread, its own checkout of the repository is the one the link means: the panel
+      // takes the project as the pull request's home, and hands its work back to that project.
+      const threadProjectId = resolvedThreadRef
+        ? readThreadShell(resolvedThreadRef)?.projectId
+        : undefined;
       // Beside a thread the panel reads on that thread's environment, so a project from another
       // one could not be read there whatever its remote says: two environments can hold the same
       // repository, and handing the panel the wrong one's id opens a surface that never loads.
@@ -203,7 +218,7 @@ export function useOpenChangeRequestLink(
                   Number(right.environmentId === primaryEnvironmentId) -
                   Number(left.environmentId === primaryEnvironmentId),
               );
-      const exactProject = findProjectForChangeRequest(projects, parsed);
+      const exactProject = findProjectForChangeRequest(projects, parsed, threadProjectId);
       const project =
         exactProject ??
         (resolvedPanelRef
@@ -214,6 +229,7 @@ export function useOpenChangeRequestLink(
                     .threadPullRequests === true,
               ),
               parsed,
+              threadProjectId,
             )
           : undefined);
       if (project === undefined || !reads(project.environmentId)) return false;

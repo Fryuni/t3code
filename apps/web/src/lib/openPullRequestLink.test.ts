@@ -539,4 +539,24 @@ describe("findProjectForChangeRequest", () => {
       }),
     ).toBeUndefined();
   });
+
+  it("prefers the thread's own checkout when two projects hold the repository", () => {
+    const identity = {
+      canonicalKey: "github.com/pingdotgg/t3code",
+      provider: "github",
+      owner: "pingdotgg",
+      name: "t3code",
+    };
+    const main = { id: "main", repositoryIdentity: identity } as never;
+    const worktree = { id: "worktree", repositoryIdentity: identity } as never;
+    const link = { host: "github.com", repository: "pingdotgg/t3code", number: 1 };
+    expect(findProjectForChangeRequest([main, worktree], link)).toBe(main);
+    expect(findProjectForChangeRequest([main, worktree], link, "worktree")).toBe(worktree);
+    // A preferred project that does not hold the repository does not override the match.
+    const other = {
+      id: "other",
+      repositoryIdentity: { ...identity, canonicalKey: "github.com/acme/api", name: "api" },
+    } as never;
+    expect(findProjectForChangeRequest([main, other], link, "other")).toBe(main);
+  });
 });
