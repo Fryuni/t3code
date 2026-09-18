@@ -1025,6 +1025,28 @@ const program = Effect.gen(function* () {
             },
           },
         });
+        // Native task polling can repeat an unchanged child snapshot many times.
+        // Child observers still see the snapshots, but the parent tool timeline
+        // must retain the generic ACP coalescing behavior.
+        for (let index = 0; index < 5; index += 1) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId,
+              status: "in_progress",
+              rawOutput: {
+                details: {
+                  projectAgentsDir: null,
+                  totalDurationMs: 40,
+                  progress,
+                  results: [],
+                  async: { state: "running", jobId: "job-task-1", type: "task" },
+                },
+              },
+            },
+          });
+        }
         yield* agent.client.sessionUpdate({
           sessionId: requestedSessionId,
           update: {
@@ -1214,6 +1236,16 @@ const program = Effect.gen(function* () {
                     output: "ordinary tool",
                   },
                 ],
+                jobs: [
+                  {
+                    id: "ordinary-false-job",
+                    agentUrlId: "ordinary-false-job-child",
+                    type: "task",
+                    status: "completed",
+                    label: "Not a hub result",
+                    resultText: "ordinary tool output",
+                  },
+                ],
                 async: { state: "completed", jobId: "not-a-task-tool", type: "task" },
               },
             },
@@ -1237,7 +1269,8 @@ const program = Effect.gen(function* () {
                     role: "reviewer",
                     taskPreview: "Review foreground eval",
                     resolvedModelIdentity: "anthropic/claude-sonnet",
-                    toolCount: 2,
+                    toolCount: 1.5,
+                    durationMs: 2.5,
                   },
                 ],
               },
@@ -1254,7 +1287,7 @@ const program = Effect.gen(function* () {
             status: "completed",
             rawOutput: {
               details: {
-                op: "wait",
+                op: "jobs",
                 jobs: [
                   {
                     id: "job-storage",

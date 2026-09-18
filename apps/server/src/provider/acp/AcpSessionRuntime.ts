@@ -102,8 +102,10 @@ export interface AcpSessionRuntimeOptions {
   readonly transformSessionUpdate?: (
     notification: EffectAcpSchema.SessionNotification,
   ) => EffectAcpSchema.SessionNotification;
-  /** Emits selected tool updates immediately instead of applying progress coalescing. */
-  readonly shouldEmitToolCallUpdate?: (toolCall: AcpToolCallState) => boolean;
+  /** Observes every merged tool update before parent timeline coalescing and event barriers. */
+  readonly observeToolCallUpdate?: (
+    toolCall: AcpToolCallState,
+  ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
   /** Receives bounded stderr chunks. Redact secrets before logging. A failure closes the runtime. */
   readonly onStderr?: (text: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
   readonly requestLogger?: (event: AcpSessionRequestLogEvent) => Effect.Effect<void, never>;
@@ -499,8 +501,8 @@ export const make = (
         assistantSegmentRef,
         assistantItemRuntimeId,
         params: notification,
-        ...(options.shouldEmitToolCallUpdate
-          ? { shouldEmitToolCallUpdate: options.shouldEmitToolCallUpdate }
+        ...(options.observeToolCallUpdate
+          ? { observeToolCallUpdate: options.observeToolCallUpdate }
           : {}),
       });
 
@@ -1138,7 +1140,7 @@ const handleSessionUpdate = ({
   assistantSegmentRef,
   assistantItemRuntimeId,
   params,
-  shouldEmitToolCallUpdate,
+  observeToolCallUpdate,
 }: {
   readonly queue: Queue.Queue<AcpSessionRuntimeEvent>;
   readonly modeStateRef: Ref.Ref<AcpSessionModeState | undefined>;
@@ -1147,8 +1149,10 @@ const handleSessionUpdate = ({
   readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
   readonly assistantItemRuntimeId: string;
   readonly params: EffectAcpSchema.SessionNotification;
-  readonly shouldEmitToolCallUpdate?: (toolCall: AcpToolCallState) => boolean;
-}): Effect.Effect<void> =>
+  readonly observeToolCallUpdate?: (
+    toolCall: AcpToolCallState,
+  ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
+}): Effect.Effect<void, EffectAcpErrors.AcpError> =>
   Effect.gen(function* () {
     if (params.update.sessionUpdate === "config_option_update") {
       yield* Ref.set(configOptionsRef, params.update.configOptions);
@@ -1173,15 +1177,12 @@ const handleSessionUpdate = ({
           const tracked = current.get(event.toolCall.toolCallId);
           const previous = tracked?.state;
           const nextToolCall = mergeToolCallState(previous, event.toolCall);
-          const coalescingDecision = decideToolCallUpdateEmission({
+          const decision = decideToolCallUpdateEmission({
             previous,
             next: nextToolCall,
             lastEmittedDetailLength: tracked?.lastEmittedDetailLength,
             skippedSinceEmit: tracked?.skippedSinceEmit ?? 0,
           });
-          const decision = shouldEmitToolCallUpdate?.(nextToolCall)
-            ? { ...coalescingDecision, emit: true }
-            : coalescingDecision;
           const next = new Map(current);
           if (nextToolCall.status === "completed" || nextToolCall.status === "failed") {
             next.delete(nextToolCall.toolCallId);
@@ -1196,6 +1197,9 @@ const handleSessionUpdate = ({
           }
           return [{ merged: nextToolCall, decision }, next] as const;
         });
+        if (observeToolCallUpdate) {
+          yield* observeToolCallUpdate(merged);
+        }
         if (!decision.emit) {
           continue;
         }

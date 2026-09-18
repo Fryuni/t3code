@@ -545,6 +545,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         model: "anthropic/claude-sonnet",
       });
       expect(evalProgress?.payload).not.toHaveProperty("typedUsage.totalTokens");
+      expect(evalProgress?.payload).not.toHaveProperty("typedUsage.durationMs");
       expect(
         taskEvents.flatMap((event) =>
           event.type === "task.progress" && String(event.payload.taskId) === "auth-child"
@@ -560,6 +561,20 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
       expect(firstTurnCompletion).toBeGreaterThanOrEqual(0);
       expect(firstChildCompletion).toBeGreaterThanOrEqual(0);
       expect(firstChildCompletion).toBeLessThan(firstTurnCompletion);
+      const parentTaskUpdatesBeforeFirstTurnCompleted = seen
+        .slice(0, firstTurnCompletion)
+        .filter(
+          (event) => event.type === "item.updated" && String(event.itemId) === "omp-task-batch-1",
+        );
+      expect(parentTaskUpdatesBeforeFirstTurnCompleted.length).toBeLessThanOrEqual(3);
+      expect(
+        taskEvents.some(
+          (event) =>
+            event.type === "task.progress" &&
+            String(event.payload.taskId) === "auth-child" &&
+            event.payload.lastToolName === "grep",
+        ),
+      ).toBe(true);
       const authCompletions = taskEvents.filter(
         (event) => event.type === "task.completed" && String(event.payload.taskId) === "auth-child",
       );
@@ -605,6 +620,13 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         ),
       ).toBe(false);
       expect(
+        taskEvents.some(
+          (event) =>
+            "taskId" in event.payload &&
+            String(event.payload.taskId) === "ordinary-false-job-child",
+        ),
+      ).toBe(false);
+      expect(
         seen.some(
           (event) => event.type === "item.completed" && String(event.itemId) === "ordinary-read-1",
         ),
@@ -629,6 +651,71 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("settles active child agents before a stopped session exits", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-active-child-stop-mock",
+          env: { T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES: "1" },
+          source: execScriptSource({
+            scriptPath: NodeURL.fileURLToPath(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+          }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      yield* instance.adapter.streamEvents.pipe(
+        Stream.runForEach((event) => Queue.offer(events, event)),
+        Effect.forkChild,
+      );
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      yield* instance.adapter.sendTurn({
+        threadId,
+        input: "start delegated work",
+        attachments: [],
+      });
+      while ((yield* Queue.take(events)).type !== "turn.completed") {
+        // Drain the first turn; it leaves two native children active.
+      }
+
+      yield* instance.adapter.stopSession(threadId);
+      const shutdownEvents: ProviderRuntimeEvent[] = [];
+      while (true) {
+        const event = yield* Queue.take(events);
+        shutdownEvents.push(event);
+        if (event.type === "session.exited") break;
+      }
+      const exitedIndex = shutdownEvents.findIndex((event) => event.type === "session.exited");
+      const stoppedChildren = shutdownEvents.filter(
+        (event) => event.type === "task.completed" && event.payload.status === "stopped",
+      );
+      expect(
+        stoppedChildren.flatMap((event) =>
+          event.type === "task.completed" ? [String(event.payload.taskId)] : [],
+        ),
+      ).toEqual(expect.arrayContaining(["storage-child", "cancel-child"]));
+      expect(
+        shutdownEvents.findIndex(
+          (event) => event.type === "task.completed" && event.payload.status === "stopped",
+        ),
+      ).toBeLessThan(exitedIndex);
+    }).pipe(Effect.scoped),
+  );
   it.effect(
     "discovers models without starting ACP, streams a turn, handles approvals and resumes through ACP",
     () =>

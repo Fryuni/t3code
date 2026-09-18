@@ -139,12 +139,27 @@ interface OhMyPiTaskSnapshot {
   readonly results: ReadonlyArray<OhMyPiTaskEntry>;
 }
 
+interface OhMyPiObservedTaskUpdate {
+  readonly toolCallId: string;
+  readonly snapshot: OhMyPiTaskSnapshot;
+  readonly inputs: ReadonlyArray<Record<string, unknown>>;
+}
+
 function nonEmptyString(value: unknown): string | undefined {
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length <= 8_000
+    ? trimmed
+    : `[Earlier output truncated]\n\n${trimmed.slice(-7_970)}`;
 }
 
 function nonNegativeNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 }
 
 function isUnknownRecord(value: unknown): value is Record<string, unknown> {
@@ -155,7 +170,7 @@ function parseOhMyPiTaskEntry(value: unknown): OhMyPiTaskEntry | undefined {
   if (!isUnknownRecord(value)) return undefined;
   const id = nonEmptyString(value.id);
   if (id === undefined) return undefined;
-  const index = nonNegativeNumber(value.index);
+  const index = nonNegativeInteger(value.index);
   const status = nonEmptyString(value.status);
   const agent = nonEmptyString(value.agent);
   // Entry fields are validated only after their container has established the
@@ -172,11 +187,11 @@ function parseOhMyPiTaskEntry(value: unknown): OhMyPiTaskEntry | undefined {
     description: nonEmptyString(value.description),
     lastIntent: nonEmptyString(value.lastIntent),
     currentTool: nonEmptyString(value.currentTool),
-    tokens: nonNegativeNumber(value.tokens),
-    toolCount: nonNegativeNumber(value.toolCount),
+    tokens: nonNegativeInteger(value.tokens),
+    toolCount: nonNegativeInteger(value.toolCount),
     model: nonEmptyString(value.resolvedModel) ?? nonEmptyString(value.modelOverride),
     effort: nonEmptyString(value.resolvedThinkingLevel),
-    durationMs: nonNegativeNumber(value.durationMs),
+    durationMs: nonNegativeInteger(value.durationMs),
     output: nonEmptyString(value.output),
     stderr: nonEmptyString(value.stderr),
     error: nonEmptyString(value.error),
@@ -208,19 +223,21 @@ function parseOhMyPiTaskSnapshot(rawOutput: unknown): OhMyPiTaskSnapshot | undef
   const statusValues = Array.isArray(details.statusEvents)
     ? details.statusEvents.filter((value) => isUnknownRecord(value) && value.op === "agent")
     : [];
-  const jobValues = Array.isArray(details.jobs)
-    ? details.jobs
-        .filter((value) => isUnknownRecord(value) && value.type === "task")
-        .map((value) => ({
-          ...value,
-          id: nonEmptyString(value.agentUrlId) ?? value.id,
-          agent: nonEmptyString(value.type) ?? "task",
-          task: nonEmptyString(value.label),
-          output: nonEmptyString(value.resultText),
-          error: nonEmptyString(value.errorText),
-          status: value.status === "cancelled" ? "aborted" : value.status,
-        }))
-    : [];
+  const jobValues =
+    (details.op === "wait" || details.op === "jobs" || details.op === "cancel") &&
+    Array.isArray(details.jobs)
+      ? details.jobs
+          .filter((value) => isUnknownRecord(value) && value.type === "task")
+          .map((value) => ({
+            ...value,
+            id: nonEmptyString(value.agentUrlId) ?? value.id,
+            agent: nonEmptyString(value.type) ?? "task",
+            task: nonEmptyString(value.label),
+            output: nonEmptyString(value.resultText),
+            error: nonEmptyString(value.errorText),
+            status: value.status === "cancelled" ? "aborted" : value.status,
+          }))
+      : [];
   const progress = [...progressValues, ...statusValues, ...jobValues].flatMap((candidate) => {
     const value =
       isUnknownRecord(candidate) && candidate.op === "agent"
@@ -243,8 +260,21 @@ function parseOhMyPiTaskSnapshot(rawOutput: unknown): OhMyPiTaskSnapshot | undef
 
 function ohMyPiTaskInputs(rawInput: unknown): ReadonlyArray<Record<string, unknown>> {
   if (!isUnknownRecord(rawInput)) return [];
-  if (Array.isArray(rawInput.tasks)) return rawInput.tasks.filter(isUnknownRecord);
-  return nonEmptyString(rawInput.task) ? [rawInput] : [];
+  const values = Array.isArray(rawInput.tasks)
+    ? rawInput.tasks.filter(isUnknownRecord)
+    : nonEmptyString(rawInput.task)
+      ? [rawInput]
+      : [];
+  return values.map((value) => {
+    const id = nonEmptyString(value.id);
+    const name = nonEmptyString(value.name);
+    const agent = nonEmptyString(value.agent);
+    return {
+      ...(id ? { id } : {}),
+      ...(name ? { name } : {}),
+      ...(agent ? { agent } : {}),
+    };
+  });
 }
 
 function boundedTaskText(value: string): string {
@@ -429,11 +459,9 @@ export function makeOhMyPiAdapter(
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
     const emitOhMyPiChildTaskEvents = Effect.fn("OhMyPiAdapter.emitChildTaskEvents")(function* (
       ctx: OhMyPiSessionContext,
-      toolCall: { readonly toolCallId: string; readonly data: Readonly<Record<string, unknown>> },
+      observed: OhMyPiObservedTaskUpdate,
     ) {
-      const snapshot = parseOhMyPiTaskSnapshot(toolCall.data.rawOutput);
-      if (snapshot === undefined) return;
-      const inputs = ohMyPiTaskInputs(toolCall.data.rawInput);
+      const { snapshot, inputs } = observed;
       const entriesById = new Map<string, OhMyPiTaskEntry>();
       for (const entry of snapshot.progress) entriesById.set(entry.id, entry);
       for (const result of snapshot.results) entriesById.set(result.id, result);
@@ -441,19 +469,20 @@ export function makeOhMyPiAdapter(
       for (const entry of entriesById.values()) {
         const stateKey = entry.id;
         const input = taskInputFor(inputs, entry);
-        const candidateTitle =
+        const candidateTitle = boundedTaskText(
           nonEmptyString(input?.name) ??
-          entry.description ??
-          entry.assignment ??
-          entry.task ??
-          entry.id;
+            entry.description ??
+            entry.assignment ??
+            entry.task ??
+            entry.id,
+        );
         const candidateRole = nonEmptyString(input?.agent) ?? entry.agent ?? "task";
         const taskId = RuntimeTaskId.make(entry.id);
         const existing = ctx.childTasks.get(stateKey);
         const state: OhMyPiChildTaskState = existing ?? {
           taskId,
           turnId: ctx.activeTurnId,
-          toolUseId: toolCall.toolCallId,
+          toolUseId: observed.toolCallId,
           title: candidateTitle,
           role: candidateRole,
           started: false,
@@ -566,6 +595,33 @@ export function makeOhMyPiAdapter(
       }
     });
 
+    const settleActiveChildTasks = Effect.fn("OhMyPiAdapter.settleActiveChildTasks")(function* (
+      ctx: OhMyPiSessionContext,
+      summary: string,
+    ) {
+      for (const state of ctx.childTasks.values()) {
+        if (state.terminal) continue;
+        yield* offerRuntimeEvent({
+          type: "task.completed",
+          ...(yield* makeEventStamp()),
+          provider: PROVIDER,
+          threadId: ctx.threadId,
+          turnId: state.turnId,
+          payload: {
+            taskId: state.taskId,
+            taskType: "local_agent",
+            toolUseId: state.toolUseId,
+            title: state.title,
+            role: state.role,
+            timelineBypass: true,
+            status: "stopped",
+            summary,
+          },
+        });
+        state.terminal = true;
+      }
+    });
+
     const getThreadSemaphore = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
         const existing: Option.Option<Semaphore.Semaphore> = Option.fromNullishOr(
@@ -667,6 +723,7 @@ export function makeOhMyPiAdapter(
           yield* Fiber.interrupt(ctx.notificationFiber);
         }
         yield* Effect.ignore(Scope.close(ctx.scope, Exit.void));
+        yield* settleActiveChildTasks(ctx, "Provider session stopped");
         sessions.delete(ctx.threadId);
         yield* offerRuntimeEvent({
           type: "session.exited",
@@ -705,6 +762,7 @@ export function makeOhMyPiAdapter(
           }
 
           const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
+          const pendingObservedToolCalls: OhMyPiObservedTaskUpdate[] = [];
           const sessionScope = yield* Scope.make("sequential");
           let sessionScopeTransferred = false;
           yield* Effect.addFinalizer(() =>
@@ -732,8 +790,23 @@ export function makeOhMyPiAdapter(
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,
-            shouldEmitToolCallUpdate: (toolCall) =>
-              parseOhMyPiTaskSnapshot(toolCall.data.rawOutput) !== undefined,
+            observeToolCallUpdate: (toolCall) =>
+              mapExtensionFailure(
+                Effect.suspend(() => {
+                  const snapshot = parseOhMyPiTaskSnapshot(toolCall.data.rawOutput);
+                  if (snapshot === undefined) return Effect.void;
+                  const observed = {
+                    toolCallId: toolCall.toolCallId,
+                    snapshot,
+                    inputs: ohMyPiTaskInputs(toolCall.data.rawInput),
+                  } satisfies OhMyPiObservedTaskUpdate;
+                  if (ctx === undefined) {
+                    pendingObservedToolCalls.push(observed);
+                    return Effect.void;
+                  }
+                  return emitOhMyPiChildTaskEvents(ctx, observed);
+                }),
+              ),
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
             ...(mcpSession
@@ -888,6 +961,9 @@ export function makeOhMyPiAdapter(
             interruptionVersion: 0,
             stopped: false,
           };
+          for (const observed of pendingObservedToolCalls.splice(0)) {
+            yield* emitOhMyPiChildTaskEvents(ctx, observed);
+          }
 
           const nf = yield* Stream.runDrain(
             Stream.mapEffect(acp.getEvents(), (event) =>
@@ -906,6 +982,7 @@ export function makeOhMyPiAdapter(
                   case "ConnectionTerminated":
                     ctx.session = { ...ctx.session, status: "error", updatedAt: yield* nowIso };
                     yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
+                    yield* settleActiveChildTasks(ctx, "Provider process exited");
                     yield* offerRuntimeEvent({
                       type: "session.exited",
                       ...(yield* makeEventStamp()),
@@ -976,7 +1053,6 @@ export function makeOhMyPiAdapter(
                         rawPayload: event.rawPayload,
                       }),
                     );
-                    yield* emitOhMyPiChildTaskEvents(ctx, event.toolCall);
                     return;
                   case "ThoughtDelta":
                   case "ContentDelta":
