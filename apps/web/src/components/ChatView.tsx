@@ -1762,6 +1762,10 @@ export default function ChatView(props: ChatViewProps) {
     pendingServerThreadStartFromOriginByThreadId,
     setPendingServerThreadStartFromOriginByThreadId,
   ] = useState<Record<string, boolean>>({});
+  const [
+    pendingServerThreadCreateNewBranchByThreadId,
+    setPendingServerThreadCreateNewBranchByThreadId,
+  ] = useState<Record<string, boolean>>({});
   const [lastInvokedScriptByProjectId, setLastInvokedScriptByProjectId] = useLocalStorage(
     LAST_INVOKED_SCRIPT_BY_PROJECT_KEY,
     {},
@@ -5811,6 +5815,9 @@ export default function ChatView(props: ChatViewProps) {
     canOverrideServerThreadEnvMode && pendingServerThreadBranch !== undefined
       ? pendingServerThreadBranch
       : (activeThread?.branch ?? null);
+  const createNewBranch = isLocalDraftThread
+    ? (draftThread?.createNewBranch ?? true)
+    : (pendingServerThreadCreateNewBranchByThreadId[activeThread?.id ?? ""] ?? true);
   const startFromOrigin = isLocalDraftThread
     ? (draftThread?.startFromOrigin ?? false)
     : canOverrideServerThreadEnvMode
@@ -7652,7 +7659,7 @@ export default function ChatView(props: ChatViewProps) {
     const shouldCreateWorktree =
       isFirstMessage && sendEnvMode === "worktree" && !activeThread.worktreePath;
     if (shouldCreateWorktree && !activeThreadBranch) {
-      setThreadError(threadIdForSend, "Select a base branch before sending in New worktree mode.");
+      setThreadError(threadIdForSend, "Select a branch before sending in New worktree mode.");
       return;
     }
 
@@ -8340,8 +8347,12 @@ export default function ChatView(props: ChatViewProps) {
                     prepareWorktree: {
                       projectCwd: activeProject.workspaceRoot,
                       baseBranch: baseBranchForWorktree,
-                      branch: buildTemporaryWorktreeBranchName(randomHex),
-                      ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      ...(createNewBranch
+                        ? {
+                            branch: buildTemporaryWorktreeBranchName(randomHex),
+                            ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                          }
+                        : {}),
                     },
                     runSetupScript: true,
                   }
@@ -8409,6 +8420,7 @@ export default function ChatView(props: ChatViewProps) {
                 envMode: sendEnvMode,
                 branch: activeThreadBranch,
                 startFromOrigin,
+                createNewBranch,
               }),
             ),
           );
@@ -9416,6 +9428,16 @@ export default function ChatView(props: ChatViewProps) {
     setDraftThreadContext,
     workLocallyResendReady,
   ]);
+  const onCreateNewBranchChange = (nextCreateNewBranch: boolean) => {
+    if (canOverrideServerThreadEnvMode && activeThread) {
+      setPendingServerThreadCreateNewBranchByThreadId((current) => ({
+        ...current,
+        [activeThread.id]: nextCreateNewBranch,
+      }));
+    } else if (isLocalDraftThread) {
+      setDraftThreadContext(composerDraftTarget, { createNewBranch: nextCreateNewBranch });
+    }
+  };
 
   const onStartFromOriginChange = (nextStartFromOrigin: boolean) => {
     if (canOverrideServerThreadEnvMode && activeThread) {
@@ -10150,6 +10172,8 @@ export default function ChatView(props: ChatViewProps) {
                                 showGitControls={isGitRepo}
                                 {...(routeKind === "draft" && draftId ? { draftId } : {})}
                                 onEnvModeChange={onEnvModeChange}
+                                createNewBranch={createNewBranch}
+                                onCreateNewBranchChange={onCreateNewBranchChange}
                                 startFromOrigin={startFromOrigin}
                                 onStartFromOriginChange={onStartFromOriginChange}
                                 {...(canOverrideServerThreadEnvMode

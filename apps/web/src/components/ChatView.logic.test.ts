@@ -1762,18 +1762,40 @@ describe("resolveSendEnvMode", () => {
 });
 
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
-  it("keeps New worktree selected without reusing the launched worktree", () => {
+  it.each([true, false])(
+    "preserves the worktree mode and only reusable base branches (createNewBranch=%s)",
+    (createNewBranch) => {
+      expect(
+        resolveBackgroundDraftWorkspaceOptions({
+          envMode: "worktree",
+          branch: "main",
+          startFromOrigin: true,
+          createNewBranch,
+        }),
+      ).toEqual({
+        envMode: "worktree",
+        branch: createNewBranch ? "main" : null,
+        worktreePath: null,
+        startFromOrigin: true,
+        createNewBranch,
+      });
+    },
+  );
+
+  it("keeps the branch when the background thread uses the current checkout", () => {
     expect(
       resolveBackgroundDraftWorkspaceOptions({
-        envMode: "worktree",
-        branch: "main",
-        startFromOrigin: true,
+        envMode: "local",
+        branch: "feature/existing",
+        startFromOrigin: false,
+        createNewBranch: false,
       }),
     ).toEqual({
-      envMode: "worktree",
-      branch: "main",
+      envMode: "local",
+      branch: "feature/existing",
       worktreePath: null,
-      startFromOrigin: true,
+      startFromOrigin: false,
+      createNewBranch: false,
     });
   });
 });
