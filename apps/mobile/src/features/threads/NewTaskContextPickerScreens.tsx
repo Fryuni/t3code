@@ -1,5 +1,5 @@
 import { MaterialListRow } from "../../components/MaterialListRow";
-import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import {
@@ -126,6 +126,7 @@ function ToggleRow(props: {
   readonly title: string;
   readonly value: boolean;
   readonly onValueChange: (value: boolean) => void;
+  readonly disabled?: boolean;
 }) {
   return (
     <View className="min-h-14 flex-row items-center gap-3 bg-card px-4 py-3">
@@ -139,6 +140,7 @@ function ToggleRow(props: {
         {props.title}
       </Text>
       <ThemedSwitch
+        disabled={props.disabled}
         accessibilityLabel={props.title}
         onValueChange={props.onValueChange}
         value={props.value}
@@ -367,7 +369,12 @@ export function NewTaskBranchPickerRouteScreen() {
       <BranchSelectionRow
         badge={branchBadgeLabel({ branch: item, project: flow.selectedProject })}
         branch={item}
-        disabled={switchingBranchName !== null}
+        disabled={
+          switchingBranchName !== null ||
+          (flow.workspaceMode === "worktree" &&
+            !flow.createNewBranch &&
+            !canCheckoutBranchInNewWorktree(item))
+        }
         isFirst={index === 0}
         isLast={index === flow.filteredBranches.length - 1}
         onSelect={selectBranch}
@@ -376,6 +383,8 @@ export function NewTaskBranchPickerRouteScreen() {
     ),
     [
       flow.filteredBranches.length,
+      flow.workspaceMode,
+      flow.createNewBranch,
       flow.selectedProject,
       selectBranch,
       selectedBranchName,
@@ -392,10 +401,21 @@ export function NewTaskBranchPickerRouteScreen() {
         )}
       >
         <ToggleRow
+          onValueChange={flow.setCreateNewBranch}
+          title="Create new branch"
+          value={flow.createNewBranch}
+        />
+        <ToggleRow
+          disabled={!flow.createNewBranch}
           onValueChange={flow.setStartFromOrigin}
           title="Start from origin"
-          value={flow.startFromOrigin}
+          value={flow.createNewBranch && flow.startFromOrigin}
         />
+        {!flow.createNewBranch ? (
+          <Text className="px-4 py-2 text-sm text-muted-foreground">
+            Select a local branch that is not already checked out.
+          </Text>
+        ) : null}
       </View>
     ) : null;
 

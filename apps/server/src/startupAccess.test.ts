@@ -4,6 +4,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import { HttpServer } from "effect/unstable/http";
+import * as NetAddress from "effect/unstable/net/NetAddress";
 
 import { ServerConfig, layerTest } from "./config.ts";
 import { EnvironmentAuth } from "./auth/EnvironmentAuth.ts";
@@ -37,7 +38,7 @@ it.effect("prints the public URL and QR at startup with a loopback listener", ()
       Layer.mergeAll(
         layerTest(process.cwd(), { prefix: "t3-startup-access-test-" }),
         Layer.mock(HttpServer.HttpServer)({
-          address: { _tag: "TcpAddress", hostname: "127.0.0.1", port: 4123 },
+          address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 4123),
         }),
         Layer.mock(EnvironmentAuth)({
           issueStartupPairingCredential: () =>
