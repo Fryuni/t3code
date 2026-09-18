@@ -52,6 +52,12 @@ on each selected environment, and reset returns to the environment's shared list
 For workspace mode, a project's `t3.json` preference applies when the project has no override.
 Browser access changes apply when an agent session next starts.
 
+To start new worktree threads from a branch such as `dev` instead of the repository's default
+branch, select the project and set **Source Control → Default base branch**. This setting is
+available only for a specific project, not **All projects**. An explicit branch choice takes
+precedence; clearing the setting restores the repository default. It does not change Git's default
+branch or switch the current checkout for local-mode threads.
+
 ## Storage cleanup
 
 Open **Settings → Storage** to enable automatic cleanup on one machine or all connected

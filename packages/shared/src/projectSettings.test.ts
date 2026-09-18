@@ -147,6 +147,28 @@ describe("projectSettingsOverrides patches", () => {
     expect(hasProjectSettingsOverrides(DEFAULT_SERVER_SETTINGS)).toBe(false);
   });
 
+  it("persists and clears the project-only default base branch by entry replacement", () => {
+    const written = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+      projectSettingsOverrides: {
+        [projectId]: { defaultThreadBaseBranch: "dev", defaultAutoPull: true },
+      },
+    });
+    expect(written.projectSettingsOverrides[projectId]).toEqual({
+      defaultThreadBaseBranch: "dev",
+      defaultAutoPull: true,
+    });
+    expect(resolveProjectSettings(written, projectId).overrides.defaultThreadBaseBranch).toBe(
+      "dev",
+    );
+
+    const cleared = applyServerSettingsPatch(written, {
+      projectSettingsOverrides: {
+        [projectId]: clearProjectSettingsOverrides(written, projectId, ["defaultThreadBaseBranch"]),
+      },
+    });
+    expect(cleared.projectSettingsOverrides[projectId]).toEqual({ defaultAutoPull: true });
+  });
+
   it("derives the legacy per-key maps from the generic record", () => {
     const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       projectSettingsOverrides: {

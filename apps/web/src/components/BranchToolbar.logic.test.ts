@@ -5,6 +5,7 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
+  resolveAutomaticWorktreeBaseBranch,
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
@@ -515,6 +516,42 @@ describe("resolveLockedWorkspaceLabel", () => {
 
   it("uses a shorter label for an attached worktree", () => {
     expect(resolveLockedWorkspaceLabel("/repo/.t3/worktrees/feature-a")).toBe("Worktree");
+  });
+});
+
+describe("resolveAutomaticWorktreeBaseBranch", () => {
+  it("prefers the project override, then Git default, then current branch", () => {
+    expect(
+      resolveAutomaticWorktreeBaseBranch({
+        projectOverride: "dev",
+        gitDefault: "main",
+        currentBranch: "feature/current",
+      }),
+    ).toBe("dev");
+    expect(
+      resolveAutomaticWorktreeBaseBranch({
+        projectOverride: undefined,
+        gitDefault: "main",
+        currentBranch: "feature/current",
+      }),
+    ).toBe("main");
+    expect(
+      resolveAutomaticWorktreeBaseBranch({
+        projectOverride: undefined,
+        gitDefault: null,
+        currentBranch: "feature/current",
+      }),
+    ).toBe("feature/current");
+  });
+
+  it("retains an explicitly configured name even when Git refs do not list it", () => {
+    expect(
+      resolveAutomaticWorktreeBaseBranch({
+        projectOverride: "release/next",
+        gitDefault: "main",
+        currentBranch: "main",
+      }),
+    ).toBe("release/next");
   });
 });
 

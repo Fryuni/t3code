@@ -117,7 +117,7 @@ export function withProjectSettingsOverrides(
 export function clearProjectSettingsOverrides(
   settings: Pick<ServerSettings, "projectSettingsOverrides">,
   projectId: ProjectId,
-  keys: readonly ProjectScopedServerSettingKey[],
+  keys: readonly (keyof ProjectSettingsOverrides)[],
 ): ProjectSettingsOverrides | null {
   const current = settings.projectSettingsOverrides[projectId];
   if (current === undefined) return null;

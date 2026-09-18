@@ -6,6 +6,7 @@ import {
 } from "@t3tools/contracts";
 import { createModelSelection } from "@t3tools/shared/model";
 import { useNavigate } from "@tanstack/react-router";
+import { DraftInput } from "../ui/draft-input";
 
 import { useT3ProjectFileState } from "../../hooks/useT3ProjectFileScripts";
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
@@ -38,6 +39,7 @@ import {
   useScopedSettings,
   useScopedSettingsMixed,
   useScopedSettingSource,
+  useUpdateProjectDefaultThreadBaseBranch,
   useUpdateScopedSettings,
 } from "./useScopedSettings";
 
@@ -50,6 +52,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const { scope, target, targets, connectedEnvironments } = useSettingsScope();
   const settings = useScopedSettings();
   const updateSettings = useUpdateScopedSettings();
+  const updateDefaultThreadBaseBranch = useUpdateProjectDefaultThreadBaseBranch();
   const navigate = useNavigate();
   const { environments } = useEnvironments();
   const representative = target
@@ -78,6 +81,9 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const workspaceSource = useScopedSettingSource(["defaultThreadEnvMode"]);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const unavailable = connectedEnvironments.length === 0;
+  const defaultThreadBaseBranch = isProjectScope
+    ? (target?.overrides.defaultThreadBaseBranch ?? "")
+    : "";
 
   // A checkout's t3.json wins over the environment default when the project
   // has no override of its own; show which one "inherit" resolves to.
@@ -339,6 +345,33 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
         </>
       ) : category === "source-control" ? (
         <>
+          {isProjectScope ? (
+            <SettingsRow
+              title="Default base branch"
+              description="New worktree threads start from this branch. When unset, the repository default branch is used."
+              resetAction={
+                defaultThreadBaseBranch ? (
+                  <SettingResetButton
+                    label="default base branch"
+                    onClick={() => updateDefaultThreadBaseBranch(null)}
+                  />
+                ) : null
+              }
+              control={
+                <DraftInput
+                  size="sm"
+                  className="w-44 font-mono"
+                  aria-label="Default base branch"
+                  placeholder="Repository default"
+                  value={defaultThreadBaseBranch}
+                  onCommit={(value) => {
+                    const branch = value.trim();
+                    updateDefaultThreadBaseBranch(branch.length > 0 ? branch : null);
+                  }}
+                />
+              }
+            />
+          ) : null}
           <SettingsRow
             serverScoped
             settingKeys={["defaultAutoPull"]}
