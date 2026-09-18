@@ -15,6 +15,7 @@ import {
   type ProviderSession,
   ProviderDriverKind,
   ProviderInstanceId,
+  RuntimeTaskId,
   RuntimeRequestId,
   type RuntimeMode,
   type ThreadId,
@@ -99,11 +100,213 @@ interface PendingApproval {
   readonly kind: string | "unknown";
 }
 
+interface OhMyPiChildTaskState {
+  readonly taskId: RuntimeTaskId;
+  readonly turnId: TurnId | undefined;
+  readonly toolUseId: string;
+  readonly title: string;
+  readonly role: string;
+  started: boolean;
+  terminal: boolean;
+  fingerprint: string | undefined;
+}
+
+interface OhMyPiTaskEntry {
+  readonly id: string;
+  readonly index: number | undefined;
+  readonly status: string | undefined;
+  readonly agent: string | undefined;
+  readonly task: string | undefined;
+  readonly assignment: string | undefined;
+  readonly description: string | undefined;
+  readonly lastIntent: string | undefined;
+  readonly currentTool: string | undefined;
+  readonly model: string | undefined;
+  readonly effort: string | undefined;
+  readonly tokens: number | undefined;
+  readonly toolCount: number | undefined;
+  readonly durationMs: number | undefined;
+  readonly output: string | undefined;
+  readonly stderr: string | undefined;
+  readonly error: string | undefined;
+  readonly aborted: boolean;
+  readonly abortReason: string | undefined;
+  readonly exitCode: number | undefined;
+}
+
+interface OhMyPiTaskSnapshot {
+  readonly progress: ReadonlyArray<OhMyPiTaskEntry>;
+  readonly results: ReadonlyArray<OhMyPiTaskEntry>;
+}
+
+interface OhMyPiObservedTaskUpdate {
+  readonly toolCallId: string;
+  readonly snapshot: OhMyPiTaskSnapshot;
+  readonly inputs: ReadonlyArray<Record<string, unknown>>;
+}
+
+function nonEmptyString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return undefined;
+  return trimmed.length <= 8_000
+    ? trimmed
+    : `[Earlier output truncated]\n\n${trimmed.slice(-7_970)}`;
+}
+
+function nonNegativeNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : undefined;
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+}
+
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseOhMyPiTaskEntry(value: unknown): OhMyPiTaskEntry | undefined {
+  if (!isUnknownRecord(value)) return undefined;
+  const id = nonEmptyString(value.id);
+  if (id === undefined) return undefined;
+  const index = nonNegativeInteger(value.index);
+  const status = nonEmptyString(value.status);
+  const agent = nonEmptyString(value.agent);
+  // Entry fields are validated only after their container has established the
+  // native TaskTool envelope (or an explicit eval/hub agent marker).
+  const exitCode = typeof value.exitCode === "number" ? value.exitCode : undefined;
+  if (agent === undefined || (status === undefined && exitCode === undefined)) return undefined;
+  return {
+    id,
+    index,
+    status,
+    agent,
+    task: nonEmptyString(value.task),
+    assignment: nonEmptyString(value.assignment),
+    description: nonEmptyString(value.description),
+    lastIntent: nonEmptyString(value.lastIntent),
+    currentTool: nonEmptyString(value.currentTool),
+    tokens: nonNegativeInteger(value.tokens),
+    toolCount: nonNegativeInteger(value.toolCount),
+    model: nonEmptyString(value.resolvedModel) ?? nonEmptyString(value.modelOverride),
+    effort: nonEmptyString(value.resolvedThinkingLevel),
+    durationMs: nonNegativeInteger(value.durationMs),
+    output: nonEmptyString(value.output),
+    stderr: nonEmptyString(value.stderr),
+    error: nonEmptyString(value.error),
+    aborted: value.aborted === true,
+    abortReason: nonEmptyString(value.abortReason),
+    exitCode,
+  };
+}
+function isOhMyPiTaskToolDetails(value: Record<string, unknown>): value is Record<
+  string,
+  unknown
+> & {
+  readonly projectAgentsDir: string | null;
+  readonly totalDurationMs: number;
+  readonly results: ReadonlyArray<unknown>;
+} {
+  return (
+    (value.projectAgentsDir === null || typeof value.projectAgentsDir === "string") &&
+    nonNegativeNumber(value.totalDurationMs) !== undefined &&
+    Array.isArray(value.results)
+  );
+}
+function parseOhMyPiTaskSnapshot(rawOutput: unknown): OhMyPiTaskSnapshot | undefined {
+  if (!isUnknownRecord(rawOutput)) return undefined;
+  const details = isUnknownRecord(rawOutput.details) ? rawOutput.details : rawOutput;
+  const isTaskTool = isOhMyPiTaskToolDetails(details);
+  const progressValues = isTaskTool && Array.isArray(details.progress) ? details.progress : [];
+  const resultValues = isTaskTool ? details.results : [];
+  const statusValues = Array.isArray(details.statusEvents)
+    ? details.statusEvents.filter((value) => isUnknownRecord(value) && value.op === "agent")
+    : [];
+  const jobValues =
+    (details.op === "wait" || details.op === "jobs" || details.op === "cancel") &&
+    Array.isArray(details.jobs)
+      ? details.jobs
+          .filter((value) => isUnknownRecord(value) && value.type === "task")
+          .map((value) => ({
+            ...value,
+            id: nonEmptyString(value.agentUrlId) ?? value.id,
+            agent: nonEmptyString(value.type) ?? "task",
+            task: nonEmptyString(value.label),
+            output: nonEmptyString(value.resultText),
+            error: nonEmptyString(value.errorText),
+            status: value.status === "cancelled" ? "aborted" : value.status,
+          }))
+      : [];
+  const progress = [...progressValues, ...statusValues, ...jobValues].flatMap((candidate) => {
+    const value =
+      isUnknownRecord(candidate) && candidate.op === "agent"
+        ? {
+            ...candidate,
+            agent: nonEmptyString(candidate.role) ?? "agent",
+            task: nonEmptyString(candidate.taskPreview),
+            resolvedModel: candidate.resolvedModelIdentity ?? candidate.resolvedModel,
+          }
+        : candidate;
+    const parsed = parseOhMyPiTaskEntry(value);
+    return parsed ? [parsed] : [];
+  });
+  const results = resultValues.flatMap((value) => {
+    const parsed = parseOhMyPiTaskEntry(value);
+    return parsed ? [parsed] : [];
+  });
+  return progress.length > 0 || results.length > 0 ? { progress, results } : undefined;
+}
+
+function ohMyPiTaskInputs(rawInput: unknown): ReadonlyArray<Record<string, unknown>> {
+  if (!isUnknownRecord(rawInput)) return [];
+  const values = Array.isArray(rawInput.tasks)
+    ? rawInput.tasks.filter(isUnknownRecord)
+    : nonEmptyString(rawInput.task)
+      ? [rawInput]
+      : [];
+  return values.map((value) => {
+    const id = nonEmptyString(value.id);
+    const name = nonEmptyString(value.name);
+    const agent = nonEmptyString(value.agent);
+    return {
+      ...(id ? { id } : {}),
+      ...(name ? { name } : {}),
+      ...(agent ? { agent } : {}),
+    };
+  });
+}
+
+function boundedTaskText(value: string): string {
+  return value.length <= 8_000 ? value : `[Earlier output truncated]\n\n${value.slice(-7_970)}`;
+}
+
+function taskInputFor(
+  inputs: ReadonlyArray<Record<string, unknown>>,
+  entry: OhMyPiTaskEntry,
+): Record<string, unknown> | undefined {
+  return (
+    inputs.find((input) => nonEmptyString(input.id) === entry.id) ??
+    (entry.index !== undefined ? inputs[entry.index] : undefined)
+  );
+}
+
+function childTaskStatus(
+  entry: OhMyPiTaskEntry,
+): "pending" | "running" | "completed" | "failed" | "stopped" {
+  if (entry.aborted || entry.status === "aborted" || entry.status === "cancelled") return "stopped";
+  if (entry.status === "failed" || (entry.exitCode !== undefined && entry.exitCode !== 0))
+    return "failed";
+  if (entry.status === "completed" || entry.exitCode === 0) return "completed";
+  return entry.status === "pending" ? "pending" : "running";
+}
+
 interface OhMyPiSessionContext {
   readonly threadId: ThreadId;
   session: ProviderSession;
   readonly scope: Scope.Closeable;
   readonly acp: AcpSessionRuntime.AcpSessionRuntime["Service"];
+  readonly childTasks: Map<string, OhMyPiChildTaskState>;
   notificationFiber: Fiber.Fiber<void, never> | undefined;
   readonly pendingApprovals: Map<ApprovalRequestId, PendingApproval>;
   readonly turns: Array<{ id: TurnId; items: Array<unknown> }>;
@@ -134,6 +337,7 @@ const ResumeCursor = Schema.Struct({
   schemaVersion: Schema.Literal(1),
   sessionId: Schema.NonEmptyString,
 });
+
 const decodeResumeCursor = Schema.decodeUnknownOption(ResumeCursor);
 
 function parseOhMyPiResume(raw: unknown): { sessionId: string } | undefined {
@@ -253,6 +457,170 @@ export function makeOhMyPiAdapter(
 
     const offerRuntimeEvent = (event: ProviderRuntimeEvent) =>
       PubSub.publish(runtimeEventPubSub, event).pipe(Effect.asVoid);
+    const emitOhMyPiChildTaskEvents = Effect.fn("OhMyPiAdapter.emitChildTaskEvents")(function* (
+      ctx: OhMyPiSessionContext,
+      observed: OhMyPiObservedTaskUpdate,
+    ) {
+      const { snapshot, inputs } = observed;
+      const entriesById = new Map<string, OhMyPiTaskEntry>();
+      for (const entry of snapshot.progress) entriesById.set(entry.id, entry);
+      for (const result of snapshot.results) entriesById.set(result.id, result);
+
+      for (const entry of entriesById.values()) {
+        const stateKey = entry.id;
+        const input = taskInputFor(inputs, entry);
+        const candidateTitle = boundedTaskText(
+          nonEmptyString(input?.name) ??
+            entry.description ??
+            entry.assignment ??
+            entry.task ??
+            entry.id,
+        );
+        const candidateRole = nonEmptyString(input?.agent) ?? entry.agent ?? "task";
+        const taskId = RuntimeTaskId.make(entry.id);
+        const existing = ctx.childTasks.get(stateKey);
+        const state: OhMyPiChildTaskState = existing ?? {
+          taskId,
+          turnId: ctx.activeTurnId,
+          toolUseId: observed.toolCallId,
+          title: candidateTitle,
+          role: candidateRole,
+          started: false,
+          terminal: false,
+          fingerprint: undefined,
+        };
+        ctx.childTasks.set(stateKey, state);
+        const title = state.title;
+        const role = state.role;
+        const linkage = {
+          taskId: state.taskId,
+          taskType: "local_agent",
+          toolUseId: state.toolUseId,
+          title,
+          role,
+          ...(entry.model ? { model: entry.model } : {}),
+          ...(entry.effort ? { effort: entry.effort } : {}),
+          timelineBypass: true,
+        } as const;
+        if (!state.started) {
+          yield* offerRuntimeEvent({
+            type: "task.started",
+            ...(yield* makeEventStamp()),
+            provider: PROVIDER,
+            threadId: ctx.threadId,
+            turnId: state.turnId,
+            payload: {
+              ...linkage,
+              description: entry.assignment ?? entry.task ?? entry.description ?? title,
+            },
+          });
+          state.started = true;
+        }
+        // A later result can enrich a terminal progress snapshot with final output/usage.
+
+        const status = childTaskStatus(entry);
+        if (
+          state.terminal &&
+          status !== "completed" &&
+          status !== "failed" &&
+          status !== "stopped"
+        ) {
+          continue;
+        }
+        const terminal = status === "completed" || status === "failed" || status === "stopped";
+        const terminalSummary = entry.abortReason ?? entry.error ?? entry.output ?? entry.stderr;
+        const fallbackSummary = boundedTaskText(
+          entry.lastIntent ??
+            entry.currentTool ??
+            entry.description ??
+            entry.assignment ??
+            entry.task ??
+            title,
+        );
+        const summary = terminal
+          ? terminalSummary && boundedTaskText(terminalSummary)
+          : fallbackSummary;
+        const typedUsage =
+          entry.tokens !== undefined
+            ? {
+                totalTokens: entry.tokens,
+                ...(entry.toolCount !== undefined ? { toolUses: entry.toolCount } : {}),
+                ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
+              }
+            : undefined;
+        const fingerprint = [
+          status,
+          summary ?? "",
+          entry.currentTool ?? "",
+          entry.tokens ?? "",
+          entry.toolCount ?? "",
+          entry.durationMs ?? "",
+          entry.model ?? "",
+          entry.effort ?? "",
+        ].join("\u001f");
+        if (state.fingerprint === fingerprint) continue;
+        state.fingerprint = fingerprint;
+        if (terminal) {
+          yield* offerRuntimeEvent({
+            type: "task.completed",
+            ...(yield* makeEventStamp()),
+            provider: PROVIDER,
+            threadId: ctx.threadId,
+            turnId: state.turnId,
+            payload: {
+              ...linkage,
+              status,
+              ...(summary ? { summary } : {}),
+              ...(typedUsage ? { typedUsage } : {}),
+            },
+          });
+          state.terminal = true;
+          continue;
+        }
+        yield* offerRuntimeEvent({
+          type: "task.progress",
+          ...(yield* makeEventStamp()),
+          provider: PROVIDER,
+          threadId: ctx.threadId,
+          turnId: state.turnId,
+          payload: {
+            ...linkage,
+            description: fallbackSummary,
+            summary: fallbackSummary,
+            status,
+            ...(entry.currentTool ? { lastToolName: entry.currentTool } : {}),
+            ...(typedUsage ? { typedUsage } : {}),
+          },
+        });
+      }
+    });
+
+    const settleActiveChildTasks = Effect.fn("OhMyPiAdapter.settleActiveChildTasks")(function* (
+      ctx: OhMyPiSessionContext,
+      summary: string,
+    ) {
+      for (const state of ctx.childTasks.values()) {
+        if (state.terminal) continue;
+        yield* offerRuntimeEvent({
+          type: "task.completed",
+          ...(yield* makeEventStamp()),
+          provider: PROVIDER,
+          threadId: ctx.threadId,
+          turnId: state.turnId,
+          payload: {
+            taskId: state.taskId,
+            taskType: "local_agent",
+            toolUseId: state.toolUseId,
+            title: state.title,
+            role: state.role,
+            timelineBypass: true,
+            status: "stopped",
+            summary,
+          },
+        });
+        state.terminal = true;
+      }
+    });
 
     const getThreadSemaphore = (threadId: string) =>
       SynchronizedRef.modifyEffect(threadLocksRef, (current) => {
@@ -355,6 +723,7 @@ export function makeOhMyPiAdapter(
           yield* Fiber.interrupt(ctx.notificationFiber);
         }
         yield* Effect.ignore(Scope.close(ctx.scope, Exit.void));
+        yield* settleActiveChildTasks(ctx, "Provider session stopped");
         sessions.delete(ctx.threadId);
         yield* offerRuntimeEvent({
           type: "session.exited",
@@ -393,6 +762,7 @@ export function makeOhMyPiAdapter(
           }
 
           const pendingApprovals = new Map<ApprovalRequestId, PendingApproval>();
+          const pendingObservedToolCalls: OhMyPiObservedTaskUpdate[] = [];
           const sessionScope = yield* Scope.make("sequential");
           let sessionScopeTransferred = false;
           yield* Effect.addFinalizer(() =>
@@ -420,6 +790,23 @@ export function makeOhMyPiAdapter(
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,
+            observeToolCallUpdate: (toolCall) =>
+              mapExtensionFailure(
+                Effect.suspend(() => {
+                  const snapshot = parseOhMyPiTaskSnapshot(toolCall.data.rawOutput);
+                  if (snapshot === undefined) return Effect.void;
+                  const observed = {
+                    toolCallId: toolCall.toolCallId,
+                    snapshot,
+                    inputs: ohMyPiTaskInputs(toolCall.data.rawInput),
+                  } satisfies OhMyPiObservedTaskUpdate;
+                  if (ctx === undefined) {
+                    pendingObservedToolCalls.push(observed);
+                    return Effect.void;
+                  }
+                  return emitOhMyPiChildTaskEvents(ctx, observed);
+                }),
+              ),
             ...(resumeSessionId ? { resumeSessionId } : {}),
             clientInfo: { name: "t3-code", version: "0.0.0" },
             ...(mcpSession
@@ -566,6 +953,7 @@ export function makeOhMyPiAdapter(
             acp,
             notificationFiber: undefined,
             pendingApprovals,
+            childTasks: new Map(),
             turns: [],
             lastPlanFingerprint: undefined,
             activeTurnId: undefined,
@@ -573,6 +961,9 @@ export function makeOhMyPiAdapter(
             interruptionVersion: 0,
             stopped: false,
           };
+          for (const observed of pendingObservedToolCalls.splice(0)) {
+            yield* emitOhMyPiChildTaskEvents(ctx, observed);
+          }
 
           const nf = yield* Stream.runDrain(
             Stream.mapEffect(acp.getEvents(), (event) =>
@@ -591,6 +982,7 @@ export function makeOhMyPiAdapter(
                   case "ConnectionTerminated":
                     ctx.session = { ...ctx.session, status: "error", updatedAt: yield* nowIso };
                     yield* settlePendingApprovalsAsCancelled(ctx.pendingApprovals);
+                    yield* settleActiveChildTasks(ctx, "Provider process exited");
                     yield* offerRuntimeEvent({
                       type: "session.exited",
                       ...(yield* makeEventStamp()),

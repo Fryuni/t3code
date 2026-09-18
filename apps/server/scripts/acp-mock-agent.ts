@@ -20,6 +20,7 @@ const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
 const emitAssistantDuringToolUpdates =
   process.env.T3_ACP_EMIT_ASSISTANT_DURING_TOOL_UPDATES === "1";
+const emitOhMyPiTaskUpdates = process.env.T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES === "1";
 const emitGenericToolPlaceholders = process.env.T3_ACP_EMIT_GENERIC_TOOL_PLACEHOLDERS === "1";
 const emitAskQuestion = process.env.T3_ACP_EMIT_ASK_QUESTION === "1";
 const emitXAiAskUserQuestion = process.env.T3_ACP_EMIT_XAI_ASK_USER_QUESTION === "1";
@@ -939,6 +940,371 @@ const program = Effect.gen(function* () {
           agentResult: null,
         });
         return yield* Effect.never;
+      }
+
+      if (emitOhMyPiTaskUpdates) {
+        const toolCallId = "omp-task-batch-1";
+        const child = (input: {
+          id: string;
+          index: number;
+          agent: string;
+          task: string;
+          status: "pending" | "running" | "completed" | "failed" | "aborted";
+          tokens?: number;
+          durationMs?: number;
+          lastIntent?: string;
+          currentTool?: string;
+        }) => ({
+          agentSource: "bundled",
+          recentTools: [],
+          recentOutput: [],
+          toolCount: 0,
+          tokens: 0,
+          durationMs: 0,
+          ...input,
+        });
+        const input = {
+          tasks: [
+            { task: "Inspect authentication", name: "AuthScout", agent: "scout" },
+            { task: "Review storage", name: "StorageReviewer", agent: "reviewer" },
+            { task: "Check cancellation", name: "CancelScout", agent: "scout" },
+          ],
+        };
+        const progress = [
+          child({
+            id: "auth-child",
+            index: 0,
+            agent: "scout",
+            task: "Inspect authentication",
+            status: "running",
+            tokens: 21,
+            durationMs: 40,
+            lastIntent: "Reading auth flow",
+            currentTool: "read",
+          }),
+          child({
+            id: "storage-child",
+            index: 1,
+            agent: "reviewer",
+            task: "Review storage",
+            status: "pending",
+          }),
+          child({
+            id: "cancel-child",
+            index: 2,
+            agent: "scout",
+            task: "Check cancellation",
+            status: "pending",
+          }),
+        ];
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId,
+            title: "Delegate tasks",
+            kind: "other",
+            status: "pending",
+            rawInput: input,
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "in_progress",
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 40,
+                progress,
+                results: [],
+                async: { state: "running", jobId: "job-task-1", type: "task" },
+              },
+            },
+          },
+        });
+        // Native task polling can repeat an unchanged child snapshot many times.
+        // Child observers still see the snapshots, but the parent tool timeline
+        // must retain the generic ACP coalescing behavior.
+        for (let index = 0; index < 5; index += 1) {
+          yield* agent.client.sessionUpdate({
+            sessionId: requestedSessionId,
+            update: {
+              sessionUpdate: "tool_call_update",
+              toolCallId,
+              status: "in_progress",
+              rawOutput: {
+                details: {
+                  projectAgentsDir: null,
+                  totalDurationMs: 40,
+                  progress,
+                  results: [],
+                  async: { state: "running", jobId: "job-task-1", type: "task" },
+                },
+              },
+            },
+          });
+        }
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "completed",
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 40,
+                progress,
+                results: [],
+                async: { state: "running", jobId: "job-task-1", type: "task" },
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "in_progress",
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 40,
+                progress: [{ ...progress[0], currentTool: "grep" }, progress[1], progress[2]],
+                results: [],
+                async: { state: "running", jobId: "job-task-1", type: "task" },
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "in_progress",
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 70,
+                progress: [
+                  {
+                    ...progress[0],
+                    status: "completed",
+                    tokens: 30,
+                    durationMs: 70,
+                    resolvedModel: "openai/gpt-5.3",
+                    resolvedThinkingLevel: "high",
+                  },
+                  {
+                    ...progress[1],
+                    status: "running",
+                    tokens: 13,
+                    durationMs: 50,
+                    lastIntent: "Checking persistence",
+                  },
+                  { ...progress[2], status: "running", durationMs: 20 },
+                ],
+                results: [],
+                async: { state: "running", jobId: "job-task-1", type: "task" },
+              },
+            },
+          },
+        });
+        if (promptCount === 1) return { stopReason: "end_turn" };
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call_update",
+            toolCallId,
+            status: "completed",
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 90,
+                progress: [
+                  { ...progress[0], status: "completed", tokens: 34, durationMs: 90 },
+                  { ...progress[1], status: "failed", tokens: 18, durationMs: 80 },
+                  { ...progress[2], status: "aborted", tokens: 2, durationMs: 30 },
+                ],
+                results: [
+                  {
+                    index: 0,
+                    id: "auth-child",
+                    agent: "scout",
+                    agentSource: "bundled",
+                    task: "Inspect authentication",
+                    exitCode: 0,
+                    output: "Authentication inspected",
+                    stderr: "",
+                    truncated: false,
+                    durationMs: 90,
+                    tokens: 34,
+                  },
+                  {
+                    index: 1,
+                    id: "storage-child",
+                    agent: "reviewer",
+                    agentSource: "bundled",
+                    task: "Review storage",
+                    exitCode: 1,
+                    output: "",
+                    stderr: "Storage review failed",
+                    truncated: false,
+                    durationMs: 80,
+                    tokens: 18,
+                    error: "Storage review failed",
+                  },
+                  {
+                    index: 2,
+                    id: "cancel-child",
+                    agent: "scout",
+                    agentSource: "bundled",
+                    task: "Check cancellation",
+                    exitCode: 130,
+                    output: "",
+                    stderr: "",
+                    truncated: false,
+                    durationMs: 30,
+                    tokens: 2,
+                    aborted: true,
+                    abortReason: "Parent stopped",
+                  },
+                ],
+                async: { state: "failed", jobId: "job-task-1", type: "task" },
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "sync-task-1",
+            title: "Synchronous delegation",
+            kind: "other",
+            status: "completed",
+            rawInput: { task: "Check synchronous task", agent: "scout", name: "SyncScout" },
+            rawOutput: {
+              details: {
+                projectAgentsDir: null,
+                totalDurationMs: 25,
+                results: [
+                  {
+                    id: "sync-child",
+                    index: 0,
+                    agent: "scout",
+                    task: "Check synchronous task",
+                    exitCode: 0,
+                    output: "Synchronous task finished",
+                    durationMs: 25,
+                    tokens: 7,
+                  },
+                ],
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "ordinary-read-1",
+            title: "Read file",
+            kind: "read",
+            status: "completed",
+            rawInput: { path: "README.md" },
+            rawOutput: {
+              details: {
+                progress: [
+                  {
+                    id: "ordinary-false-agent",
+                    agent: "scout",
+                    status: "completed",
+                    currentTool: "read",
+                  },
+                ],
+                results: [
+                  {
+                    id: "ordinary-false-agent",
+                    agent: "scout",
+                    exitCode: 0,
+                    output: "ordinary tool",
+                  },
+                ],
+                jobs: [
+                  {
+                    id: "ordinary-false-job",
+                    agentUrlId: "ordinary-false-job-child",
+                    type: "task",
+                    status: "completed",
+                    label: "Not a hub result",
+                    resultText: "ordinary tool output",
+                  },
+                ],
+                async: { state: "completed", jobId: "not-a-task-tool", type: "task" },
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "eval-tool-1",
+            title: "Evaluate code",
+            kind: "execute",
+            status: "in_progress",
+            rawOutput: {
+              details: {
+                statusEvents: [
+                  {
+                    op: "agent",
+                    id: "eval-child",
+                    status: "running",
+                    role: "reviewer",
+                    taskPreview: "Review foreground eval",
+                    resolvedModelIdentity: "anthropic/claude-sonnet",
+                    toolCount: 1.5,
+                    durationMs: 2.5,
+                  },
+                ],
+              },
+            },
+          },
+        });
+        yield* agent.client.sessionUpdate({
+          sessionId: requestedSessionId,
+          update: {
+            sessionUpdate: "tool_call",
+            toolCallId: "hub-wait-1",
+            title: "Wait for jobs",
+            kind: "other",
+            status: "completed",
+            rawOutput: {
+              details: {
+                op: "jobs",
+                jobs: [
+                  {
+                    id: "job-storage",
+                    agentUrlId: "storage-child",
+                    type: "task",
+                    status: "failed",
+                    label: "StorageReviewer",
+                    durationMs: 80,
+                    errorText: "Storage review failed",
+                  },
+                  { id: "bash-job", type: "bash", status: "completed", label: "not an agent" },
+                ],
+              },
+            },
+          },
+        });
+        return { stopReason: "end_turn" };
       }
 
       if (emitAssistantDuringToolUpdates) {

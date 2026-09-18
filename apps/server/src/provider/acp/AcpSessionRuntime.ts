@@ -102,6 +102,10 @@ export interface AcpSessionRuntimeOptions {
   readonly transformSessionUpdate?: (
     notification: EffectAcpSchema.SessionNotification,
   ) => EffectAcpSchema.SessionNotification;
+  /** Observes every merged tool update before parent timeline coalescing and event barriers. */
+  readonly observeToolCallUpdate?: (
+    toolCall: AcpToolCallState,
+  ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
   /** Receives bounded stderr chunks. Redact secrets before logging. A failure closes the runtime. */
   readonly onStderr?: (text: string) => Effect.Effect<void, EffectAcpErrors.AcpError>;
   readonly requestLogger?: (event: AcpSessionRequestLogEvent) => Effect.Effect<void, never>;
@@ -497,6 +501,9 @@ export const make = (
         assistantSegmentRef,
         assistantItemRuntimeId,
         params: notification,
+        ...(options.observeToolCallUpdate
+          ? { observeToolCallUpdate: options.observeToolCallUpdate }
+          : {}),
       });
 
     yield* acp.handleSessionUpdate((notification) =>
@@ -1133,6 +1140,7 @@ const handleSessionUpdate = ({
   assistantSegmentRef,
   assistantItemRuntimeId,
   params,
+  observeToolCallUpdate,
 }: {
   readonly queue: Queue.Queue<AcpSessionRuntimeEvent>;
   readonly modeStateRef: Ref.Ref<AcpSessionModeState | undefined>;
@@ -1141,7 +1149,10 @@ const handleSessionUpdate = ({
   readonly assistantSegmentRef: Ref.Ref<AcpAssistantSegmentState>;
   readonly assistantItemRuntimeId: string;
   readonly params: EffectAcpSchema.SessionNotification;
-}): Effect.Effect<void> =>
+  readonly observeToolCallUpdate?: (
+    toolCall: AcpToolCallState,
+  ) => Effect.Effect<void, EffectAcpErrors.AcpError>;
+}): Effect.Effect<void, EffectAcpErrors.AcpError> =>
   Effect.gen(function* () {
     if (params.update.sessionUpdate === "config_option_update") {
       yield* Ref.set(configOptionsRef, params.update.configOptions);
@@ -1186,6 +1197,9 @@ const handleSessionUpdate = ({
           }
           return [{ merged: nextToolCall, decision }, next] as const;
         });
+        if (observeToolCallUpdate) {
+          yield* observeToolCallUpdate(merged);
+        }
         if (!decision.emit) {
           continue;
         }
