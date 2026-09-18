@@ -22,6 +22,11 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { execScriptSource, writeFakeCli } from "../../testUtils/fakeCli.ts";
+import { runtimeEventToActivities } from "../../orchestration/Layers/ProviderRuntimeIngestion.ts";
+import {
+  deriveAgentPanelModel,
+  foldSubagentActivities,
+} from "../../../../../packages/client-runtime/src/state/subagentRuntime.ts";
 import { NoOpProviderEventLoggers, ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { OhMyPiDriver } from "./OhMyPiDriver.ts";
 
@@ -419,6 +424,170 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
             payload: expect.objectContaining({ status: "completed" }),
           }),
         ]),
+      );
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("maps native OhMyPi task progress and results to stable child agent lifecycles", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-task-progress-mock",
+          env: { T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES: "1" },
+          source: execScriptSource({
+            scriptPath: NodeURL.fileURLToPath(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+          }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
+      yield* instance.adapter.streamEvents.pipe(
+        Stream.runForEach((event) => Queue.offer(events, event)),
+        Effect.forkChild,
+      );
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      const turn = yield* instance.adapter
+        .sendTurn({ threadId, input: "delegate checks", attachments: [] })
+        .pipe(Effect.forkChild);
+      const seen: ProviderRuntimeEvent[] = [];
+      while (true) {
+        const event = yield* Queue.take(events);
+        seen.push(event);
+        if (event.type === "turn.completed") break;
+      }
+      yield* Fiber.join(turn);
+
+      const taskEvents = seen.filter((event) => event.type.startsWith("task."));
+      expect(
+        taskEvents.filter((event) => event.type === "task.started").map((event) => event.payload),
+      ).toEqual([
+        expect.objectContaining({
+          taskId: "auth-child",
+          taskType: "local_agent",
+          toolUseId: "omp-task-batch-1",
+          title: "AuthScout",
+          role: "scout",
+        }),
+        expect.objectContaining({
+          taskId: "storage-child",
+          taskType: "local_agent",
+          toolUseId: "omp-task-batch-1",
+          title: "StorageReviewer",
+          role: "reviewer",
+        }),
+        expect.objectContaining({
+          taskId: "cancel-child",
+          taskType: "local_agent",
+          toolUseId: "omp-task-batch-1",
+          title: "CancelScout",
+          role: "scout",
+        }),
+        expect.objectContaining({
+          taskId: "eval-child",
+          taskType: "local_agent",
+          toolUseId: "eval-tool-1",
+          title: "Review foreground eval",
+          role: "reviewer",
+        }),
+      ]);
+      expect(taskEvents.filter((event) => event.type === "task.started")).toHaveLength(4);
+      expect(
+        taskEvents.find(
+          (event) =>
+            event.type === "task.progress" &&
+            String(event.payload.taskId) === "auth-child" &&
+            event.payload.status === "running",
+        )?.payload,
+      ).toMatchObject({
+        description: "Reading auth flow",
+        typedUsage: { totalTokens: 21, durationMs: 40 },
+      });
+      const evalProgress = taskEvents.find(
+        (event) => event.type === "task.progress" && String(event.payload.taskId) === "eval-child",
+      );
+      expect(evalProgress?.payload).toMatchObject({
+        description: "Review foreground eval",
+        role: "reviewer",
+        model: "anthropic/claude-sonnet",
+      });
+      expect(evalProgress?.payload).not.toHaveProperty("typedUsage.totalTokens");
+
+      const firstToolCompletion = seen.findIndex(
+        (event) => event.type === "item.completed" && String(event.itemId) === "omp-task-batch-1",
+      );
+      const firstChildCompletion = seen.findIndex((event) => event.type === "task.completed");
+      expect(firstToolCompletion).toBeGreaterThanOrEqual(0);
+      expect(firstChildCompletion).toBeGreaterThan(firstToolCompletion);
+      const authCompletions = taskEvents.filter(
+        (event) => event.type === "task.completed" && String(event.payload.taskId) === "auth-child",
+      );
+      expect(authCompletions[0]?.payload).toMatchObject({
+        model: "openai/gpt-5.3",
+        effort: "high",
+        typedUsage: { totalTokens: 30, durationMs: 70 },
+      });
+      expect(authCompletions[1]?.payload).toMatchObject({
+        summary: "Authentication inspected",
+        typedUsage: { totalTokens: 34, durationMs: 90 },
+      });
+
+      expect(
+        taskEvents.filter((event) => event.type === "task.completed").map((event) => event.payload),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            taskId: "auth-child",
+            status: "completed",
+            summary: "Authentication inspected",
+            typedUsage: { totalTokens: 34, durationMs: 90 },
+          }),
+          expect.objectContaining({
+            taskId: "storage-child",
+            status: "failed",
+            summary: "Storage review failed",
+            typedUsage: { totalTokens: 18, durationMs: 80 },
+          }),
+          expect.objectContaining({
+            taskId: "cancel-child",
+            status: "stopped",
+            summary: "Parent stopped",
+            typedUsage: { totalTokens: 2, durationMs: 30 },
+          }),
+        ]),
+      );
+      expect(
+        taskEvents.some(
+          (event) =>
+            "taskId" in event.payload && String(event.payload.taskId).includes("ordinary-read-1"),
+        ),
+      ).toBe(false);
+      expect(
+        seen.some(
+          (event) => event.type === "item.completed" && String(event.itemId) === "ordinary-read-1",
+        ),
+      ).toBe(true);
+      const activities = seen.flatMap((event) => runtimeEventToActivities(event));
+      const panel = deriveAgentPanelModel({ agents: foldSubagentActivities(activities) });
+      const panelIds = panel.directAgents.map((agent) => agent.id);
+      expect(panelIds).toHaveLength(4);
+      expect(new Set(panelIds)).toEqual(
+        new Set(["auth-child", "storage-child", "cancel-child", "eval-child"]),
       );
       yield* instance.adapter.stopAll();
     }).pipe(Effect.scoped),
