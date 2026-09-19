@@ -104,13 +104,14 @@ would be handed the remote's port and reject the `webUrl` as belonging to anothe
 | `pullRequestHostOf` reads a Forgejo identity's `webUrl` before its HTTP remote                                                            | Reads the remote only                                                                                                  | `pullRequest.test.ts` (contracts): "separates Forgejo HTTP ports while preserving other provider host identities"                                                                                                                                                                                                          |
 | `listLinkedPullRequestThreads` compares the stored repository as written and post-filters with `threadPullRequestKeysEqual`               | Compares against the lower-cased key                                                                                   | `linkedThreads.test.ts`: the `upper-instance` and `lower-instance` fixtures                                                                                                                                                                                                                                                |
 | `changeRequestRepositoryUrl` matches `/pulls/` greedily so a mount path containing `pull` is kept                                         | One lazy pattern for every host                                                                                        | `changeRequestUrl.test.ts`: "extracts the repository root from %s"                                                                                                                                                                                                                                                         |
-| `ForgejoSourceControlProvider` trims a pasted reference and compares head owner and repository case-insensitively                         | Exact string compares                                                                                                  | `ForgejoSourceControlProvider.test.ts`: "preserves fork identity and draft status for a normalized PR URL", "pages past other forks and closed unmerged PRs before applying the limit"                                                                                                                                     |
 
 The `.toLowerCase()` replacements in `PullRequestService`, `ThreadSettlementReactor`,
 `ThreadPullRequestReactor`, the MCP pull-request toolkit, the web pull-request state and
 components, mobile `queries.ts`, and client-runtime `pullRequestRouting.ts` are consumers
 of the first rule, not rules of their own. Where the provider kind is in scope
-(`project.api.kind`) it is passed; the rest are keyed by project and fold owner/name.
+(`project.api.kind`) it is passed; the rest are keyed by project and fold owner/name. The
+Forgejo provider's own reference parsing and branch matching, and what the fold changes about
+synchronization, are decided in [ADR 0003](0003-forgejo-pull-request-parsing-and-sync.md).
 
 ## Consequences
 

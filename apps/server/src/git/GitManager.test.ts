@@ -38,6 +38,8 @@ import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "../sourceControl/GitHubSourceControlProvider.ts";
 import * as GitLabSourceControlProvider from "../sourceControl/GitLabSourceControlProvider.ts";
+import * as ForgejoCli from "../sourceControl/ForgejoCli.ts";
+import * as ForgejoSourceControlProvider from "../sourceControl/ForgejoSourceControlProvider.ts";
 import {
   ForgejoPullRequestSchema,
   toForgejoChangeRequest,
@@ -4415,6 +4417,56 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         state: "open",
       });
       expect(ghCalls.some((call) => call.startsWith("pr view 42 "))).toBe(true);
+    }),
+  );
+
+  it.effect("hands the Forgejo provider a pasted pull request URL with its padding removed", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      const url = "https://forge.example/Forge/Owner/Repo/pulls/42";
+      const references: string[] = [];
+      const provider = yield* ForgejoSourceControlProvider.make.pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(ForgejoCli.ForgejoCli)({
+              resolveRepository: (input) =>
+                Effect.sync(() => {
+                  references.push(input.reference ?? "");
+                  return {
+                    command: "fj" as const,
+                    login: "forge.example",
+                    repository: "Owner/Repo",
+                    baseUrl: "https://forge.example",
+                  };
+                }),
+              api: () =>
+                Effect.succeed(
+                  fakeGhOutput(
+                    JSON.stringify({
+                      number: 42,
+                      title: "Padded reference",
+                      html_url: url,
+                      state: "open",
+                      merged: false,
+                      draft: false,
+                      base: { ref: "main", sha: "base", repo: null },
+                      head: { ref: "feature", sha: "head", repo: null },
+                    }),
+                  ),
+                ),
+            }),
+            FileSystem.layerNoop({}),
+            Layer.mock(VcsProcess.VcsProcess)({}),
+          ),
+        ),
+      );
+      const { manager } = yield* makeManager({ sourceControlProvider: provider });
+
+      const result = yield* resolvePullRequest(manager, { cwd: repoDir, reference: `  ${url}  ` });
+
+      expect(result.pullRequest.number).toBe(42);
+      expect(references).toEqual([url]);
     }),
   );
 
