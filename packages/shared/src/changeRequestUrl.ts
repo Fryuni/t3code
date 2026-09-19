@@ -251,11 +251,10 @@ export function changeRequestLinkOnRepositoryInstance(
   const known = web ?? httpUrl(identity.locator.remoteUrl);
   if (known === null) return pullRequestHostOf(identity, kind) === link.host.toLowerCase();
   if (known.host.toLowerCase() !== link.authority) return false;
-  // The resolved web URL is the repository's own page, so everything above owner/name is the
-  // instance's mount path, which the link's repository must sit below.
-  if (web === null) return true;
-  const mount = trimSlashes(web.pathname).split("/").slice(0, -2).join("/");
-  return mount.length === 0 || `${link.repository}/`.startsWith(`${mount}/`);
+  // Both web and HTTP clone URLs end in owner/name. Everything above those segments is the
+  // instance's mount, including an empty root mount; a nested mount can be another instance.
+  const mount = trimSlashes(known.pathname).split("/").slice(0, -2).join("/");
+  return mount === trimSlashes(link.repository).split("/").slice(0, -2).join("/");
 }
 
 /**

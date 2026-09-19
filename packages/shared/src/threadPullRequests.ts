@@ -97,12 +97,22 @@ export function threadPullRequestKeyOf(key: ThreadPullRequestKeySource): string 
   return `${normalized.host}/${normalized.repository}#${normalized.number}`;
 }
 
-/** Links a user should see. Tombstoned stack members stay in the array only so the
- * sync reactor does not re-add them. */
+/**
+ * Links a user should see, with canonical keys for callers that copy host/repository/number
+ * into URL-less commands. Old stored fields can differ from the identity recovered from the
+ * URL. Tombstoned stack members remain in storage to prevent rediscovery but are not returned.
+ */
 export function visibleThreadPullRequests(
   links: ReadonlyArray<ThreadPullRequestLink>,
 ): ReadonlyArray<ThreadPullRequestLink> {
-  return links.filter((link) => link.source !== "stack-dismissed");
+  return links
+    .filter((link) => link.source !== "stack-dismissed")
+    .map((link) => {
+      const key = normalizeThreadPullRequestKey(link);
+      return key.host === link.host && key.repository === link.repository
+        ? link
+        : { ...link, ...key };
+    });
 }
 
 function isOpen(link: ThreadPullRequestLink): boolean {

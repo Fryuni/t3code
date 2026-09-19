@@ -390,6 +390,32 @@ describe("changeRequestLinkMatchesRepository", () => {
     ).toBe(false);
   });
 
+  it.each([true, false])(
+    "compares exact Forgejo mounts with a resolved web URL: %s",
+    (resolved) => {
+      for (const mount of ["", "git", "git/other", "Git"]) {
+        const path = [mount, "team/repo"].filter(Boolean).join("/");
+        const checkout = identity({
+          provider: "forgejo",
+          canonicalKey: `forge.example/${path}`,
+          displayName: path,
+          remoteUrl: `https://forge.example/${path}.git`,
+          ...(resolved ? { webUrl: `https://forge.example/${path}` } : {}),
+        });
+        for (const otherMount of ["", "git", "git/other", "Git"]) {
+          const otherPath = [otherMount, "another/repository"].filter(Boolean).join("/");
+          expect(
+            changeRequestLinkOnRepositoryInstance(
+              link(`https://forge.example/${otherPath}/pulls/1`),
+              checkout,
+            ),
+            `${mount || "(root)"} -> ${otherMount || "(root)"}`,
+          ).toBe(mount === otherMount);
+        }
+      }
+    },
+  );
+
   it("reads the Forgejo web authority from an HTTP remote when nothing was resolved", () => {
     const projects = [3000, 4000].map((port) =>
       identity({

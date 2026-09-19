@@ -506,8 +506,8 @@ describe("chain selection and badge state", () => {
       resolveThreadPullRequestChains([
         bottom,
         { ...top, snapshot: snapshot({ headBranch: "top", baseBranch: "Base" }) },
-      ])[0]?.layers,
-    ).toEqual([bottom, { ...top, snapshot: snapshot({ headBranch: "top", baseBranch: "Base" }) }]);
+      ])[0]?.layers.map((layer) => layer.number),
+    ).toEqual([1, 2]);
   });
 
   it("preserves cyclic links without presenting a guessed stack order", () => {

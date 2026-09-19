@@ -59,15 +59,20 @@ in mount case are the same link, and the URL's spelling wins. A key with neither
 kind keeps the owner/name fold. This is deliberately not "fold everything unless proven
 Forgejo": unlink commands and linked-thread lookups carry no URL and copy the repository
 from a stored link, so folding them further would stop them matching the link they came
-from on an upper-cased mount.
+from on an upper-cased mount. Before exposing stored links to these callers,
+`visibleThreadPullRequests` recovers their canonical keys from their URLs. This matters for
+legacy records whose stored mount spelling or GitLab group case differs from the URL:
+copying the unnormalized fields would produce a command that cannot match its own link.
 
 **One matcher for links against identities.** `changeRequestLinkOnRepositoryInstance` and
 `changeRequestLinkMatchesRepository` in
 [changeRequestUrl.ts](../../packages/shared/src/changeRequestUrl.ts) decide whether a
 parsed link is on an identity's instance, and whether it names its repository. For a
 Forgejo link the identity's web authority is read from `webUrl` first, then an HTTP
-remote; an identity that knows only an SSH clone host compares hostnames and leaves ports
-and mounts to the login. The web project lookup, host-level credential lending, and the
+remote. Both carry the repository path, so their mount is everything before owner/name
+and must match the link's mount exactly, including case. A root mount is not a wildcard,
+and a nested mount can serve a separate instance. An identity that knows only an SSH clone
+host compares hostnames and leaves ports and mounts to the login. The web project lookup, host-level credential lending, and the
 legacy single-link projection all call these; their local copies are gone.
 
 **Forgejo identities are re-rooted on the instance.** `forgejoRepositoryIdentity` in
@@ -107,34 +112,22 @@ components, mobile `queries.ts`, and client-runtime `pullRequestRouting.ts` are 
 of the first rule, not rules of their own. Where the provider kind is in scope
 (`project.api.kind`) it is passed; the rest are keyed by project and fold owner/name.
 
-### Removed
-
-- `server.ts`: the inline identity rewrite, now `forgejoRepositoryIdentity`.
-- `GitManager.pullRequestRepositoryKey`: the `pulls` alternative in the upstream pattern
-  and the Forgejo key branch; the upstream pattern is back verbatim below the parser call.
-- `openPullRequestLink.ts`: `resolvedForgejoRepository`, `matchesChangeRequestAuthority`,
-  and the per-kind bodies of both project finders.
-- `legacyLinkedPullRequestOf`: the Forgejo authority branch and the Azure special case;
-  both go through the shared matcher.
-- `LinkPullRequestDialog`: the Forgejo-only `webUrl` URL builder, now inside
-  `changeRequestUrlFor`.
-
 ## Consequences
 
 - A key with no URL and no kind cannot tell two mounts apart beyond what its repository
   string says. `listLinkedPullRequestThreads` for `Forge/acme/web` finds only threads
   linked under `Forge/…`, which is the stored spelling; a caller that lower-cased the mount
-  itself would find the other instance. Callers copy the repository from a stored link, so
-  in practice they carry the right spelling.
+  itself would find the other instance. User-facing callers copy the normalized visible
+  link, so they carry the spelling recovered from its URL.
 - Kind-less, URL-less GitLab keys keep their group case. Every stored link has a URL and
-  every server-side comparison has a kind, so this reaches only client-side cache keys,
-  which are scoped by project.
+  visible links normalize that case before callers drop the URL. Other URL-less references
+  still need to carry the canonical spelling; their provider cannot be inferred from the
+  repository path alone.
 - `canonicalKey` for a refined Forgejo identity is now folded (owner and name lower-cased)
   where it was previously the remote's spelling. Every comparison already went through
   `canonicalRepositoryKey`, so nothing observable changes; the key is simply canonical.
 - Mobile and client-runtime fold the same way as the server and web. Their inputs are
   server-produced and already folded, so this is consistency rather than a fix.
-- On the next upstream merge, expect conflicts in the five files under "Removed" and in
-  `changeRequestUrl.ts`. Resolve toward the shared helpers. If upstream gains per-host
-  folding or re-roots Forgejo identities itself, delete the matching row above together
-  with its test.
+- Resolve upstream normalization changes toward the shared helpers. If upstream gains
+  per-host folding or re-roots Forgejo identities itself, delete the matching row above
+  together with its test.
