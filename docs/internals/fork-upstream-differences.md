@@ -58,20 +58,28 @@ upstream. Do not revert the original feature wholesale.
 
 Remaining differences include:
 
-- Discovering an SSH remote through its advertised clone URL when the SSH and
-  web hosts differ.
-- Caching remote refinement and discovery.
 - URL/path normalization and preserving HTTP origins and instance-path case.
 - PR parsing, matching, linking, and synchronization adjustments.
 - A Forgejo repository-publishing option in the web Git actions.
 
-Start with [ForgejoCli.ts](../../apps/server/src/sourceControl/ForgejoCli.ts),
-[SourceControlProviderRegistry.ts](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts),
-and [sourceControl.ts](../../packages/shared/src/sourceControl.ts).
+Start with [sourceControl.ts](../../packages/shared/src/sourceControl.ts). Compare
+residual patches individually against upstream behavior and their focused tests.
+This area overlaps the PR-link investigation through repository identity and
+shared URL helpers; coordinate ownership before editing those files.
 
-Compare residual patches individually against upstream behavior and their focused
-tests. This area overlaps the PR-link investigation through repository identity
-and shared URL helpers; coordinate ownership before editing those files.
+Remote discovery is settled. Forgejo and Gitea remotes run on upstream's shared
+provider pipeline, and each retained extension has a test that fails when the
+extension is removed.
+[ForgejoCli.ts](../../apps/server/src/sourceControl/ForgejoCli.ts) matches an SSH
+remote against the server's advertised clone URL, so an instance whose SSH
+authority differs from its web authority resolves at all. It probes lazily, only
+after a plain `ssh_host` match fails, because it costs an authenticated API call
+per login; `resolveTarget` therefore retries with the raw SSH remote, since its
+first pass deliberately passes the web base URL so HTTP-origin detection still
+works. It also trims remote strings, which arrive padded from pasted references.
+[SourceControlProviderRegistry.ts](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts)
+caches refinement by context value rather than by checkout, because status reads
+supply a fresh context each time and would otherwise repeat that probe.
 
 ### 3. Simplify branch/worktree creation differences
 
