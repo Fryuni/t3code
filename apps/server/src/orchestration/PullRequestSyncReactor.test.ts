@@ -540,7 +540,7 @@ describe("PullRequestSyncReactor", () => {
               .sort((left, right) => left[0].localeCompare(right[0])),
             [
               [ThreadId.make("one"), "owner/repository"],
-              [ThreadId.make("two"), "Owner/Repository"],
+              [ThreadId.make("two"), "owner/repository"],
             ],
           );
         }).pipe(Effect.provide(fixture.layer));
