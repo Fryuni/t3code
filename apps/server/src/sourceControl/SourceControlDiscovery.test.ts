@@ -1627,6 +1627,26 @@ it.effect(
     ),
 );
 
+it("parses Forgejo remotes padded by whitespace", () => {
+  // Pasted references arrive padded, and the surrounding space must not reach the URL parser
+  // or the scp-form pattern, which would otherwise read it as part of the host.
+  assert.deepStrictEqual(
+    ForgejoCli.parseForgejoRemote("  HTTPS://forge.example:3000/Forge/Owner/Repo.git  "),
+    {
+      host: "forge.example:3000",
+      hostname: "forge.example",
+      ssh: false,
+      path: "Forge/Owner/Repo",
+    },
+  );
+  assert.deepStrictEqual(ForgejoCli.parseForgejoRemote("\tgit@ssh.example:Owner/Repo.git\n"), {
+    host: "ssh.example",
+    hostname: "ssh.example",
+    ssh: true,
+    path: "Owner/Repo",
+  });
+});
+
 for (const scenario of [
   "matching",
   "wrong-path",
