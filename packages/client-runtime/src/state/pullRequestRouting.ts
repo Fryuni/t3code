@@ -9,6 +9,7 @@ import * as Cause from "effect/Cause";
 import * as Option from "effect/Option";
 import * as Schema from "effect/Schema";
 import * as SubscriptionRef from "effect/SubscriptionRef";
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 
 import { EnvironmentRegistry, EnvironmentNotRegisteredError } from "../connection/registry.ts";
 import { EnvironmentSupervisor } from "../connection/supervisor.ts";
@@ -136,7 +137,8 @@ const routingAllowed = Effect.fn("PullRequestRouting.allowed")(function* (
 function matchesReference(reference: PullRequestRef, filter: PullRequestRef): boolean {
   return (
     reference.projectId === filter.projectId &&
-    reference.repository.toLowerCase() === filter.repository.toLowerCase() &&
+    normalizeSourceControlRepository(reference.repository) ===
+      normalizeSourceControlRepository(filter.repository) &&
     reference.number === filter.number &&
     (filter.host === undefined || reference.host?.toLowerCase() === filter.host.toLowerCase())
   );
@@ -205,7 +207,7 @@ export function createPullRequestRouter() {
       origin.target.environmentId,
       ref.projectId,
       ref.host?.toLowerCase() ?? null,
-      ref.repository.toLowerCase(),
+      normalizeSourceControlRepository(ref.repository),
       String(ref.number),
     ]);
     const finish = (operation: ReturnType<typeof request<T>>) =>

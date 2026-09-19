@@ -2,6 +2,8 @@ import { describe, expect, it } from "vite-plus/test";
 import { ProjectId } from "@t3tools/contracts";
 
 import {
+  changeRequestLinkMatchesRepository,
+  changeRequestLinkOnRepositoryInstance,
   changeRequestUrlFor,
   changeRequestRepositoryUrl,
   matchesLinkedPullRequestUrl,
@@ -227,6 +229,37 @@ describe("changeRequestUrlFor", () => {
     ).toBe(`${scheme}://forge.example.test:3000/forge/owner/other/pulls/42`);
   });
 
+  it.each([
+    // The login-resolved web URL knows the scheme an SSH remote cannot say.
+    ["ssh://git@ssh.example.test:2222/owner/repo.git", "http://forge.example.test:3000/owner/repo"],
+    // It also wins over an HTTP remote that reaches the instance another way.
+    ["https://forge.example.test:8443/owner/repo.git", "http://forge.example.test:3000/owner/repo"],
+  ])("prefers the resolved web URL's origin over the remote %s", (remoteUrl, webUrl) => {
+    expect(
+      changeRequestUrlFor(
+        "forgejo",
+        "forge.example.test:3000",
+        "owner/repo",
+        42,
+        remoteUrl,
+        webUrl,
+      ),
+    ).toBe("http://forge.example.test:3000/owner/repo/pulls/42");
+  });
+
+  it("ignores a resolved web URL on another authority", () => {
+    expect(
+      changeRequestUrlFor(
+        "forgejo",
+        "forge.example.test:3000",
+        "owner/repo",
+        42,
+        "git@ssh.example.test:owner/repo.git",
+        "http://other.example.test:3000/owner/repo",
+      ),
+    ).toBe("https://forge.example.test:3000/owner/repo/pulls/42");
+  });
+
   it("builds Forgejo links on the canonical web port", () => {
     const url = changeRequestUrlFor("forgejo", "forge.example.test:8443", "owner/repo", 42);
     expect(url).toBe("https://forge.example.test:8443/owner/repo/pulls/42");
@@ -289,6 +322,192 @@ describe("Forgejo repository and stored links", () => {
     ).toBe(false);
     expect(
       matchesLinkedPullRequestUrl(linked, "https://forge.example.test:8443/owner/repo/pulls/43"),
+    ).toBe(false);
+  });
+});
+
+describe("changeRequestLinkMatchesRepository", () => {
+  const identity = (input: {
+    provider: string;
+    canonicalKey: string;
+    displayName?: string;
+    remoteUrl?: string;
+    webUrl?: string;
+  }) => ({
+    canonicalKey: input.canonicalKey,
+    provider: input.provider,
+    locator: {
+      source: "git-remote" as const,
+      remoteName: "origin",
+      remoteUrl:
+        input.remoteUrl ?? `git@${input.canonicalKey.split("/")[0]}:${input.displayName}.git`,
+    },
+    ...(input.displayName === undefined ? {} : { displayName: input.displayName }),
+    ...(input.webUrl === undefined ? {} : { webUrl: input.webUrl }),
+  });
+  const link = (url: string) => parseChangeRequestUrl(url)!;
+
+  it("matches a Forgejo instance by its resolved web authority and mount path", () => {
+    // Refined from an SSH alias: the clone host says nothing about the web instance.
+    const aliased = identity({
+      provider: "forgejo",
+      canonicalKey: "forge.example:4000/git/team/repo",
+      displayName: "git/team/repo",
+      remoteUrl: "git@ssh.forge.example:team/repo.git",
+      webUrl: "http://forge.example:4000/git/team/repo",
+    });
+    expect(
+      changeRequestLinkMatchesRepository(
+        link("http://forge.example:4000/git/Team/Repo/pulls/42"),
+        aliased,
+      ),
+    ).toBe(true);
+    for (const url of [
+      "http://forge.example:3000/git/team/repo/pulls/42",
+      "http://other.example:4000/git/team/repo/pulls/42",
+      "http://forge.example:4000/other/team/repo/pulls/42",
+      "http://forge.example:4000/Git/team/repo/pulls/42",
+    ]) {
+      expect(changeRequestLinkMatchesRepository(link(url), aliased), url).toBe(false);
+    }
+    expect(
+      changeRequestLinkOnRepositoryInstance(
+        link("http://forge.example:4000/git/team/other/pulls/1"),
+        aliased,
+      ),
+    ).toBe(true);
+    expect(
+      changeRequestLinkOnRepositoryInstance(
+        link("http://forge.example:4000/Git/team/other/pulls/1"),
+        aliased,
+      ),
+    ).toBe(false);
+    expect(
+      changeRequestLinkOnRepositoryInstance(
+        link("http://forge.example:3000/git/team/other/pulls/1"),
+        aliased,
+      ),
+    ).toBe(false);
+  });
+
+  it("reads the Forgejo web authority from an HTTP remote when nothing was resolved", () => {
+    const projects = [3000, 4000].map((port) =>
+      identity({
+        provider: "forgejo",
+        canonicalKey: "forge.example/git/team/repo",
+        displayName: "git/team/repo",
+        remoteUrl: `http://forge.example:${port}/git/team/repo.git`,
+      }),
+    );
+    const reference = link("http://forge.example:4000/git/team/repo/pulls/42");
+    expect(
+      projects.map((project) => changeRequestLinkMatchesRepository(reference, project)),
+    ).toEqual([false, true]);
+  });
+
+  it("matches an unresolved Forgejo SSH remote by hostname alone", () => {
+    // Neither the port nor the mount is known, so the login is left to tell instances apart.
+    const checkout = identity({
+      provider: "forgejo",
+      canonicalKey: "forge.example/git/team/repo",
+      displayName: "git/team/repo",
+      remoteUrl: "git@forge.example:git/team/repo.git",
+    });
+    expect(
+      changeRequestLinkMatchesRepository(
+        link("http://forge.example:4000/git/team/repo/pulls/42"),
+        checkout,
+      ),
+    ).toBe(true);
+    expect(
+      changeRequestLinkMatchesRepository(
+        link("http://other.example:4000/git/team/repo/pulls/42"),
+        checkout,
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps case-distinct Forgejo mount paths apart while folding owner and repository", () => {
+    const projects = ["Forge", "forge"].map((mount) =>
+      identity({
+        provider: "forgejo",
+        canonicalKey: `git.example.test/${mount}/owner/repo`,
+        displayName: `${mount}/owner/repo`,
+      }),
+    );
+    const matches = (url: string) =>
+      projects.map((project) => changeRequestLinkMatchesRepository(link(url), project));
+    expect(matches("https://git.example.test/Forge/Owner/Repo/pulls/7")).toEqual([true, false]);
+    expect(matches("https://git.example.test/forge/Owner/Repo/pulls/7")).toEqual([false, true]);
+  });
+
+  it("matches hosted providers by hostname and the whole folded path", () => {
+    const enterprise = identity({
+      provider: "github",
+      canonicalKey: "github.acme.test/team/web",
+      displayName: "team/web",
+      remoteUrl: "https://github.acme.test:8443/Team/Web.git",
+    });
+    // GitHub links carry no authority; a remote's HTTP port must not keep them apart.
+    expect(
+      changeRequestLinkMatchesRepository(
+        link("https://github.acme.test/Team/Web/pull/1"),
+        enterprise,
+      ),
+    ).toBe(true);
+    expect(
+      changeRequestLinkMatchesRepository(link("https://github.com/team/web/pull/1"), enterprise),
+    ).toBe(false);
+    const nested = identity({
+      provider: "gitlab",
+      canonicalKey: "gitlab.com/t3tools/platform/t3code",
+      displayName: "t3tools/platform/t3code",
+    });
+    expect(
+      changeRequestLinkMatchesRepository(
+        link("https://gitlab.com/T3Tools/Platform/T3Code/-/merge_requests/1"),
+        nested,
+      ),
+    ).toBe(true);
+    expect(
+      changeRequestLinkMatchesRepository(
+        link("https://gitlab.com/t3tools/t3code/-/merge_requests/1"),
+        nested,
+      ),
+    ).toBe(false);
+  });
+
+  it("matches Azure checkouts by their canonical repository whatever host they were cloned from", () => {
+    const reference = link("https://dev.azure.com/org-a/project/_git/web/pullrequest/42");
+    for (const canonicalKey of [
+      "ssh.dev.azure.com/v3/org-a/project/web",
+      "vs-ssh.visualstudio.com/v3/org-a/project/web",
+      "org-a.visualstudio.com/defaultcollection/project/_git/web",
+      "dev.azure.com/org-a/project/_git/web",
+    ]) {
+      const checkout = identity({
+        provider: "azure-devops",
+        canonicalKey,
+        displayName: canonicalKey.split("/").slice(1).join("/"),
+      });
+      expect(changeRequestLinkMatchesRepository(reference, checkout), canonicalKey).toBe(true);
+      expect(
+        changeRequestLinkMatchesRepository(
+          link("https://dev.azure.com/org-b/project/_git/web/pullrequest/42"),
+          checkout,
+        ),
+      ).toBe(false);
+    }
+  });
+
+  it("matches nothing without an identity or a repository to compare", () => {
+    const reference = link("https://github.com/acme/web/pull/1");
+    expect(changeRequestLinkMatchesRepository(reference, null)).toBe(false);
+    expect(
+      changeRequestLinkMatchesRepository(
+        reference,
+        identity({ provider: "github", canonicalKey: "github.com" }),
+      ),
     ).toBe(false);
   });
 });

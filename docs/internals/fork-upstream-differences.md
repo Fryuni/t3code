@@ -58,14 +58,7 @@ upstream. Do not revert the original feature wholesale.
 
 Remaining differences include:
 
-- URL/path normalization and preserving HTTP origins and instance-path case.
-- PR parsing, matching, linking, and synchronization adjustments.
 - A Forgejo repository-publishing option in the web Git actions.
-
-Start with [sourceControl.ts](../../packages/shared/src/sourceControl.ts). Compare
-residual patches individually against upstream behavior and their focused tests.
-This area overlaps the PR-link investigation through repository identity and
-shared URL helpers; coordinate ownership before editing those files.
 
 Remote discovery is settled. Forgejo and Gitea remotes run on upstream's shared
 provider pipeline, and each retained extension has a test that fails when the
@@ -73,6 +66,14 @@ extension is removed. The retained branches, their reasons, and their regression
 tests are recorded in
 [ADR 0001](../adr/0001-forgejo-discovery-extensions.md); do not re-audit them
 here.
+
+Repository identity is settled. Forgejo remotes, stored pull-request links, and
+generated links share the upstream `canonicalKey` and `ChangeRequestLink` shapes,
+with the fork's per-host folding and web-instance rules living in the shared
+helpers under [sourceControl.ts](../../packages/shared/src/sourceControl.ts) and
+[changeRequestUrl.ts](../../packages/shared/src/changeRequestUrl.ts). The retained
+rules, what upstream does instead, and their regression tests are recorded in
+[ADR 0002](../adr/0002-forgejo-repository-identity.md).
 
 ### 3. Simplify branch/worktree creation differences
 

@@ -83,6 +83,20 @@ describe("PullRequestListResult", () => {
         "forgejo",
       ),
     ).toBe("forge.example");
+    // The login-resolved web URL outranks an HTTP remote that reaches the instance another way.
+    expect(
+      pullRequestHostOf({ ...identity, webUrl: "https://forge.example:8443/team/repo" }, "forgejo"),
+    ).toBe("forge.example:8443");
+    expect(
+      pullRequestHostOf(
+        {
+          ...identity,
+          webUrl: "https://forge.example:8443/team/repo",
+          locator: { remoteUrl: "git@ssh.forge.example:team/repo.git" },
+        },
+        "forgejo",
+      ),
+    ).toBe("forge.example:8443");
   });
   /**
    * The RPC builds this codec at call time, so a shape it cannot lower — an open-keyed record

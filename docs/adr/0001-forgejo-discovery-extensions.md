@@ -61,8 +61,8 @@ test that fails if login matching ever starts folding it.
 
 ## Out of scope
 
-Other Forgejo differences remain open and are not decided here: PR reference
-parsing and head matching that fold owner/repository case, the shared
-`canonicalRepositoryKey` normalization that preserves instance-path case, and
-the Forgejo publishing option in the web Git actions. See
+Repository identity — the shared `canonicalRepositoryKey` normalization that
+preserves instance-path case, PR reference parsing, and link matching — is
+decided in [ADR 0002](0002-forgejo-repository-identity.md). The Forgejo
+publishing option in the web Git actions remains open; see
 [fork-upstream-differences.md](../internals/fork-upstream-differences.md).
