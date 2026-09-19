@@ -58,20 +58,21 @@ upstream. Do not revert the original feature wholesale.
 
 Remaining differences include:
 
-- Discovering an SSH remote through its advertised clone URL when the SSH and
-  web hosts differ.
-- Caching remote refinement and discovery.
 - URL/path normalization and preserving HTTP origins and instance-path case.
 - PR parsing, matching, linking, and synchronization adjustments.
 - A Forgejo repository-publishing option in the web Git actions.
 
-Start with [ForgejoCli.ts](../../apps/server/src/sourceControl/ForgejoCli.ts),
-[SourceControlProviderRegistry.ts](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts),
-and [sourceControl.ts](../../packages/shared/src/sourceControl.ts).
+Start with [sourceControl.ts](../../packages/shared/src/sourceControl.ts). Compare
+residual patches individually against upstream behavior and their focused tests.
+This area overlaps the PR-link investigation through repository identity and
+shared URL helpers; coordinate ownership before editing those files.
 
-Compare residual patches individually against upstream behavior and their focused
-tests. This area overlaps the PR-link investigation through repository identity
-and shared URL helpers; coordinate ownership before editing those files.
+Remote discovery is settled. Forgejo and Gitea remotes run on upstream's shared
+provider pipeline, and each retained extension has a test that fails when the
+extension is removed. The retained branches, their reasons, and their regression
+tests are recorded in
+[ADR 0001](../adr/0001-forgejo-discovery-extensions.md); do not re-audit them
+here.
 
 ### 3. Simplify branch/worktree creation differences
 

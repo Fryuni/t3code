@@ -1627,6 +1627,44 @@ it.effect(
     ),
 );
 
+it("parses Forgejo remotes padded by whitespace", () => {
+  // Pasted references arrive padded, and the surrounding space must not reach the URL parser
+  // or the scp-form pattern, which would otherwise read it as part of the host.
+  assert.deepStrictEqual(
+    ForgejoCli.parseForgejoRemote("  HTTPS://forge.example:3000/Forge/Owner/Repo.git  "),
+    {
+      host: "forge.example:3000",
+      hostname: "forge.example",
+      ssh: false,
+      path: "Forge/Owner/Repo",
+    },
+  );
+  assert.deepStrictEqual(ForgejoCli.parseForgejoRemote("\tgit@ssh.example:Owner/Repo.git\n"), {
+    host: "ssh.example",
+    hostname: "ssh.example",
+    ssh: true,
+    path: "Owner/Repo",
+  });
+});
+
+it("keeps case-distinct mounted Forgejo instances separate when selecting a login", () => {
+  // Instance mount paths are case-sensitive, so `/Forge` and `/forge` are different servers
+  // and must never fold together when a login is selected.
+  const logins = ["Forge", "forge"].map((path) => ({
+    name: path,
+    url: `https://forge.example:3000/${path}`,
+    user: "alice",
+    default: "false",
+    ssh_host: path === "Forge" ? "ssh.example:2222" : "ssh.example:3333",
+  }));
+  const select = (remoteUrl: string) =>
+    ForgejoCli.matchForgejoLogin(logins, ForgejoCli.parseForgejoRemote(remoteUrl)!)?.name;
+  assert.strictEqual(select("https://forge.example:3000/Forge/Owner/Repo.git"), "Forge");
+  assert.strictEqual(select("https://forge.example:3000/forge/Owner/Repo.git"), "forge");
+  assert.strictEqual(select("ssh://git@ssh.example:3333/Owner/Repo.git"), "forge");
+  assert.isUndefined(select("https://forge.example:4000/Forge/Owner/Repo.git"));
+});
+
 for (const scenario of [
   "matching",
   "wrong-path",
