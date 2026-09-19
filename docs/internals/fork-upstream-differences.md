@@ -38,26 +38,15 @@ Recheck the baseline if either branch advances.
 
 ### 1. Consolidate worktree cleanup
 
-**Strongest pruning candidate, but not behaviorally equivalent.**
+Worktree removal now uses the configurable cleanup inherited from upstream in
+`c4ca1b0f9` (#11598). Settlement and provider session stops do not trigger removal.
+[storageCleanup.ts](../../apps/server/src/storageCleanup.ts) owns the age, merge,
+deletion, and unchanged-branch policies and their safety checks, including
+protection for worktrees shared by multiple nondeleted thread records.
 
-The fork removes a clean worktree once its last active thread settles and provider
-sessions have stopped. It preserves the main checkout and branches. Upstream
-added configurable cleanup for age, merge, deletion, and unchanged branches in
-`c4ca1b0f9` (#11598).
-
-The fork now has two cleanup mechanisms. The settlement path operates independently
-of upstream's cleanup settings. Upstream's cleanup has additional checks around
-terminals, ignored files, workspace leases, and revalidation before removal.
-It also excludes worktrees shared by multiple nondeleted thread records, whereas
-the settlement implementation can remove one after the other users have settled.
-
-Start with [ThreadSettlementReactor.ts](../../apps/server/src/orchestration/ThreadSettlementReactor.ts)
-and [storageCleanup.ts](../../apps/server/src/storageCleanup.ts).
-
-Investigate moving any desired settlement trigger and shared-worktree semantics
-into the upstream cleanup system. Simply deleting the settlement worker loses
-immediate cleanup on settlement. Verify settings behavior, shared worktrees,
-active sessions/terminals, and resuming a thread after removal before pruning.
+Keep settlement detection and normalized repository matching in
+[ThreadSettlementReactor.ts](../../apps/server/src/orchestration/ThreadSettlementReactor.ts)
+independent of cleanup policy.
 
 ### 2. Reduce Forgejo-specific differences
 
