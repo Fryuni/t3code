@@ -69,17 +69,10 @@ shared URL helpers; coordinate ownership before editing those files.
 
 Remote discovery is settled. Forgejo and Gitea remotes run on upstream's shared
 provider pipeline, and each retained extension has a test that fails when the
-extension is removed.
-[ForgejoCli.ts](../../apps/server/src/sourceControl/ForgejoCli.ts) matches an SSH
-remote against the server's advertised clone URL, so an instance whose SSH
-authority differs from its web authority resolves at all. It probes lazily, only
-after a plain `ssh_host` match fails, because it costs an authenticated API call
-per login; `resolveTarget` therefore retries with the raw SSH remote, since its
-first pass deliberately passes the web base URL so HTTP-origin detection still
-works. It also trims remote strings, which arrive padded from pasted references.
-[SourceControlProviderRegistry.ts](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts)
-caches refinement by context value rather than by checkout, because status reads
-supply a fresh context each time and would otherwise repeat that probe.
+extension is removed. The retained branches, their reasons, and their regression
+tests are recorded in
+[ADR 0001](../adr/0001-forgejo-discovery-extensions.md); do not re-audit them
+here.
 
 ### 3. Simplify branch/worktree creation differences
 
