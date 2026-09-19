@@ -1569,6 +1569,27 @@ describe("cached pull request detail", () => {
     expect(snapshot?.deletions).toBe(3);
   });
 
+  it("keeps case-distinct Forgejo mounts apart while folding owner and repository", () => {
+    const storage = makeStorage();
+    const upper = { ...reference, host: "forge.example", repository: "Forge/acme/web" };
+    const lower = { ...upper, repository: "forge/acme/web" };
+    const forgejoDetail = (target: typeof upper, title: string) =>
+      detail({
+        provider: "forgejo",
+        repository: target.repository,
+        url: `https://forge.example/${target.repository}/pulls/${target.number}`,
+        title,
+      });
+    writePullRequestDetailSnapshot(storage, "env-1", upper, forgejoDetail(upper, "Upper"));
+    writePullRequestDetailSnapshot(storage, "env-1", lower, forgejoDetail(lower, "Lower"));
+    expect(readPullRequestDetailSnapshot(storage, "env-1", upper)?.title).toBe("Upper");
+    expect(
+      readPullRequestDetailSnapshot(storage, "env-1", { ...upper, repository: "Forge/ACME/WEB" })
+        ?.title,
+    ).toBe("Upper");
+    expect(readPullRequestDetailSnapshot(storage, "env-1", lower)?.title).toBe("Lower");
+  });
+
   it("reuses a host-qualified snapshot when reopening a thread link without a host", () => {
     const storage = makeStorage();
     writePullRequestDetailSnapshot(

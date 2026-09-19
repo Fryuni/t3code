@@ -48,12 +48,12 @@ const makeProvider = (api: ForgejoCli.ForgejoCli["Service"]["api"]) =>
     ),
   );
 
-it.effect("preserves fork identity and draft status for a normalized PR URL", () =>
+it.effect("preserves fork identity and draft status for a PR URL", () =>
   Effect.gen(function* () {
     const provider = yield* makeProvider(() => Effect.succeed(output(pullRequest)));
     const pr = yield* provider.getChangeRequest({
       cwd: "/repo",
-      reference: `  ${pullRequest.html_url.replace("https:", "HTTPS:")}  `,
+      reference: pullRequest.html_url.replace("https:", "HTTPS:"),
     });
     assert.strictEqual(pr.number, 42);
     assert.strictEqual(pr.isDraft, true);
@@ -62,40 +62,51 @@ it.effect("preserves fork identity and draft status for a normalized PR URL", ()
   }),
 );
 
-it.effect("pages past other forks and closed unmerged PRs before applying the limit", () =>
-  Effect.gen(function* () {
-    let page = 0;
-    const provider = yield* makeProvider((input) => {
-      page++;
-      assert.include(input.path, `page=${page}`);
-      return Effect.succeed(
-        output(
-          page === 1
-            ? [
-                { ...pullRequest, state: "closed" },
-                {
-                  ...pullRequest,
-                  merged: true,
-                  head: {
-                    ...pullRequest.head,
-                    repo: { full_name: "Other/Repo", owner: { login: "Other" } },
-                  },
-                },
-              ]
-            : [{ ...pullRequest, merged: true }],
-        ),
-      );
-    });
-    const prs = yield* provider.listChangeRequests({
-      cwd: "/repo",
-      headSelector: "contributor:feature",
-      state: "merged",
-      limit: 1,
-    });
-    assert.strictEqual(page, 2);
-    assert.strictEqual(prs.length, 1);
-    assert.strictEqual(prs[0]?.state, "merged");
-  }),
+// Forgejo owners and repositories are case-insensitive, but the API spells them as the server
+// does, so the selector's spelling cannot be compared exactly.
+it.effect.each([
+  { headSelector: "contributor:feature" },
+  { headSelector: "feature", source: { repository: "contributor/repo", refName: "feature" } },
+])(
+  "pages past other forks and closed unmerged PRs before applying the limit: $headSelector",
+  (selector) =>
+    Effect.gen(function* () {
+      let page = 0;
+      const provider = yield* makeProvider((input) => {
+        page++;
+        assert.include(input.path, `page=${page}`);
+        // The listing only stops on an empty page; an exhausted server must end the loop
+        // even when a broken filter matches nothing.
+        return Effect.succeed(
+          output(
+            page > 2
+              ? []
+              : page === 1
+                ? [
+                    { ...pullRequest, state: "closed" },
+                    {
+                      ...pullRequest,
+                      merged: true,
+                      head: {
+                        ...pullRequest.head,
+                        repo: { full_name: "Other/Repo", owner: { login: "Other" } },
+                      },
+                    },
+                  ]
+                : [{ ...pullRequest, merged: true }],
+          ),
+        );
+      });
+      const prs = yield* provider.listChangeRequests({
+        cwd: "/repo",
+        ...selector,
+        state: "merged",
+        limit: 1,
+      });
+      assert.strictEqual(page, 2);
+      assert.strictEqual(prs.length, 1);
+      assert.strictEqual(prs[0]?.state, "merged");
+    }),
 );
 
 it.effect("creates a fork PR with explicit target, branches and literal title", () =>
@@ -122,6 +133,38 @@ it.effect("creates a fork PR with explicit target, branches and literal title", 
     });
     assert.strictEqual(calls[0]?.path, "repos/Owner/Repo/pulls");
   }),
+);
+
+it.effect.each([
+  { login: "owner", path: "user/repos" },
+  { login: "someone-else", path: "orgs/Owner/repos" },
+])(
+  "publishes under the login's own namespace only when it owns the repository: $login",
+  ({ login, path }) =>
+    Effect.gen(function* () {
+      const paths: string[] = [];
+      const provider = yield* makeProvider((input) => {
+        paths.push(input.path);
+        return Effect.succeed(
+          output(
+            input.path === "user"
+              ? { login }
+              : {
+                  full_name: "Owner/Repo",
+                  clone_url: "https://forge.example/Owner/Repo.git",
+                  ssh_url: "git@forge.example:Owner/Repo.git",
+                },
+          ),
+        );
+      });
+      // Forgejo logins are case-insensitive: the resolved owner is "Owner", the login "owner".
+      yield* provider.createRepository({
+        cwd: "/repo",
+        repository: "Owner/Repo",
+        visibility: "private",
+      });
+      assert.deepStrictEqual(paths, ["user", path]);
+    }),
 );
 
 it.effect("rejects incomplete PR metadata", () =>

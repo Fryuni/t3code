@@ -139,6 +139,36 @@ describe("createdPullRequestKey", () => {
     ).toBeNull();
   });
 
+  it("folds a Forgejo fallback the way the instance does, keeping the mount path's case", () => {
+    const forgejo: OrchestrationProjectShell = {
+      ...project,
+      repositoryIdentity: {
+        canonicalKey: "forge.example:3000/Forge/owner/repo",
+        locator: {
+          source: "git-remote",
+          remoteName: "origin",
+          remoteUrl: "ssh://git@ssh.example:2222/Owner/Repo.git",
+        },
+        provider: "forgejo",
+        displayName: "Forge/Owner/Repo",
+        owner: "Owner",
+        name: "Repo",
+        webUrl: "https://forge.example:3000/Forge/Owner/Repo",
+      },
+    };
+    expect(
+      createdPullRequestKey(
+        prResult({ status: "created", number: 5, url: "https://forge.example:3000/-/x/5" }),
+        forgejo,
+      ),
+    ).toEqual({
+      host: "forge.example:3000",
+      repository: "Forge/owner/repo",
+      number: 5,
+      url: "https://forge.example:3000/-/x/5",
+    });
+  });
+
   it("yields nothing when no pull request came out of the action", () => {
     expect(
       createdPullRequestKey(prResult({ status: "skipped_not_requested" }), project),

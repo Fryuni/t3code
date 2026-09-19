@@ -87,6 +87,7 @@ export const make = Effect.gen(function* () {
   const pullRequests = yield* PullRequestService.PullRequestService;
   const crypto = yield* Crypto.Crypto;
   const fileSystem = yield* FileSystem.FileSystem;
+
   const sweep = Effect.fn("ThreadSettlementReactor.sweep")(function* (
     mergedPullRequest: PullRequestService.PullRequestMergeEvent | null,
     threadId?: ThreadId,
@@ -355,10 +356,7 @@ export const make = Effect.gen(function* () {
     yield* forkParked(Stream.runForEach(events, processEvent));
   });
 
-  return {
-    start,
-    drain: worker.drain,
-  } satisfies ThreadSettlementReactor["Service"];
+  return { start, drain: worker.drain } satisfies ThreadSettlementReactor["Service"];
 });
 
 export const layer = Layer.effect(ThreadSettlementReactor, make);

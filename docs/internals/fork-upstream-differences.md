@@ -75,6 +75,11 @@ helpers under [sourceControl.ts](../../packages/shared/src/sourceControl.ts) and
 rules, what upstream does instead, and their regression tests are recorded in
 [ADR 0002](../adr/0002-forgejo-repository-identity.md).
 
+Pull-request parsing and synchronization are settled. References reach the Forgejo
+provider through upstream's GitManager normalization, the provider keeps only its two
+case-insensitive compares, and every synchronization site is a consumer of the shared
+fold. See [ADR 0003](../adr/0003-forgejo-pull-request-parsing-and-sync.md).
+
 ### 3. Simplify branch/worktree creation differences
 
 **Related upstream features exist, but the local behavior remains distinct.**
