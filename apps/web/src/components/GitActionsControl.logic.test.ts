@@ -1,9 +1,13 @@
-import type { VcsStatusResult } from "@t3tools/contracts";
+import type { SourceControlProviderDiscoveryItem, VcsStatusResult } from "@t3tools/contracts";
+import * as Option from "effect/Option";
 import { assert, describe, it } from "vite-plus/test";
 import {
+  PUBLISH_PROVIDER_OPTIONS,
   buildGitActionProgressStages,
   buildMenuItems,
+  getPublishProviderReadiness,
   requiresDefaultBranchConfirmation,
+  resolvePublishHost,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
@@ -1151,5 +1155,116 @@ describe("resolveAutoFeatureBranchName", () => {
   it("falls back to feature/update when no preferred name is provided", () => {
     const ref = resolveAutoFeatureBranchName(["main"]);
     assert.equal(ref, "feature/update");
+  });
+});
+
+function discoveredProvider(
+  overrides: Partial<Omit<SourceControlProviderDiscoveryItem, "auth">> & {
+    auth?: Partial<SourceControlProviderDiscoveryItem["auth"]>;
+  } = {},
+): SourceControlProviderDiscoveryItem {
+  const { auth, ...rest } = overrides;
+  return {
+    kind: "forgejo",
+    label: "Forgejo / Gitea",
+    status: "available",
+    version: Option.none(),
+    installHint: "Install fj or tea.",
+    detail: Option.none(),
+    ...rest,
+    auth: {
+      status: "authenticated",
+      account: Option.some("octo"),
+      host: Option.some("git.example.com"),
+      detail: Option.none(),
+      ...auth,
+    },
+  };
+}
+
+describe("publish provider options", () => {
+  it("lists each provider once", () => {
+    const values = PUBLISH_PROVIDER_OPTIONS.map((option) => option.value);
+    assert.deepEqual([...new Set(values)], values);
+  });
+
+  it("offers a single Forgejo / Gitea choice that takes an owner/repo destination", () => {
+    const forgejoOptions = PUBLISH_PROVIDER_OPTIONS.filter((option) => option.value === "forgejo");
+    assert.equal(forgejoOptions.length, 1);
+    assert.deepInclude(forgejoOptions[0], {
+      label: "Forgejo / Gitea",
+      pathPlaceholder: "owner/repo",
+    });
+  });
+});
+
+describe("resolvePublishHost", () => {
+  it("uses the signed-in Forgejo or Gitea server host", () => {
+    const host = resolvePublishHost({
+      provider: "forgejo",
+      sourceControlProviders: [discoveredProvider()],
+    });
+    assert.equal(host, "git.example.com");
+  });
+
+  it("falls back to the option host when no Forgejo server host is known", () => {
+    const host = resolvePublishHost({
+      provider: "forgejo",
+      sourceControlProviders: [discoveredProvider({ auth: { host: Option.none() } })],
+    });
+    assert.equal(host, "your server");
+  });
+
+  it("uses the fixed host for hosted providers", () => {
+    const host = resolvePublishHost({
+      provider: "github",
+      sourceControlProviders: [
+        discoveredProvider({
+          kind: "github",
+          label: "GitHub",
+          auth: { host: Option.some("ghe.example.com") },
+        }),
+      ],
+    });
+    assert.equal(host, "github.com");
+  });
+});
+
+describe("getPublishProviderReadiness", () => {
+  it("is ready when the provider is installed and signed in", () => {
+    const readiness = getPublishProviderReadiness({
+      provider: "forgejo",
+      sourceControlProviders: [discoveredProvider()],
+    });
+    assert.deepEqual(readiness, { ready: true, hint: null });
+  });
+
+  it("asks for a rescan when discovery has no entry for the provider", () => {
+    const readiness = getPublishProviderReadiness({
+      provider: "forgejo",
+      sourceControlProviders: [],
+    });
+    assert.equal(readiness.ready, false);
+    assert.match(readiness.hint ?? "", /rescan/);
+  });
+
+  it("surfaces the install hint when the CLI is missing", () => {
+    const readiness = getPublishProviderReadiness({
+      provider: "forgejo",
+      sourceControlProviders: [discoveredProvider({ status: "missing" })],
+    });
+    assert.deepEqual(readiness, { ready: false, hint: "Install fj or tea." });
+  });
+
+  it("surfaces the auth detail when the provider is signed out", () => {
+    const readiness = getPublishProviderReadiness({
+      provider: "forgejo",
+      sourceControlProviders: [
+        discoveredProvider({
+          auth: { status: "unauthenticated", detail: Option.some("Run tea login.") },
+        }),
+      ],
+    });
+    assert.deepEqual(readiness, { ready: false, hint: "Run tea login." });
   });
 });

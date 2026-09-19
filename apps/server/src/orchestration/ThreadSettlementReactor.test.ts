@@ -1,7 +1,6 @@
 import {
   DEFAULT_SERVER_SETTINGS,
   EventId,
-  GitCommandError,
   ProjectId,
   ProviderInstanceId,
   ProviderDriverKind,
@@ -190,8 +189,6 @@ interface HarnessOptions {
   readonly branchPullRequest?: GitManager["Service"]["branchPullRequest"];
   readonly pullRequestSummary?: PullRequestService["Service"]["summary"];
   readonly existingWorktreePaths?: ReadonlyArray<string>;
-  readonly canonicalPaths?: Readonly<Record<string, string>>;
-  readonly removeWorktree?: GitWorkflowService["Service"]["removeWorktree"];
   readonly publishSettlements?: boolean;
   readonly onDispatch?: (
     command: AutoSettleCommand,
@@ -301,10 +298,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
       invalidateStatus: (cwd) => Ref.update(invalidatedCwds, (cwds) => [...cwds, cwd]),
     }),
     Layer.mock(GitWorkflowService)({
-      removeWorktree: (input) =>
-        Ref.update(removedWorktrees, (calls) => [...calls, input]).pipe(
-          Effect.andThen(options.removeWorktree?.(input) ?? Effect.void),
-        ),
+      removeWorktree: (input) => Ref.update(removedWorktrees, (calls) => [...calls, input]),
     }),
     Layer.mock(PullRequestService)({
       summary: pullRequestSummary,
@@ -326,7 +320,7 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     Layer.succeed(Crypto.Crypto, testCrypto),
     FileSystem.layerNoop({
       exists: (path) => Effect.succeed(options.existingWorktreePaths?.includes(path) ?? false),
-      realPath: (path) => Effect.succeed(options.canonicalPaths?.[path] ?? path),
+      realPath: (path) => Effect.succeed(path),
     }),
     Path.layer,
   );
@@ -375,223 +369,65 @@ describe("ThreadSettlementReactor", () => {
     sidebarAutoSettleOnMerge: false,
   };
 
-  it.effect.each([
-    { name: "main worktree", path: null, others: [], removed: false },
-    { name: "explicit project root", path: "/workspace/project/.", others: [], removed: false },
-    { name: "project root alias", path: "/workspace/root-alias", others: [], removed: false },
-    { name: "unused worktree", path: worktreePath, others: [], removed: true },
-    {
-      name: "another active thread",
-      path: worktreePath,
-      others: [makeThread("other", { worktreePath })],
-      removed: false,
-    },
-    {
-      name: "active thread through an alias",
-      path: worktreePath,
-      others: [makeThread("other", { worktreePath: "/workspace/feature-alias" })],
-      removed: false,
-    },
-    {
-      name: "active thread in another project root",
-      path: worktreePath,
-      others: [makeThread("other", { projectId: LINKED_PROJECT_ID })],
-      removed: false,
-    },
-    {
-      name: "another settled thread",
-      path: worktreePath,
-      others: [makeThread("other", { worktreePath, settledOverride: "settled", settledAt: NOW })],
-      removed: true,
-    },
-    {
-      name: "archived thread",
-      path: worktreePath,
-      others: [makeThread("other", { worktreePath, archivedAt: NOW })],
-      removed: true,
-    },
-    {
-      name: "active thread in a different worktree",
-      path: worktreePath,
-      others: [makeThread("other", { worktreePath: "/workspace/different" })],
-      removed: true,
-    },
-  ])("cleans up manual settlement with $name", ({ path, others, removed }) =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const thread = makeThread("manual", { worktreePath: path, branch: "feature" });
-        const fixture = yield* makeHarness({
-          snapshot: makeSnapshot(
-            [thread, ...others],
-            [makeProject(), makeProject(LINKED_PROJECT_ID, worktreePath)],
-          ),
-          settings: cleanupSettings,
-          canonicalPaths: {
-            "/workspace/root-alias": "/workspace/project",
-            "/workspace/feature-alias": worktreePath,
-          },
-        });
-        yield* Effect.gen(function* () {
-          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
-          yield* reactor.start();
-          yield* Deferred.succeed(fixture.activation, undefined);
-          yield* fixture.settle(thread.id);
-          yield* Queue.take(fixture.snapshotReads);
-          yield* reactor.drain;
-          assert.deepStrictEqual(
-            yield* Ref.get(fixture.removedWorktrees),
-            removed ? [{ cwd: "/workspace/project", path: worktreePath }] : [],
-          );
-          const current = (yield* Ref.get(fixture.snapshots)).threads[0]!;
-          assert.strictEqual(current.branch, "feature");
-          assert.strictEqual(current.worktreePath, path);
-        }).pipe(Effect.provide(fixture.layer));
-      }),
-    ),
-  );
-
-  it.effect("cleans up after a merged pull request automatically settles a thread", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        yield* TestClock.setTime(Date.parse(NOW));
-        const removed = yield* Deferred.make<void>();
-        const fixture = yield* makeHarness({
-          snapshot: makeSnapshot([
-            makeThread("merged", {
-              worktreePath,
-              branch: "feature",
-              latestUserMessageAt: "2026-08-27T00:00:00.000Z",
-            }),
-          ]),
-          settings: { ...cleanupSettings, sidebarAutoSettleOnMerge: true },
-          branchPullRequest: () => Effect.succeed(makeBranchPullRequest("merged")),
-          publishSettlements: true,
-          removeWorktree: () => Deferred.succeed(removed, undefined).pipe(Effect.asVoid),
-        });
-        yield* Effect.gen(function* () {
-          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
-          yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
-          yield* Deferred.await(removed);
-          yield* reactor.drain;
-          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), [
-            { cwd: "/workspace/project", path: worktreePath },
-          ]);
-        }).pipe(Effect.provide(fixture.layer));
-      }),
-    ),
-  );
-
-  it.effect("waits for the last thread sharing a worktree to settle and stop its session", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const first = makeThread("first", { worktreePath });
-        const second = makeThread("second", {
-          worktreePath,
-          session: {
-            threadId: ThreadId.make("second"),
-            status: "ready",
-            providerName: "codex",
-            runtimeMode: "full-access",
-            activeTurnId: null,
-            lastError: null,
-            updatedAt: NOW,
-          },
-        });
-        const fixture = yield* makeHarness({
-          snapshot: makeSnapshot([first, second]),
-          settings: cleanupSettings,
-        });
-        yield* Effect.gen(function* () {
-          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
-          yield* reactor.start();
-          yield* Deferred.succeed(fixture.activation, undefined);
-          for (const thread of [first, second]) {
-            yield* fixture.settle(thread.id);
+  it.effect.each(["manual", "automatic", "session-stop"] as const)(
+    "retains the worktree after %s settlement cleanup triggers",
+    (trigger) =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse(NOW));
+          const thread = makeThread(trigger, {
+            worktreePath,
+            branch: "feature",
+            latestUserMessageAt: "2026-08-27T00:00:00.000Z",
+          });
+          const fixture = yield* makeHarness({
+            snapshot: makeSnapshot([thread]),
+            settings: { ...cleanupSettings, sidebarAutoSettleOnMerge: true },
+            branchPullRequest: () =>
+              Effect.succeed(trigger === "automatic" ? makeBranchPullRequest("merged") : null),
+            publishSettlements: true,
+          });
+          yield* Effect.gen(function* () {
+            const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
+            yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+            if (trigger !== "automatic") yield* fixture.settle(thread.id);
+            // A session event follows settlement on the same subscription. Wait
+            // for its sweep to read the snapshot before draining the workers.
+            const session = {
+              threadId: thread.id,
+              status: trigger === "session-stop" ? ("stopped" as const) : ("ready" as const),
+              providerName: "codex" as const,
+              runtimeMode: "full-access" as const,
+              activeTurnId: null,
+              lastError: null,
+              updatedAt: NOW,
+            };
+            yield* Ref.update(fixture.snapshots, (snapshot) => ({
+              ...snapshot,
+              threads: snapshot.threads.map((entry) =>
+                trigger === "session-stop" ? { ...entry, session } : entry,
+              ),
+            }));
+            yield* fixture.publishEvent({
+              ...settledEvent(thread.id),
+              type: "thread.session-set",
+              payload: { threadId: thread.id, session },
+            });
             yield* Queue.take(fixture.snapshotReads);
             yield* reactor.drain;
             assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), []);
-          }
-          const session = { ...second.session!, status: "stopped" as const };
-          yield* Ref.update(fixture.snapshots, (snapshot) => ({
-            ...snapshot,
-            threads: snapshot.threads.map((thread) =>
-              thread.id === second.id ? { ...thread, session } : thread,
-            ),
-          }));
-          yield* fixture.publishEvent({
-            ...settledEvent(second.id),
-            type: "thread.session-set",
-            payload: { threadId: second.id, session },
-          });
-          yield* Queue.take(fixture.snapshotReads);
-          yield* reactor.drain;
-          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), [
-            { cwd: "/workspace/project", path: worktreePath },
-          ]);
-        }).pipe(Effect.provide(fixture.layer));
-      }),
-    ),
+            const current = (yield* Ref.get(fixture.snapshots)).threads[0]!;
+            assert.strictEqual(current.settledOverride, "settled");
+            assert.strictEqual(current.branch, "feature");
+            assert.strictEqual(current.worktreePath, worktreePath);
+            if (trigger === "automatic") {
+              assert.strictEqual((yield* Ref.get(fixture.commands)).length, 1);
+            }
+          }).pipe(Effect.provide(fixture.layer));
+        }),
+      ),
   );
 
-  it.effect("skips a settlement event when the thread has already been reactivated", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const thread = makeThread("reopened", { worktreePath, settledOverride: "active" });
-        const fixture = yield* makeHarness({
-          snapshot: makeSnapshot([thread]),
-          settings: cleanupSettings,
-        });
-        yield* Effect.gen(function* () {
-          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
-          yield* reactor.start();
-          yield* Deferred.succeed(fixture.activation, undefined);
-          yield* fixture.publishEvent(settledEvent(thread.id));
-          yield* Queue.take(fixture.snapshotReads);
-          yield* reactor.drain;
-          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), []);
-        }).pipe(Effect.provide(fixture.layer));
-      }),
-    ),
-  );
-
-  it.effect("continues cleanup after Git refuses a worktree removal", () =>
-    Effect.scoped(
-      Effect.gen(function* () {
-        const fixture = yield* makeHarness({
-          snapshot: makeSnapshot([
-            makeThread("dirty", { worktreePath }),
-            makeThread("clean", { worktreePath: "/workspace/clean" }),
-          ]),
-          settings: cleanupSettings,
-          removeWorktree: (input) =>
-            input.path === worktreePath
-              ? Effect.fail(
-                  new GitCommandError({
-                    operation: "removeWorktree",
-                    cwd: input.cwd,
-                    command: "git worktree remove",
-                    detail: "worktree has changes",
-                  }),
-                )
-              : Effect.void,
-        });
-        yield* Effect.gen(function* () {
-          const reactor = yield* ThreadSettlementReactor.ThreadSettlementReactor;
-          yield* reactor.start();
-          yield* Deferred.succeed(fixture.activation, undefined);
-          for (const id of ["dirty", "clean"]) {
-            yield* fixture.settle(ThreadId.make(id));
-            yield* Queue.take(fixture.snapshotReads);
-            yield* reactor.drain;
-          }
-          assert.deepStrictEqual(yield* Ref.get(fixture.removedWorktrees), [
-            { cwd: "/workspace/project", path: worktreePath },
-            { cwd: "/workspace/project", path: "/workspace/clean" },
-          ]);
-        }).pipe(Effect.provide(fixture.layer));
-      }),
-    ),
-  );
   it("distinguishes a project that inherits the threshold from one that disables it", () => {
     const inherits = ThreadSettlementReactor.autoSettlementSettingsKey({
       ...DEFAULT_SERVER_SETTINGS,
@@ -1671,6 +1507,8 @@ describe("storage cleanup", () => {
 
   for (const protection of [
     "none",
+    "settled-old",
+    "settled-recent",
     "dirty",
     "ignored",
     "ignored-directory",
@@ -1750,7 +1588,12 @@ describe("storage cleanup", () => {
             branch: "feature",
             worktreePath,
             latestUserMessageAt:
-              protection === "recent" ? "2026-08-26T00:00:00.000Z" : "2026-08-01T00:00:00.000Z",
+              protection === "recent" || protection === "settled-recent"
+                ? "2026-08-26T00:00:00.000Z"
+                : "2026-08-01T00:00:00.000Z",
+            ...(protection.startsWith("settled-")
+              ? { settledOverride: "settled" as const, settledAt: NOW }
+              : {}),
             ...(protection === "session"
               ? {
                   session: {
@@ -2116,6 +1959,7 @@ describe("storage cleanup", () => {
             protection === "project-custom" ||
             protection === "deleted-project-custom" ||
             protection === "none" ||
+            protection === "settled-old" ||
             protection === "deleted" ||
             protection === "deleted-event" ||
             protection === "deleted-owner" ||

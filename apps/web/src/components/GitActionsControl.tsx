@@ -9,8 +9,6 @@ import type {
   GitRunStackedActionResult,
   GitStackedAction,
   SourceControlCloneProtocol,
-  SourceControlProviderDiscoveryItem,
-  SourceControlProviderKind,
   SourceControlPublishRepositoryResult,
   SourceControlRepositoryVisibility,
   VcsStatusResult,
@@ -45,6 +43,7 @@ import {
   ForgejoIcon,
   GitHubIcon,
   GitLabIcon,
+  type Icon,
 } from "~/components/Icons";
 import { RadioGroup } from "~/components/ui/radio-group";
 import { Spinner } from "~/components/ui/spinner";
@@ -57,9 +56,16 @@ import {
   type GitActionMenuItem,
   type GitQuickAction,
   type DefaultBranchConfirmableAction,
+  getPublishProviderReadiness,
+  isPublishProviderKind,
+  PUBLISH_PROVIDER_OPTIONS,
+  type PublishProviderKind,
+  type PublishProviderReadiness,
+  publishProviderOption,
   requiresDefaultBranchConfirmation,
   resolveDefaultBranchActionDialogCopy,
   resolveLiveThreadBranchUpdate,
+  resolvePublishHost,
   resolveThreadBranchMetadataPatch,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -122,11 +128,6 @@ interface PendingDefaultBranchAction {
   filePaths?: string[];
 }
 
-type PublishProviderKind = Extract<
-  SourceControlProviderKind,
-  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
->;
-
 type GitActionToastId = ReturnType<typeof toastManager.add>;
 
 interface ActiveGitActionProgress {
@@ -171,103 +172,13 @@ function requestVcsStatusRefresh(
 }
 const RUNNING_SOURCE_CONTROL_ACTIONS = ["runStackedAction", "pull", "publishRepository"] as const;
 
-const PUBLISH_PROVIDER_OPTIONS = [
-  {
-    value: "forgejo",
-    label: "Forgejo / Gitea",
-    description: "Your signed-in server",
-    host: "your server",
-    pathPlaceholder: "owner/repo",
-    Icon: ForgejoIcon,
-  },
-  {
-    value: "github",
-    label: "GitHub",
-    description: "github.com",
-    host: "github.com",
-    pathPlaceholder: "owner/repo",
-    Icon: GitHubIcon,
-  },
-  {
-    value: "forgejo",
-    label: "Forgejo",
-    description: "Your Forgejo instance",
-    host: "",
-    pathPlaceholder: "host/owner/repo",
-    Icon: ForgejoIcon,
-  },
-  {
-    value: "gitlab",
-    label: "GitLab",
-    description: "gitlab.com",
-    host: "gitlab.com",
-    pathPlaceholder: "group/project",
-    Icon: GitLabIcon,
-  },
-  {
-    value: "bitbucket",
-    label: "Bitbucket",
-    description: "bitbucket.org",
-    host: "bitbucket.org",
-    pathPlaceholder: "workspace/repository",
-    Icon: BitbucketIcon,
-  },
-  {
-    value: "azure-devops",
-    label: "Azure DevOps",
-    description: "dev.azure.com",
-    host: "dev.azure.com",
-    pathPlaceholder: "project/repository",
-    Icon: AzureDevOpsIcon,
-  },
-] as const satisfies ReadonlyArray<{
-  readonly value: PublishProviderKind;
-  readonly label: string;
-  readonly description: string;
-  readonly host: string;
-  readonly pathPlaceholder: string;
-  readonly Icon: typeof GitHubIcon;
-}>;
-
-function publishProviderOption(provider: PublishProviderKind) {
-  return (
-    PUBLISH_PROVIDER_OPTIONS.find((option) => option.value === provider) ??
-    PUBLISH_PROVIDER_OPTIONS[0]
-  );
-}
-
-function isPublishProviderKind(
-  provider: SourceControlProviderKind,
-): provider is PublishProviderKind {
-  return PUBLISH_PROVIDER_OPTIONS.some((option) => option.value === provider);
-}
-
-function getPublishProviderReadiness(input: {
-  provider: PublishProviderKind;
-  sourceControlProviders: ReadonlyArray<SourceControlProviderDiscoveryItem>;
-}): { readonly ready: boolean; readonly hint: string | null } {
-  const discovered = input.sourceControlProviders.find(
-    (provider) => provider.kind === input.provider,
-  );
-  if (!discovered) {
-    return {
-      ready: false,
-      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
-    };
-  }
-  if (discovered.status !== "available") {
-    return { ready: false, hint: discovered.installHint };
-  }
-  if (discovered.auth.status === "unauthenticated") {
-    return {
-      ready: false,
-      hint:
-        Option.getOrNull(discovered.auth.detail) ??
-        `${discovered.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
-    };
-  }
-  return { ready: true, hint: null };
-}
+const PUBLISH_PROVIDER_ICONS: Record<PublishProviderKind, Icon> = {
+  forgejo: ForgejoIcon,
+  github: GitHubIcon,
+  gitlab: GitLabIcon,
+  bitbucket: BitbucketIcon,
+  "azure-devops": AzureDevOpsIcon,
+};
 
 function formatElapsedDescription(startedAtMs: number | null): string | undefined {
   if (startedAtMs === null) {
@@ -438,6 +349,10 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     [props.environmentId, props.gitCwd],
   );
   const publishRepositoryAction = useSourceControlPublishRepositoryAction(sourceControlScope);
+  const sourceControlProviders = useMemo(
+    () => sourceControlDiscovery.data?.sourceControlProviders ?? [],
+    [sourceControlDiscovery.data],
+  );
   const publishAccountByProvider = useMemo(() => {
     const accounts: Record<PublishProviderKind, string | null> = {
       github: null,
@@ -446,15 +361,14 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
       bitbucket: null,
       "azure-devops": null,
     };
-    for (const provider of sourceControlDiscovery.data?.sourceControlProviders ?? []) {
+    for (const provider of sourceControlProviders) {
       if (isPublishProviderKind(provider.kind)) {
         accounts[provider.kind] = Option.getOrNull(provider.auth.account);
       }
     }
     return accounts;
-  }, [sourceControlDiscovery.data]);
+  }, [sourceControlProviders]);
   const publishProviderReadiness = useMemo(() => {
-    const sourceControlProviders = sourceControlDiscovery.data?.sourceControlProviders ?? [];
     return Object.fromEntries(
       PUBLISH_PROVIDER_OPTIONS.map((option) => [
         option.value,
@@ -463,8 +377,8 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
           sourceControlProviders,
         }),
       ]),
-    ) as Record<PublishProviderKind, { readonly ready: boolean; readonly hint: string | null }>;
-  }, [sourceControlDiscovery.data]);
+    ) as Record<PublishProviderKind, PublishProviderReadiness>;
+  }, [sourceControlProviders]);
   const hasReadyPublishProvider = useMemo(
     () => PUBLISH_PROVIDER_OPTIONS.some((option) => publishProviderReadiness[option.value].ready),
     [publishProviderReadiness],
@@ -494,14 +408,8 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
     : "";
   const publishRepository = publishRepositoryOverride ?? publishRepositoryPrefill;
   const currentPublishProvider = publishProviderOption(publishProvider);
-  const publishHost =
-    publishProvider === "forgejo"
-      ? (Option.getOrNull(
-          sourceControlDiscovery.data?.sourceControlProviders.find(
-            (provider) => provider.kind === "forgejo",
-          )?.auth.host ?? Option.none(),
-        ) ?? currentPublishProvider.host)
-      : currentPublishProvider.host;
+  const CurrentPublishProviderIcon = PUBLISH_PROVIDER_ICONS[publishProvider];
+  const publishHost = resolvePublishHost({ provider: publishProvider, sourceControlProviders });
   const publishPathPlaceholder = currentPublishProvider.pathPlaceholder;
   const publishProviderLabel = currentPublishProvider.label;
   const publishWizardSteps = ["Provider", "Repository", "Summary"] as const;
@@ -623,6 +531,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
             >
               {sortedPublishProviderOptions.map((option) => {
                 const readiness = publishProviderReadiness[option.value];
+                const OptionIcon = PUBLISH_PROVIDER_ICONS[option.value];
                 const isSelected = publishProvider === option.value && readiness.ready;
                 if (!readiness.ready) {
                   return (
@@ -630,7 +539,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                       key={option.value}
                       className="relative flex cursor-not-allowed items-center gap-3 rounded-lg border border-border bg-background px-3 py-3 text-left opacity-55 dark:border-transparent dark:bg-white/[0.035]"
                     >
-                      <option.Icon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
+                      <OptionIcon className="size-5 shrink-0 text-muted-foreground" aria-hidden />
                       <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                         {option.label}
                       </span>
@@ -672,7 +581,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                         : "border-border bg-background hover:border-foreground/20 hover:bg-muted/50 dark:border-transparent dark:bg-white/[0.035] dark:hover:bg-accent",
                     )}
                   >
-                    <option.Icon className="size-5 shrink-0" aria-hidden />
+                    <OptionIcon className="size-5 shrink-0" aria-hidden />
                     <span className="min-w-0 flex-1 truncate text-sm font-medium text-foreground">
                       {option.label}
                     </span>
@@ -692,8 +601,8 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
               </label>
               <div className="flex items-stretch overflow-hidden rounded-md border border-input bg-background focus-within:outline-2 focus-within:-outline-offset-1 focus-within:outline-ring">
                 <span className="flex shrink-0 items-center gap-1.5 border-r border-input bg-muted/50 px-2.5 font-mono text-xs text-muted-foreground">
-                  <currentPublishProvider.Icon className="size-3.5" />
-                  {publishHost ? `${publishHost}/` : "Forgejo"}
+                  <CurrentPublishProviderIcon className="size-3.5" />
+                  {publishHost}/
                 </span>
                 <input
                   id="publish-repository-path"
@@ -877,7 +786,7 @@ function PublishRepositoryDialog(props: PublishRepositoryDialogProps) {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 rounded-lg border border-input bg-muted/40 px-3 py-2 dark:border-transparent dark:bg-white/[0.035]">
-                  <currentPublishProvider.Icon className="size-3.5 shrink-0 text-muted-foreground" />
+                  <CurrentPublishProviderIcon className="size-3.5 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1 truncate font-mono text-xs text-foreground">
                     {publishResult.repository.nameWithOwner}
                   </span>

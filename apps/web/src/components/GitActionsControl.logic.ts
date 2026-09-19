@@ -1,9 +1,12 @@
 import type {
   GitRunStackedActionResult,
   GitStackedAction,
+  SourceControlProviderDiscoveryItem,
+  SourceControlProviderKind,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
+import * as Option from "effect/Option";
 import {
   DEFAULT_CHANGE_REQUEST_TERMINOLOGY,
   getChangeRequestTerminology,
@@ -42,6 +45,117 @@ export type DefaultBranchConfirmableAction =
   | "create_pr"
   | "commit_push"
   | "commit_push_pr";
+
+export type PublishProviderKind = Extract<
+  SourceControlProviderKind,
+  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
+>;
+
+/**
+ * Providers a repository can be published to, one entry per kind. Hosted providers carry their
+ * fixed host; Forgejo / Gitea resolves to the signed-in server via `resolvePublishHost`.
+ */
+export const PUBLISH_PROVIDER_OPTIONS = [
+  {
+    value: "forgejo",
+    label: "Forgejo / Gitea",
+    description: "Your signed-in server",
+    host: "your server",
+    pathPlaceholder: "owner/repo",
+  },
+  {
+    value: "github",
+    label: "GitHub",
+    description: "github.com",
+    host: "github.com",
+    pathPlaceholder: "owner/repo",
+  },
+  {
+    value: "gitlab",
+    label: "GitLab",
+    description: "gitlab.com",
+    host: "gitlab.com",
+    pathPlaceholder: "group/project",
+  },
+  {
+    value: "bitbucket",
+    label: "Bitbucket",
+    description: "bitbucket.org",
+    host: "bitbucket.org",
+    pathPlaceholder: "workspace/repository",
+  },
+  {
+    value: "azure-devops",
+    label: "Azure DevOps",
+    description: "dev.azure.com",
+    host: "dev.azure.com",
+    pathPlaceholder: "project/repository",
+  },
+] as const satisfies ReadonlyArray<{
+  readonly value: PublishProviderKind;
+  readonly label: string;
+  readonly description: string;
+  readonly host: string;
+  readonly pathPlaceholder: string;
+}>;
+
+export function publishProviderOption(provider: PublishProviderKind) {
+  return (
+    PUBLISH_PROVIDER_OPTIONS.find((option) => option.value === provider) ??
+    PUBLISH_PROVIDER_OPTIONS[0]
+  );
+}
+
+export function isPublishProviderKind(
+  provider: SourceControlProviderKind,
+): provider is PublishProviderKind {
+  return PUBLISH_PROVIDER_OPTIONS.some((option) => option.value === provider);
+}
+
+export interface PublishProviderReadiness {
+  readonly ready: boolean;
+  readonly hint: string | null;
+}
+
+export function getPublishProviderReadiness(input: {
+  provider: PublishProviderKind;
+  sourceControlProviders: ReadonlyArray<SourceControlProviderDiscoveryItem>;
+}): PublishProviderReadiness {
+  const discovered = input.sourceControlProviders.find(
+    (provider) => provider.kind === input.provider,
+  );
+  if (!discovered) {
+    return {
+      ready: false,
+      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
+    };
+  }
+  if (discovered.status !== "available") {
+    return { ready: false, hint: discovered.installHint };
+  }
+  if (discovered.auth.status === "unauthenticated") {
+    return {
+      ready: false,
+      hint:
+        Option.getOrNull(discovered.auth.detail) ??
+        `${discovered.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
+    };
+  }
+  return { ready: true, hint: null };
+}
+
+/** Host shown before the owner/repo input. Forgejo / Gitea has no fixed host, so use the signed-in one. */
+export function resolvePublishHost(input: {
+  provider: PublishProviderKind;
+  sourceControlProviders: ReadonlyArray<SourceControlProviderDiscoveryItem>;
+}): string {
+  const option = publishProviderOption(input.provider);
+  if (input.provider !== "forgejo") {
+    return option.host;
+  }
+  const discovered = input.sourceControlProviders.find((provider) => provider.kind === "forgejo");
+  return (discovered ? Option.getOrNull(discovered.auth.host) : null) ?? option.host;
+}
 
 function resolveChangeRequestTerminology(
   gitStatus: VcsStatusResult | null,
