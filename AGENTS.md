@@ -172,11 +172,11 @@ Full glossary with file links: `docs/internals/glossary.md`
 
 ### Issue tracker
 
-Issues and specs live as gitignored local markdown under `.scratch/<feature-slug>/`, not on GitHub. See `docs/agents/issue-tracker.md`.
+Issues and specs live as GitHub issues on `Fryuni/t3code`. Always pass `--repo Fryuni/t3code` to `gh`, since `upstream` also points at a `t3code`. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-The five canonical triage roles, used verbatim as `Status:` values in issue files. See `docs/agents/triage-labels.md`.
+The five canonical triage roles, as GitHub labels named verbatim. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
