@@ -401,6 +401,24 @@ describe("findProjectOnChangeRequestHost", () => {
     expect(findProjectOnChangeRequestHost([projects[0]!], reference)).toBeUndefined();
   });
 
+  it("borrows credentials only from the exact Forgejo mount", () => {
+    const projects = ["", "git", "git/other"].map((mount) => {
+      const path = [mount, "team/repo"].filter(Boolean).join("/");
+      return project(`forgejo-${mount}`, {
+        canonicalKey: `forge.example/${path}`,
+        provider: "forgejo",
+        displayName: path,
+        webUrl: `https://forge.example/${path}`,
+        locator: { remoteUrl: "git@ssh.forge.example:team/repo.git" },
+      });
+    });
+    const reference = parseChangeRequestUrl(
+      "https://forge.example/git/other/team/another/pulls/42",
+    )!;
+    expect(findProjectOnChangeRequestHost(projects, reference)).toBe(projects[2]);
+    expect(findProjectOnChangeRequestHost(projects.slice(0, 2), reference)).toBeUndefined();
+  });
+
   it("lets tea resolve the web port for Forgejo SSH remotes", () => {
     const checkout = project("forgejo-ssh", {
       canonicalKey: "forge.example/git/team/repo",

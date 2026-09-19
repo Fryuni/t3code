@@ -1,4 +1,5 @@
 import { filterComposerPullRequestMatches } from "@t3tools/shared/composerPullRequestMatches";
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import type { VcsRefTarget } from "@t3tools/client-runtime/state/vcs";
 import type {
   EnvironmentId,
@@ -111,7 +112,10 @@ export function useComposerPullRequestSearch(input: {
   const number = numeric && query ? Number(query) : null;
   const hasExact = list.data?.entries.some(
     (entry) =>
-      entry.number === number && entry.repository.toLowerCase() === input.repository?.toLowerCase(),
+      entry.number === number &&
+      input.repository != null &&
+      normalizeSourceControlRepository(entry.repository) ===
+        normalizeSourceControlRepository(input.repository),
   );
   const exact = useEnvironmentQuery(
     ready && number !== null && Number.isSafeInteger(number) && number > 0 && !hasExact
@@ -136,7 +140,9 @@ export function useComposerPullRequestSearch(input: {
     const found = [...(exact.data ? [exact.data] : []), ...(list.data?.entries ?? [])].filter(
       (entry) =>
         entry.projectId === input.projectId &&
-        entry.repository.toLowerCase() === input.repository?.toLowerCase() &&
+        input.repository != null &&
+        normalizeSourceControlRepository(entry.repository) ===
+          normalizeSourceControlRepository(input.repository) &&
         words.every((word) =>
           `${entry.title} ${entry.headBranch} ${entry.baseBranch}`.toLowerCase().includes(word),
         ),

@@ -13,6 +13,7 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
+import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
 import { decideOrchestrationCommand } from "./decider.ts";
 import { projectEvent } from "./projector.ts";
@@ -477,6 +478,48 @@ it.layer(NodeServices.layer)("pull request link decider", (it) => {
         repository: "t3tools/t3code",
         number: 42,
       });
+    }),
+  );
+
+  it.effect("unlinks legacy keys copied from visible links without conflating Forgejo mounts", () =>
+    Effect.gen(function* () {
+      for (const stored of [
+        makeLink({
+          host: "gitlab.com",
+          repository: "Group/sub/repo",
+          url: "https://gitlab.com/Group/Sub/Repo/-/merge_requests/42",
+        }),
+        makeLink({
+          host: "forge.example",
+          repository: "forge/owner/repo",
+          url: "https://forge.example/Forge/Owner/Repo/pulls/42",
+        }),
+      ]) {
+        const otherMount = makeLink({
+          host: "forge.example",
+          repository: "forge/owner/repo",
+          url: "https://forge.example/forge/owner/repo/pulls/42",
+        });
+        let model = makeReadModel([stored, otherMount]);
+        const [visible] = visibleThreadPullRequests(model.threads[0]!.pullRequests);
+        // The linked-PR panel copies these fields into a command with no URL.
+        const event = expectSingleEvent(
+          yield* decideOrchestrationCommand({
+            readModel: model,
+            command: {
+              type: "thread.pull-request.unlink",
+              commandId: CommandId.make("unlink-legacy-key"),
+              threadId: THREAD_ID,
+              host: visible!.host,
+              repository: visible!.repository,
+              number: visible!.number,
+            },
+          }),
+          "thread.pull-request-unlinked",
+        );
+        model = yield* projectEvent(model, { ...event, sequence: 1 });
+        expect(model.threads[0]!.pullRequests).toEqual([otherMount]);
+      }
     }),
   );
 

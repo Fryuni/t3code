@@ -392,14 +392,15 @@ function PullRequestsRouteView() {
   // resolved here; an explicit `projectId` in the URL still wins.
   const selectedHost = search.selectedHost ?? search.host;
   const projectIdForRepository = useMemo(() => {
-    const repository = search.repository?.toLowerCase();
-    if (repository === undefined) return undefined;
+    if (search.repository === undefined) return undefined;
+    const repository = normalizeSourceControlRepository(search.repository);
     const identity = projects.find(
       (project) =>
         project.repositoryIdentity?.owner &&
         project.repositoryIdentity.name &&
-        `${project.repositoryIdentity.owner}/${project.repositoryIdentity.name}`.toLowerCase() ===
-          repository &&
+        normalizeSourceControlRepository(
+          `${project.repositoryIdentity.owner}/${project.repositoryIdentity.name}`,
+        ) === repository &&
         // The same `owner/name` can exist on two hosts. Without this the first match wins, and
         // a link that named its host opens the pull request from the other one.
         (selectedHost === undefined ||

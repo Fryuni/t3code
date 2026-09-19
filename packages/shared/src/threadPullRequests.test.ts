@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it } from "vite-plus/test";
 import {
   legacyLinkedPullRequestOf,
   legacyThreadPullRequestKey,
+  normalizeThreadPullRequestKey,
   threadPullRequestSearchTerms,
   resolveThreadCurrentPullRequest,
   resolveThreadPullRequestChains,
@@ -107,6 +108,50 @@ describe("threadPullRequestKeysEqual", () => {
         url: "http://forge.example:4000/team/repo/pulls/1",
       }),
     ).toBe(false);
+  });
+
+  it("lets a link's URL decide how much of the path its host folds", () => {
+    // GitLab folds the whole path, so a group typed in another case is the same repository...
+    const typed = {
+      host: "gitlab.com",
+      repository: "Group/Sub/Repo",
+      number: 1,
+      url: "https://gitlab.com/Group/Sub/Repo/-/merge_requests/1",
+    };
+    expect(normalizeThreadPullRequestKey(typed)).toEqual({
+      host: "gitlab.com",
+      repository: "group/sub/repo",
+      number: 1,
+    });
+    // ...while a Forgejo URL keeps its mount path and web port and folds only owner/name.
+    expect(
+      normalizeThreadPullRequestKey({
+        host: "git.example.test",
+        repository: "Forge/Owner/Repo",
+        number: 1,
+        url: "https://git.example.test:8443/Forge/Owner/Repo/pulls/1",
+      }),
+    ).toEqual({ host: "git.example.test:8443", repository: "Forge/owner/repo", number: 1 });
+    // Without a URL or kind, only the segments every host folds are folded.
+    const { url: _url, ...untyped } = typed;
+    expect(normalizeThreadPullRequestKey(untyped)).toEqual({
+      host: "gitlab.com",
+      repository: "Group/sub/repo",
+      number: 1,
+    });
+    // A URL that names another change request is not evidence about this key.
+    expect(
+      normalizeThreadPullRequestKey({
+        ...typed,
+        url: "https://gitlab.com/Other/Repo/-/merge_requests/1",
+      }).repository,
+    ).toBe("Group/sub/repo");
+    expect(
+      normalizeThreadPullRequestKey({
+        ...typed,
+        url: "https://gitlab.com/Group/Sub/Repo/-/merge_requests/2",
+      }).repository,
+    ).toBe("Group/sub/repo");
   });
 
   it("ignores host and repository case", () => {
@@ -217,6 +262,45 @@ describe("legacyLinkedPullRequestOf", () => {
       legacyLinkedPullRequestOf([link(7, foreign), link(8)], "project-1" as never, identity)
         ?.number,
     ).toBe(8);
+  });
+  it("routes Forgejo links through the identity's resolved web instance", () => {
+    // Refined from an SSH alias: the canonical key and web URL carry the port, the remote does not.
+    const forgejoIdentity = {
+      canonicalKey: "forge.example:3000/Forge/team/repo",
+      provider: "forgejo",
+      displayName: "Forge/team/repo",
+      webUrl: "https://forge.example:3000/Forge/team/repo",
+      locator: {
+        source: "git-remote" as const,
+        remoteName: "origin",
+        remoteUrl: "git@ssh.forge.example:team/repo.git",
+      },
+    };
+    const own = link(7, {
+      host: "forge.example:3000",
+      repository: "Forge/team/repo",
+      url: "https://forge.example:3000/Forge/Team/Repo/pulls/7",
+    });
+    const otherPort = link(8, {
+      host: "forge.example:4000",
+      repository: "Forge/team/repo",
+      url: "https://forge.example:4000/Forge/team/repo/pulls/8",
+    });
+    const otherMount = link(9, {
+      host: "forge.example:3000",
+      repository: "forge/team/repo",
+      url: "https://forge.example:3000/forge/team/repo/pulls/9",
+    });
+    expect(
+      legacyLinkedPullRequestOf(
+        [otherPort, otherMount, own],
+        "project-1" as never,
+        forgejoIdentity,
+      ),
+    ).toEqual({ projectId: "project-1", repository: "Forge/team/repo", number: 7, url: own.url });
+    expect(
+      legacyLinkedPullRequestOf([otherPort, otherMount], "project-1" as never, forgejoIdentity),
+    ).toBeNull();
   });
   it.each([
     "dev.azure.com/org-a/project/_git/web",
@@ -422,8 +506,8 @@ describe("chain selection and badge state", () => {
       resolveThreadPullRequestChains([
         bottom,
         { ...top, snapshot: snapshot({ headBranch: "top", baseBranch: "Base" }) },
-      ])[0]?.layers,
-    ).toEqual([bottom, { ...top, snapshot: snapshot({ headBranch: "top", baseBranch: "Base" }) }]);
+      ])[0]?.layers.map((layer) => layer.number),
+    ).toEqual([1, 2]);
   });
 
   it("preserves cyclic links without presenting a guessed stack order", () => {

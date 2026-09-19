@@ -2437,8 +2437,8 @@ export const make = Effect.gen(function* () {
         if (
           project === undefined ||
           project.api.listChangeRequestStats === undefined ||
-          normalizeSourceControlRepository(project.repository) !==
-            normalizeSourceControlRepository(ref.repository.trim())
+          normalizeSourceControlRepository(project.repository, project.api.kind) !==
+            normalizeSourceControlRepository(ref.repository, project.api.kind)
         ) {
           continue;
         }
@@ -2459,7 +2459,7 @@ export const make = Effect.gen(function* () {
             return Effect.succeed<ReadonlyArray<PullRequestDiffStat>>([]);
           const projectsByRepository = new Map(
             entries.map((entry) => [
-              `${normalizeSourceControlRepository(entry.project.repository)} ${entry.number}`,
+              `${normalizeSourceControlRepository(entry.project.repository, entry.project.api.kind)} ${entry.number}`,
               entry.project,
             ]),
           );
@@ -2474,7 +2474,7 @@ export const make = Effect.gen(function* () {
             Effect.map((read) =>
               read.flatMap((stat): ReadonlyArray<PullRequestDiffStat> => {
                 const project = projectsByRepository.get(
-                  `${normalizeSourceControlRepository(stat.repository)} ${stat.number}`,
+                  `${normalizeSourceControlRepository(stat.repository, first.project.api.kind)} ${stat.number}`,
                 );
                 return project === undefined
                   ? []

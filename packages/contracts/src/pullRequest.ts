@@ -1284,11 +1284,16 @@ const PROVIDER_REQUIREMENT: Partial<
  *
  * Shared between the server and the page so both bucket a workspace the same way — the page
  * knows its hosts before the listing answers, and the two must agree on what they are called.
+ *
+ * A Forgejo repository is addressed below its web authority, host and port, which the
+ * resolved `webUrl` knows best and an HTTP remote second; an SSH remote says nothing and
+ * leaves the canonical host.
  */
 export function pullRequestHostOf(
   identity:
     | {
         readonly canonicalKey?: string | undefined;
+        readonly webUrl?: string | undefined;
         readonly locator?: { readonly remoteUrl: string } | undefined;
       }
     | null
@@ -1296,12 +1301,13 @@ export function pullRequestHostOf(
   kind: SourceControlProviderKind,
 ): string {
   if (kind === "forgejo") {
-    try {
-      const remote = new URL(identity?.locator?.remoteUrl ?? "");
-      if (remote.protocol === "http:" || remote.protocol === "https:")
-        return remote.host.toLowerCase();
-    } catch {
-      // SSH remotes retain their canonical host; the CLI resolves their web endpoint.
+    for (const candidate of [identity?.webUrl, identity?.locator?.remoteUrl]) {
+      try {
+        const url = new URL(candidate ?? "");
+        if (url.protocol === "http:" || url.protocol === "https:") return url.host.toLowerCase();
+      } catch {
+        // SSH remotes retain their canonical host; the CLI resolves their web endpoint.
+      }
     }
   }
   const host = identity?.canonicalKey?.split("/")[0]?.trim();

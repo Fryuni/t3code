@@ -63,6 +63,7 @@ import * as BitbucketApi from "./sourceControl/BitbucketApi.ts";
 import * as GitHubCli from "./sourceControl/GitHubCli.ts";
 import * as GitLabCli from "./sourceControl/GitLabCli.ts";
 import * as ForgejoCli from "./sourceControl/ForgejoCli.ts";
+import { forgejoRepositoryIdentity } from "./sourceControl/forgejoRepositoryIdentity.ts";
 import * as TextGeneration from "./textGeneration/TextGeneration.ts";
 import { ProviderInstanceRegistryHydrationLive } from "./provider/Layers/ProviderInstanceRegistryHydration.ts";
 import * as TerminalManager from "./terminal/Manager.ts";
@@ -316,21 +317,7 @@ const RepositoryIdentityResolverLayerLive = Layer.effect(
           },
         });
         if (handle.context?.provider.kind !== "forgejo") return identity;
-        const baseUrl = handle.context.provider.baseUrl.replace(/\/+$/, "");
-        const basePath = new URL(baseUrl).pathname.replace(/^\/+|\/+$/g, "");
-        const path =
-          !remote.ssh && basePath && remote.path.startsWith(`${basePath}/`)
-            ? remote.path.slice(basePath.length + 1)
-            : remote.path;
-        const webUrl = new URL(`${baseUrl}/${path}`);
-        const displayName = webUrl.pathname.replace(/^\/+|\/+$/g, "");
-        return {
-          ...identity,
-          provider: "forgejo",
-          canonicalKey: `${webUrl.host}/${displayName}`,
-          displayName,
-          webUrl: webUrl.toString(),
-        };
+        return forgejoRepositoryIdentity(identity, handle.context.provider.baseUrl) ?? identity;
       }),
     });
   }),
