@@ -88,6 +88,7 @@ import * as CheckpointDiffQuery from "./checkpointing/CheckpointDiffQuery.ts";
 import * as ServerConfig from "./config.ts";
 import * as EnvironmentTheme from "./environmentTheme.ts";
 import * as Keybindings from "./keybindings.ts";
+import { parseRemoteRefWithRemoteNames } from "./git/remoteRefs.ts";
 import * as ExternalLauncher from "./process/externalLauncher.ts";
 import {
   projectActivityEvent,
@@ -1314,6 +1315,9 @@ const makeWsRpcLayer = (
                   remoteName: "origin",
                 }));
               if (startFromOrigin) {
+                const originBranch =
+                  parseRemoteRefWithRemoteNames(prepareWorktree.baseBranch, ["origin"])
+                    ?.branchName ?? prepareWorktree.baseBranch;
                 yield* track(worktreeSetupTracker.stageStatus(threadId, "fetch", "running"));
                 yield* gitWorkflow.fetchRemote({
                   cwd: prepareWorktree.projectCwd,
@@ -1322,7 +1326,7 @@ const makeWsRpcLayer = (
                 });
                 const remoteBaseExists = yield* gitWorkflow.remoteBranchExists({
                   cwd: prepareWorktree.projectCwd,
-                  refName: prepareWorktree.baseBranch,
+                  refName: originBranch,
                   remoteName: "origin",
                 });
                 if (remoteBaseExists) {
@@ -1337,7 +1341,7 @@ const makeWsRpcLayer = (
                       threadId,
                       "fetch",
                       "done",
-                      `origin/${prepareWorktree.baseBranch} at ${resolvedRemoteBase.commitSha.slice(0, 7)}`,
+                      `${resolvedRemoteBase.remoteRefName} at ${resolvedRemoteBase.commitSha.slice(0, 7)}`,
                     ),
                   );
                 } else {
@@ -1346,7 +1350,7 @@ const makeWsRpcLayer = (
                       threadId,
                       "fetch",
                       "warning",
-                      `origin/${prepareWorktree.baseBranch} not found, using local branch`,
+                      `origin/${originBranch} not found, using local branch`,
                     ),
                   );
                 }
