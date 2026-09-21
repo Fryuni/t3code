@@ -10821,9 +10821,15 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
   );
 
-  it.effect(
-    "bootstraps first-send worktree turns on the server before dispatching turn start",
-    () =>
+  it.effect.each([
+    { baseBranch: "main", remoteBranch: "main" },
+    { baseBranch: "dev", remoteBranch: "dev" },
+    { baseBranch: "feature/dev", remoteBranch: "feature/dev" },
+    { baseBranch: "origin/dev", remoteBranch: "dev" },
+    { baseBranch: "origin/feature/dev", remoteBranch: "feature/dev" },
+  ])(
+    "bootstraps first-send worktree turns from $baseBranch on the server before dispatching turn start",
+    ({ baseBranch, remoteBranch }) =>
       Effect.gen(function* () {
         const dispatchedCommands: Array<OrchestrationCommand> = [];
         const bootstrapGitOperations: string[] = [];
@@ -10859,10 +10865,10 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             }),
         );
         const remoteBranchExists = vi.fn(
-          (_: Parameters<GitVcsDriver.GitVcsDriver["Service"]["remoteBranchExists"]>[0]) =>
+          (input: Parameters<GitVcsDriver.GitVcsDriver["Service"]["remoteBranchExists"]>[0]) =>
             Effect.sync(() => {
               bootstrapGitOperations.push("remote-branch-exists");
-              return true;
+              return input.refName === remoteBranch;
             }),
         );
         const fetchedOriginCommit = "0123456789abcdef0123456789abcdef01234567";
@@ -10872,7 +10878,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               bootstrapGitOperations.push("resolve-remote-commit");
               return {
                 commitSha: fetchedOriginCommit,
-                remoteRefName: "origin/main",
+                remoteRefName: `origin/${remoteBranch}`,
               };
             }),
         );
@@ -10965,7 +10971,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                 },
                 prepareWorktree: {
                   projectCwd: "/tmp/project",
-                  baseBranch: "main",
+                  baseBranch,
                   branch: "t3code/bootstrap-refName",
                   startFromOrigin: true,
                 },
@@ -11007,22 +11013,22 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           cwd: "/tmp/project",
           refName: fetchedOriginCommit,
           newRefName: "t3code/bootstrap-refName",
-          baseRefName: "main",
+          baseRefName: baseBranch,
           path: null,
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
           remoteName: "origin",
-          refName: "main",
+          refName: baseBranch,
         });
         assert.deepEqual(remoteBranchExists.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
           remoteName: "origin",
-          refName: "main",
+          refName: remoteBranch,
         });
         assert.deepEqual(resolveRemoteTrackingCommit.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
-          refName: "main",
+          refName: baseBranch,
           fallbackRemoteName: "origin",
         });
         assert.deepEqual(bootstrapGitOperations, [
@@ -11072,6 +11078,12 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         }
         assertTrue(Schema.is(WorktreeSetupSnapshot)(settledActivity?.payload));
         if (Schema.is(WorktreeSetupSnapshot)(settledActivity?.payload)) {
+          const fetchStage = settledActivity.payload.stages.find((stage) => stage.id === "fetch");
+          assert.equal(fetchStage?.status, "done");
+          assert.equal(
+            fetchStage?.detail,
+            `origin/${remoteBranch} at ${fetchedOriginCommit.slice(0, 7)}`,
+          );
           assert.equal(settledActivity.payload.phase, "done");
           assert.equal(settledActivity.payload.threadId, ThreadId.make("thread-bootstrap"));
         }
