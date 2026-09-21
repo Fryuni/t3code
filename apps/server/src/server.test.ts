@@ -223,6 +223,8 @@ import { DEFAULT_SIGNAL_EXPORT, otlpSerializationLayer } from "@t3tools/shared/o
 const defaultProjectId = ProjectId.make("project-default");
 const defaultThreadId = ThreadId.make("thread-default");
 const defaultDesktopBootstrapToken = "test-desktop-bootstrap-token";
+const decodeWorktreeSetupSnapshot = Schema.decodeUnknownSync(WorktreeSetupSnapshot);
+
 const defaultModelSelection = {
   instanceId: ProviderInstanceId.make("codex"),
   model: "gpt-5-codex",
@@ -11096,10 +11098,27 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect.each([
-    { caseName: "the origin remote is missing", hasOrigin: false },
-    { caseName: "the base branch exists only locally", hasOrigin: true },
-  ])("falls back to the local base branch when $caseName", ({ hasOrigin }) =>
+    {
+      caseName: "the origin remote is missing",
+      hasOrigin: false,
+      baseBranch: "main",
+      remoteBranch: "main",
+    },
+    {
+      caseName: "the base branch exists only locally",
+      hasOrigin: true,
+      baseBranch: "main",
+      remoteBranch: "main",
+    },
+    {
+      caseName: "the prefixed base branch is missing on origin",
+      hasOrigin: true,
+      baseBranch: "origin/dev",
+      remoteBranch: "dev",
+    },
+  ])("falls back to the local base branch when $caseName", (scenario) =>
     Effect.gen(function* () {
+      const { hasOrigin, baseBranch, remoteBranch } = scenario;
       const dispatchedCommands: Array<OrchestrationCommand> = [];
       const remoteExists = vi.fn(
         (_: Parameters<GitVcsDriver.GitVcsDriver["Service"]["remoteExists"]>[0]) =>
@@ -11183,7 +11202,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               },
               prepareWorktree: {
                 projectCwd: "/tmp/project",
-                baseBranch: "main",
+                baseBranch,
                 branch: "t3code/bootstrap-refName",
                 startFromOrigin: true,
               },
@@ -11203,15 +11222,28 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         assert.deepEqual(remoteBranchExists.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
           remoteName: "origin",
-          refName: "main",
+          refName: remoteBranch,
         });
+      }
+      const settledActivity = dispatchedCommands.findLast(
+        (command) =>
+          command.type === "thread.activity.append" && command.activity.kind === "worktree-setup",
+      );
+      assertTrue(settledActivity?.type === "thread.activity.append");
+      if (settledActivity?.type === "thread.activity.append") {
+        const snapshot = decodeWorktreeSetupSnapshot(settledActivity.activity.payload);
+        const fetchStage = snapshot.stages.find((stage) => stage.id === "fetch");
+        assert.equal(fetchStage?.status, hasOrigin ? "warning" : "skipped");
+        if (hasOrigin) {
+          assert.equal(fetchStage?.detail, `origin/${remoteBranch} not found, using local branch`);
+        }
       }
       assert.equal(resolveRemoteTrackingCommit.mock.calls.length, 0);
       assert.deepEqual(createWorktree.mock.calls[0]?.[0], {
         cwd: "/tmp/project",
-        refName: "main",
+        refName: baseBranch,
         newRefName: "t3code/bootstrap-refName",
-        baseRefName: "main",
+        baseRefName: baseBranch,
         path: null,
       });
     }).pipe(Effect.provide(NodeHttpServer.layerTest)),
