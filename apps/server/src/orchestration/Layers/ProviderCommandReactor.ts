@@ -211,19 +211,18 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 /**
  * Whether an option the provider applies only at launch (its adapter's
  * `sessionRestartOptionIds`) differs between the selection the session was last
- * given and the requested one. An unknown previous selection reads as every
- * listed option unset, and `false` equals unset, so a cold memo never restarts
- * a session over toggles that are off.
+ * given and the requested one. Values compare strictly: an explicit `false`
+ * differs from unset, since Claude's thinking toggle and OhMyPi's session
+ * toggles both change behavior when switched off. An unknown previous
+ * selection reads as every listed option unset.
  */
 function haveSessionRestartOptionsChanged(
   optionIds: ReadonlyArray<string> | undefined,
   previous: ModelSelection | undefined,
   requested: ModelSelection,
 ): boolean {
-  const valueOf = (selection: ModelSelection | undefined, id: string) => {
-    const value = selection?.options?.find((option) => option.id === id)?.value;
-    return value === false ? undefined : value;
-  };
+  const valueOf = (selection: ModelSelection | undefined, id: string) =>
+    selection?.options?.find((option) => option.id === id)?.value;
   return (optionIds ?? []).some((id) => valueOf(previous, id) !== valueOf(requested, id));
 }
 

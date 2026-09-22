@@ -22,9 +22,11 @@ import type {
 } from "@t3tools/contracts";
 
 /**
- * Same token shape the composer and timeline chips recognise
- * (`packages/shared/src/composerInlineTokens.ts`), so a rendered chip and a
- * dispatched skill are always the same set.
+ * Same token shape the Claude and Cursor skill dispatchers use, so a `$name`
+ * one provider runs, another runs too. It is one character looser than the
+ * composer chip pattern (`packages/shared/src/composerInlineTokens.ts`), which
+ * also needs trailing whitespace: a mention that ends the prompt still
+ * dispatches, matching the CLIs' own parsing.
  */
 const SKILL_MENTION_PATTERN =
   /(^|\s)\p{Sc}(?![0-9][0-9_]*(?:[kKmMbBtT]|[eE][0-9]+)?(?:\s|$))(?=[a-zA-Z0-9:_-]*[a-zA-Z])([a-zA-Z0-9][a-zA-Z0-9:_-]*)(?=\s|$)/gu;

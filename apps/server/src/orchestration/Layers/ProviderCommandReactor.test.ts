@@ -3287,11 +3287,8 @@ describe("ProviderCommandReactor", () => {
     await waitFor(() => harness.sendTurn.mock.calls.length === 1);
     expect(harness.startSession.mock.calls.length).toBe(1);
 
-    // Thinking applies in-session, and an explicit off equals the unset default.
-    await startTurn("2", [
-      { id: "thinking", value: "high" },
-      { id: "advisor", value: false },
-    ]);
+    // Thinking applies in-session.
+    await startTurn("2", [{ id: "thinking", value: "high" }]);
     await waitFor(() => harness.sendTurn.mock.calls.length === 2);
     expect(harness.startSession.mock.calls.length).toBe(1);
 
@@ -3306,6 +3303,21 @@ describe("ProviderCommandReactor", () => {
       modelSelection: createModelSelection(instanceId, "oh-my-pi-default", [
         { id: "thinking", value: "high" },
         { id: "advisor", value: true },
+      ]),
+    });
+
+    // Switching a launch-time option off is a change too.
+    await startTurn("4", [
+      { id: "thinking", value: "high" },
+      { id: "advisor", value: false },
+    ]);
+    await waitFor(() => harness.startSession.mock.calls.length === 3);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 4);
+    expect(harness.startSession.mock.calls[2]?.[1]).toMatchObject({
+      resumeCursor: { opaque: "resume-1" },
+      modelSelection: createModelSelection(instanceId, "oh-my-pi-default", [
+        { id: "thinking", value: "high" },
+        { id: "advisor", value: false },
       ]),
     });
   });

@@ -912,7 +912,6 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           .split("\n")
           .filter((line) => line.includes('"method":"session/prompt"'))
           .map((line) =>
-            // @effect-diagnostics-next-line preferSchemaOverJson:off
             (
               JSON.parse(line) as {
                 params: { prompt: Array<{ type: string; text?: string }> };
