@@ -25,6 +25,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -85,6 +86,12 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonStri
 
 const PROVIDER = ProviderDriverKind.make("ohMyPi");
 const OH_MY_PI_RESUME_VERSION = 1 as const;
+/**
+ * omp reports its command list about fifty milliseconds after session setup,
+ * on new and resumed sessions alike; past this bound a prompt goes out with
+ * whatever the workspace already knew.
+ */
+const OH_MY_PI_COMMANDS_WAIT = Duration.seconds(5);
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
@@ -103,11 +110,7 @@ export interface OhMyPiAdapterLiveOptions {
     commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
     cwd: string,
   ) => Effect.Effect<void>;
-  /**
-   * The workspace's known commands and skills, from the probe or a session.
-   * May wait for them: the first turn in a fresh workspace can otherwise
-   * outrun omp's command update and go out unprepared.
-   */
+  /** The workspace's known commands and skills, from the probe or a session. */
   readonly workspaceCatalog?: (
     cwd: string,
   ) => Effect.Effect<ServerProviderWorkspaceSnapshot | undefined>;
@@ -336,6 +339,8 @@ interface OhMyPiSessionContext {
   promptsInFlight: number;
   interruptionVersion: number;
   stopped: boolean;
+  /** Settled once this session reported its own command list. */
+  readonly commandsReported: Deferred.Deferred<void>;
 }
 
 function settlePendingApprovalsAsCancelled(
@@ -1003,6 +1008,7 @@ export function makeOhMyPiAdapter(
             promptsInFlight: 0,
             interruptionVersion: 0,
             stopped: false,
+            commandsReported: yield* Deferred.make<void>(),
           };
           for (const observed of pendingObservedToolCalls.splice(0)) {
             yield* emitOhMyPiChildTaskEvents(ctx, observed);
@@ -1021,6 +1027,7 @@ export function makeOhMyPiAdapter(
                     yield* (
                       options?.onAvailableCommands?.(event.availableCommands, cwd) ?? Effect.void
                     );
+                    yield* Deferred.succeed(ctx.commandsReported, undefined);
                     return;
                   case "ConnectionTerminated":
                     ctx.session = { ...ctx.session, status: "error", updatedAt: yield* nowIso };
@@ -1233,6 +1240,12 @@ export function makeOhMyPiAdapter(
               }
 
               const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
+              // The first prompt waits for this session's own command list, so a
+              // catalog cached from a probe or an earlier session cannot go stale
+              // across a restart.
+              yield* Deferred.await(ctx.commandsReported).pipe(
+                Effect.timeoutOption(OH_MY_PI_COMMANDS_WAIT),
+              );
               const workspaceCwd = ctx.session.cwd;
               const prompt = prepareOhMyPiPrompt(
                 input.input?.trim() ?? "",
