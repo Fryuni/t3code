@@ -10,7 +10,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
-import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -127,12 +126,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           ),
         );
       // omp's command list is the one source for a workspace's skills and slash
-      // commands, whether a live session or the probe reported it. omp advertises
-      // what its own configuration enables, and the probe launches without a
-      // thread's options, so it can report fewer commands than the session
-      // running them: once a live session has named a cwd, a probe that lands
-      // afterwards is dropped rather than allowed to narrow the menu.
-      const liveWorkspaces = yield* Ref.make<ReadonlySet<string>>(new Set());
+      // commands, whether a live session or the probe reported it.
       const recordWorkspaceCommands = (
         source: "live" | "probe",
         cwd: string,
@@ -142,25 +136,25 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           readonly input?: { readonly hint: string } | null;
         }>,
       ) =>
-        Ref.modify(liveWorkspaces, (live) =>
-          source === "live"
-            ? ([true, new Set(live).add(cwd)] as const)
-            : ([!live.has(cwd), live] as const),
-        ).pipe(
-          Effect.flatMap((accepted) =>
-            accepted
-              ? SubscriptionRef.update(metadata, (draft) => ({
-                  ...draft,
-                  workspaceSnapshots: [
-                    ...(draft.workspaceSnapshots ?? []).filter(
-                      (workspace) => workspace.cwd !== cwd,
-                    ),
-                    { cwd, checkedAt: draft.checkedAt, ...splitOhMyPiAvailableCommands(commands) },
-                  ].slice(-MAX_WORKSPACE_SNAPSHOTS),
-                }))
-              : Effect.void,
-          ),
-        );
+        SubscriptionRef.update(metadata, (draft) => {
+          const recorded = draft.workspaceSnapshots ?? [];
+          // A probe only runs for a workspace with no entry, so an entry that
+          // appeared since came from a live session. omp advertises what its own
+          // configuration enables and the probe launches without a thread's
+          // options, so letting the slower probe land would narrow the menu.
+          // Reading the entry rather than remembering the cwd keeps this in step
+          // with eviction: a workspace that ages out can be probed again.
+          if (source === "probe" && recorded.some((workspace) => workspace.cwd === cwd)) {
+            return draft;
+          }
+          return {
+            ...draft,
+            workspaceSnapshots: [
+              ...recorded.filter((workspace) => workspace.cwd !== cwd),
+              { cwd, checkedAt: draft.checkedAt, ...splitOhMyPiAvailableCommands(commands) },
+            ].slice(-MAX_WORKSPACE_SNAPSHOTS),
+          };
+        });
       // A throwaway ACP session in a T3-owned session directory; see ADR 0006.
       const probeWorkspace = (cwd: string) =>
         Effect.gen(function* () {
