@@ -47,9 +47,10 @@ export function resolveOhMyPiSessionToggles(
 }
 
 /**
- * The overlay omp reads through `--config`. Keys are nested, not dotted: omp
+ * The overlay omp reads through `--config`, carrying the two toggles that have
+ * no off flag; prewalk travels as a flag. Keys are nested, not dotted: omp
  * splits its own dotted setting paths when it reads the merged tree. The file
- * name encodes the content, so concurrent sessions with different toggles
+ * name encodes the two values, so concurrent sessions that differ on either
  * never share one file.
  */
 export function ohMyPiConfigOverlay(toggles: OhMyPiSessionToggles): {
