@@ -295,15 +295,17 @@ const CONTEXT_ENVELOPE_OPENING = `\n\n<${CONTEXT_ENVELOPE_TAG} version="1">\n`;
 /**
  * Split a projected prompt into the user-authored text and the context
  * envelope, empty when there is none. Payload escaping keeps the opening tag
- * out of captured data, so its first occurrence is the envelope. Adapters that
- * rewrite the user's text, such as skill dispatch, must leave the envelope
- * verbatim: a `$name` inside an attached terminal line is data, not a mention.
+ * out of captured data, and the envelope is appended last, so its final
+ * occurrence is the envelope even when the user's own prose contains the tag.
+ * Adapters that rewrite the user's text, such as skill dispatch, must leave
+ * the envelope verbatim: a `$name` inside an attached terminal line is data,
+ * not a mention.
  */
 export function splitComposerContextEnvelope(text: string): {
   readonly body: string;
   readonly envelope: string;
 } {
-  const start = text.indexOf(CONTEXT_ENVELOPE_OPENING);
+  const start = text.lastIndexOf(CONTEXT_ENVELOPE_OPENING);
   if (start === -1 || !text.endsWith(`</${CONTEXT_ENVELOPE_TAG}>`)) {
     return { body: text, envelope: "" };
   }

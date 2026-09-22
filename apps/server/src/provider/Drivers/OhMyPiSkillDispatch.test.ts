@@ -43,6 +43,11 @@ describe("prepareOhMyPiPrompt", () => {
       text: `/skill:grill-me${envelope}`,
       consumedByCommand: true,
     });
+    // A builtin never reaches the model, so attached context would only break its arguments.
+    expect(prepareOhMyPiPrompt(`/computer status${envelope}`, catalog)).toEqual({
+      text: "/computer status",
+      consumedByCommand: true,
+    });
   });
 
   it("follows omp's prefix rules for inline skill tokens", () => {

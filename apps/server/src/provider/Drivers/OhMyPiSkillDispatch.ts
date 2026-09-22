@@ -42,6 +42,11 @@ export interface OhMyPiWorkspaceCatalog {
 }
 
 export interface OhMyPiPreparedPrompt {
+  /**
+   * What omp receives. A skill keeps the attached context, which reaches the
+   * model as the skill's arguments; a builtin command never reaches the model,
+   * so it travels bare or its arguments would not parse.
+   */
   readonly text: string;
   /** omp itself consumes the prompt (a command or a skill), so nothing else may share it. */
   readonly consumedByCommand: boolean;
@@ -67,10 +72,11 @@ export function prepareOhMyPiPrompt(
   const text = body.replace(SKILL_MENTION_PATTERN, (match, prefix: string, name: string) =>
     catalog.skillNames.has(name) ? `${prefix}/${SKILL_COMMAND_PREFIX}${name}` : match,
   );
+  const skill = invokesSkill(text, catalog.skillNames);
+  const command = !skill && opensWithCommand(text, catalog.commandNames);
   return {
-    text: `${text}${envelope}`,
-    consumedByCommand:
-      invokesSkill(text, catalog.skillNames) || opensWithCommand(text, catalog.commandNames),
+    text: command ? text : `${text}${envelope}`,
+    consumedByCommand: skill || command,
   };
 }
 

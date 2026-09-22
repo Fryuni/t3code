@@ -277,5 +277,10 @@ describe("splitComposerContextEnvelope", () => {
       body: "plain prose",
       envelope: "",
     });
+    const prose = 'quote this:\n\n<t3_context version="1">\nnot an envelope';
+    expect(splitComposerContextEnvelope(`${prose}${projected.slice("run it".length)}`)).toEqual({
+      body: prose,
+      envelope: projected.slice("run it".length),
+    });
   });
 });
