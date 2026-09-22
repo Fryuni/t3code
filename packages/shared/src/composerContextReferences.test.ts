@@ -10,6 +10,8 @@ import {
   projectComposerContextForProvider,
   replaceComposerContextReferences,
   sanitizeComposerContextLabel,
+  splitComposerContextEnvelope,
+  stripComposerContextMarkers,
 } from "./composerContextReferences.ts";
 
 const ctx = (value: string) => value as ComposerContextId;
@@ -261,5 +263,41 @@ describe("provider projection", () => {
     expect(projected).toContain('<context kind="terminal" id="ctx_t" unavailable="true"/>');
     expect(projected).not.toContain("another payload");
     expect(projected).not.toContain("boom");
+  });
+});
+
+describe("splitComposerContextEnvelope", () => {
+  it("separates the user's text from the projected envelope", () => {
+    const projected =
+      'run it\n\n<t3_context version="1">\n<context kind="terminal" ref="ctx_1">$grill-me</context>\n</t3_context>';
+    expect(splitComposerContextEnvelope(projected)).toEqual({
+      body: "run it",
+      envelope: projected.slice("run it".length),
+    });
+    expect(splitComposerContextEnvelope("plain prose")).toEqual({
+      body: "plain prose",
+      envelope: "",
+    });
+    const prose = 'quote this:\n\n<t3_context version="1">\nnot an envelope';
+    expect(splitComposerContextEnvelope(`${prose}${projected.slice("run it".length)}`)).toEqual({
+      body: prose,
+      envelope: projected.slice("run it".length),
+    });
+  });
+});
+
+describe("stripComposerContextMarkers", () => {
+  it("removes projected markers and tidies the spacing", () => {
+    expect(
+      stripComposerContextMarkers(
+        "/computer [Terminal: build log; ref=ctx_1] status [Pull request: #39; ref=ctx_2]",
+      ),
+    ).toBe("/computer status");
+    expect(stripComposerContextMarkers("/advisor on [Foo 2: later kind; ref=ctx_3]")).toBe(
+      "/advisor on",
+    );
+    expect(stripComposerContextMarkers("plain [not a marker] text")).toBe(
+      "plain [not a marker] text",
+    );
   });
 });

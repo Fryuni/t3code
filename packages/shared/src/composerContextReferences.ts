@@ -287,5 +287,45 @@ export function projectComposerContextForProvider(input: {
     entries.push(entry);
   }
   if (entries.length === 0) return body;
-  return `${body}\n\n<${CONTEXT_ENVELOPE_TAG} version="1">\n${entries.join("\n")}\n</${CONTEXT_ENVELOPE_TAG}>`;
+  return `${body}${CONTEXT_ENVELOPE_OPENING}${entries.join("\n")}\n</${CONTEXT_ENVELOPE_TAG}>`;
+}
+
+const CONTEXT_ENVELOPE_OPENING = `\n\n<${CONTEXT_ENVELOPE_TAG} version="1">\n`;
+/**
+ * The in-place marker `formatComposerContextProviderMarker` writes. Kinds are
+ * `[a-z0-9-]` and display with spaces for dashes, so a label like `Foo 2`
+ * carries digits; captured labels never contain `]`.
+ */
+const CONTEXT_MARKER_PATTERN = /\[[A-Z][A-Za-z0-9 ]*: [^\]]*; ref=[^\]\s]+\]/gu;
+
+/**
+ * Remove the in-place markers a projection left in the user's text, for a
+ * provider command that never reaches the model and would otherwise receive
+ * them as arguments.
+ */
+export function stripComposerContextMarkers(text: string): string {
+  return text
+    .replace(CONTEXT_MARKER_PATTERN, "")
+    .replace(/[ \t]{2,}/gu, " ")
+    .trim();
+}
+
+/**
+ * Split a projected prompt into the user-authored text and the context
+ * envelope, empty when there is none. Payload escaping keeps the opening tag
+ * out of captured data, and the envelope is appended last, so its final
+ * occurrence is the envelope even when the user's own prose contains the tag.
+ * Adapters that rewrite the user's text, such as skill dispatch, must leave
+ * the envelope verbatim: a `$name` inside an attached terminal line is data,
+ * not a mention.
+ */
+export function splitComposerContextEnvelope(text: string): {
+  readonly body: string;
+  readonly envelope: string;
+} {
+  const start = text.lastIndexOf(CONTEXT_ENVELOPE_OPENING);
+  if (start === -1 || !text.endsWith(`</${CONTEXT_ENVELOPE_TAG}>`)) {
+    return { body: text, envelope: "" };
+  }
+  return { body: text.slice(0, start), envelope: text.slice(start) };
 }

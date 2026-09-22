@@ -149,7 +149,15 @@ Refresh provider status after changing your OhMyPi credentials or model configur
 Choose **OhMyPi default** to use the model configured in OhMyPi, or select a model
 from the picker. You can switch models, stop turns, and continue a saved session
 after reconnecting.
-OhMyPi's native slash commands appear once a session has started in that workspace.
+
+**Advisor**, **Computer use**, and **Prewalk** sit with the thinking level in the
+composer's model options. T3 Code applies them every time it starts or resumes the
+thread's session, so they stay set for the thread; a change takes effect on the next
+turn. Your OhMyPi configuration does not switch them on for T3 Code threads, and vibe
+mode is not available.
+
+OhMyPi's slash commands and skills are available in a workspace before its first turn.
+Start a skill with a `$` mention, as with other providers.
 
 **Auto** uses the same approval policy as **Supervised**. **Auto-accept edits**
 allows workspace writes, and **Full access** allows all tool tiers. OhMyPi's

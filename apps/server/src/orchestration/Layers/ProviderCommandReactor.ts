@@ -23,7 +23,6 @@ import * as DateTime from "effect/DateTime";
 import * as Deferred from "effect/Deferred";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
-import * as Equal from "effect/Equal";
 import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
@@ -207,6 +206,24 @@ function buildGeneratedWorktreeBranchName(raw: string): string {
 
   const safeFragment = branchFragment.length > 0 ? branchFragment : "update";
   return `${WORKTREE_BRANCH_PREFIX}/${safeFragment}`;
+}
+
+/**
+ * Whether an option the provider applies only at launch (its adapter's
+ * `sessionRestartOptionIds`) differs between the selection the session was last
+ * given and the requested one. Values compare strictly: an explicit `false`
+ * differs from unset, since Claude's thinking toggle and OhMyPi's session
+ * toggles both change behavior when switched off. An unknown previous
+ * selection reads as every listed option unset.
+ */
+function haveSessionRestartOptionsChanged(
+  optionIds: ReadonlyArray<string> | undefined,
+  previous: ModelSelection | undefined,
+  requested: ModelSelection,
+): boolean {
+  const valueOf = (selection: ModelSelection | undefined, id: string) =>
+    selection?.options?.find((option) => option.id === id)?.value;
+  return (optionIds ?? []).some((id) => valueOf(previous, id) !== valueOf(requested, id));
 }
 
 const make = Effect.gen(function* () {
@@ -754,8 +771,8 @@ const make = Effect.gen(function* () {
     if (existingSessionThreadId) {
       const runtimeModeChanged = thread.runtimeMode !== thread.session?.runtimeMode;
       const cwdChanged = effectiveCwd !== activeSession?.cwd;
-      const sessionModelSwitch = (yield* providerService.getCapabilities(desiredInstanceId))
-        .sessionModelSwitch;
+      const capabilities = yield* providerService.getCapabilities(desiredInstanceId);
+      const sessionModelSwitch = capabilities.sessionModelSwitch;
       const modelChanged =
         requestedModelSelection !== undefined &&
         requestedModelSelection.model !== activeSession?.model;
@@ -763,18 +780,20 @@ const make = Effect.gen(function* () {
         requestedModelSelection !== undefined &&
         activeSession?.providerInstanceId !== requestedModelSelection.instanceId;
       const shouldRestartForModelChange = modelChanged && sessionModelSwitch === "unsupported";
-      const previousModelSelection = threadModelSelections.get(threadId);
-      const shouldRestartForModelSelectionChange =
-        preferredProvider === "claudeAgent" &&
+      const shouldRestartForLaunchOptionChange =
         requestedModelSelection !== undefined &&
-        !Equal.equals(previousModelSelection, requestedModelSelection);
+        haveSessionRestartOptionsChanged(
+          capabilities.sessionRestartOptionIds,
+          threadModelSelections.get(threadId),
+          requestedModelSelection,
+        );
 
       if (
         !runtimeModeChanged &&
         !cwdChanged &&
         !instanceChanged &&
         !shouldRestartForModelChange &&
-        !shouldRestartForModelSelectionChange
+        !shouldRestartForLaunchOptionChange
       ) {
         yield* refreshWorkspaceSnapshot;
         return existingSessionThreadId;
@@ -799,7 +818,7 @@ const make = Effect.gen(function* () {
         modelChanged,
         instanceChanged,
         shouldRestartForModelChange,
-        shouldRestartForModelSelectionChange,
+        shouldRestartForLaunchOptionChange,
         hasResumeCursor: resumeCursor !== undefined,
       });
       const restartedSession = yield* startProviderSession(

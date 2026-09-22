@@ -18,7 +18,12 @@ import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
 import { ProviderDriverError } from "../Errors.ts";
+import { probeOhMyPiWorkspaceCommands } from "../acp/OhMyPiAcpSupport.ts";
 import { makeOhMyPiAdapter } from "../Layers/OhMyPiAdapter.ts";
+import {
+  OH_MY_PI_SESSION_OPTION_DESCRIPTORS,
+  ohMyPiInstanceStateDir,
+} from "../OhMyPiSessionOptions.ts";
 import { ProviderEventLoggers } from "../Layers/ProviderEventLoggers.ts";
 import { makeManagedServerProvider } from "../makeManagedServerProvider.ts";
 import {
@@ -34,11 +39,16 @@ import {
   type ServerProviderDraft,
 } from "../providerSnapshot.ts";
 import { probeOhMyPiModels } from "./OhMyPiModels.ts";
+import { splitOhMyPiAvailableCommands } from "./OhMyPiSkillDispatch.ts";
 import { withInstanceIdentity } from "./instanceIdentity.ts";
 
 const DRIVER = ProviderDriverKind.make("ohMyPi");
 const decodeSettings = Schema.decodeSync(OhMyPiSettings);
-const capabilities = createModelCapabilities({ optionDescriptors: [] });
+const capabilities = createModelCapabilities({
+  optionDescriptors: OH_MY_PI_SESSION_OPTION_DESCRIPTORS,
+});
+/** Live sessions and probes both report per workspace; keep a bounded set. */
+const MAX_WORKSPACE_SNAPSHOTS = 32;
 
 export type OhMyPiDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
@@ -60,6 +70,13 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
       const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
       const serverConfig = yield* ServerConfig;
       const eventLoggers = yield* ProviderEventLoggers;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const crypto = yield* Crypto.Crypto;
+      const probeSessionsDir = path.join(
+        ohMyPiInstanceStateDir(path, serverConfig.stateDir, instanceId),
+        "probe-sessions",
+      );
       const effectiveConfig = { ...config, enabled };
       const processEnv = mergeProviderInstanceEnvironment(environment);
       const continuationIdentity = defaultProviderContinuationIdentity({
@@ -102,6 +119,70 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
       } satisfies ServerProviderDraft;
       const metadata = yield* SubscriptionRef.make<ServerProviderDraft>(initial);
       const getSnapshot = SubscriptionRef.get(metadata).pipe(Effect.map(stampIdentity));
+      const findWorkspace = (cwd: string) =>
+        SubscriptionRef.get(metadata).pipe(
+          Effect.map((draft) =>
+            draft.workspaceSnapshots?.find((workspace) => workspace.cwd === cwd),
+          ),
+        );
+      // omp's command list is the one source for a workspace's skills and slash
+      // commands, whether a live session or the probe reported it.
+      const recordWorkspaceCommands = (
+        source: "live" | "probe",
+        cwd: string,
+        commands: ReadonlyArray<{
+          readonly name: string;
+          readonly description?: string | null;
+          readonly input?: { readonly hint: string } | null;
+        }>,
+      ) =>
+        SubscriptionRef.update(metadata, (draft) => {
+          const recorded = draft.workspaceSnapshots ?? [];
+          // A probe only runs for a workspace with no entry, so an entry that
+          // appeared since came from a live session: the same list, read later,
+          // by the process the user is talking to. Reading the entry rather than
+          // remembering the cwd keeps this in step with eviction, so a workspace
+          // that ages out can be probed again.
+          if (source === "probe" && recorded.some((workspace) => workspace.cwd === cwd)) {
+            return draft;
+          }
+          return {
+            ...draft,
+            workspaceSnapshots: [
+              ...recorded.filter((workspace) => workspace.cwd !== cwd),
+              { cwd, checkedAt: draft.checkedAt, ...splitOhMyPiAvailableCommands(commands) },
+            ].slice(-MAX_WORKSPACE_SNAPSHOTS),
+          };
+        });
+      // A throwaway ACP session in a T3-owned session directory; see ADR 0006.
+      const probeWorkspace = (cwd: string) =>
+        Effect.gen(function* () {
+          yield* fileSystem.makeDirectory(probeSessionsDir, { recursive: true });
+          const sessionDir = yield* fileSystem.makeTempDirectoryScoped({
+            directory: probeSessionsDir,
+            prefix: "session-",
+          });
+          const commands = yield* probeOhMyPiWorkspaceCommands({
+            childProcessSpawner: spawner,
+            ohMyPiSettings: effectiveConfig,
+            environment: processEnv,
+            cwd,
+            sessionDir,
+          });
+          yield* recordWorkspaceCommands("probe", cwd, commands);
+        }).pipe(
+          Effect.scoped,
+          Effect.provideService(Crypto.Crypto, crypto),
+          Effect.mapError(
+            (cause) =>
+              new ProviderDriverError({
+                driver: DRIVER,
+                instanceId,
+                detail: `Could not read OhMyPi commands for '${cwd}'.`,
+                cause,
+              }),
+          ),
+        );
       const checkProvider = Effect.gen(function* () {
         if (!enabled) return yield* getSnapshot;
         const result = yield* probeOhMyPiModels(effectiveConfig, processEnv, serverConfig.cwd).pipe(
@@ -169,25 +250,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         instanceId,
         environment: processEnv,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
-        onAvailableCommands: (commands, cwd) =>
-          SubscriptionRef.update(metadata, (draft) => ({
-            ...draft,
-            workspaceSnapshots: [
-              ...(draft.workspaceSnapshots ?? []).filter((workspace) => workspace.cwd !== cwd),
-              {
-                cwd,
-                checkedAt: draft.checkedAt,
-                skills: [],
-                slashCommands: commands
-                  .filter((command) => command.name.trim())
-                  .map((command) => ({
-                    name: command.name,
-                    description: command.description,
-                    ...(command.input ? { input: command.input } : {}),
-                  })),
-              },
-            ].slice(-32),
-          })),
+        onAvailableCommands: (commands, cwd) => recordWorkspaceCommands("live", cwd, commands),
       });
       const unsupported = (operation: string) =>
         Effect.fail(
@@ -206,14 +269,18 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         enabled,
         snapshot: { ...snapshot, getSnapshot },
         snapshotForCwd: (cwd) =>
-          getSnapshot.pipe(
-            Effect.map((snapshot) => ({
+          Effect.gen(function* () {
+            if (enabled && (yield* findWorkspace(cwd)) === undefined) {
+              yield* probeWorkspace(cwd);
+            }
+            const snapshot = yield* getSnapshot;
+            const workspace = snapshot.workspaceSnapshots?.find((entry) => entry.cwd === cwd);
+            return {
               ...snapshot,
-              slashCommands:
-                snapshot.workspaceSnapshots?.find((workspace) => workspace.cwd === cwd)
-                  ?.slashCommands ?? [],
-            })),
-          ),
+              slashCommands: workspace?.slashCommands ?? [],
+              skills: workspace?.skills ?? [],
+            };
+          }),
         adapter,
         textGeneration: {
           generateCommitMessage: () => unsupported("generateCommitMessage"),

@@ -5572,6 +5572,9 @@ export const makeClaudeAdapter = Effect.fn("makeClaudeAdapter")(function* (
     provider: PROVIDER,
     capabilities: {
       sessionModelSwitch: "in-session",
+      // Claude Code applies effort, fast mode, context window, and thinking
+      // when its query starts, so a change restarts on the session id.
+      sessionRestartOptionIds: ["effort", "fastMode", "contextWindow", "thinking"],
     },
     compaction: { type: "slash-command", command: "/compact" },
     startSession,

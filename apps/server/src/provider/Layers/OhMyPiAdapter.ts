@@ -24,6 +24,7 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
 import * as Fiber from "effect/Fiber";
@@ -41,8 +42,22 @@ import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { writeFileStringAtomically } from "../../atomicWrite.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  OH_MY_PI_SESSION_OPTION_IDS,
+  ohMyPiConfigOverlay,
+  ohMyPiInstanceStateDir,
+  ohMyPiLaunchArgs,
+  resolveOhMyPiSessionToggles,
+} from "../OhMyPiSessionOptions.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
+import {
+  type OhMyPiWorkspaceCatalog,
+  ohMyPiWorkspaceCatalog,
+  prepareOhMyPiPrompt,
+  splitOhMyPiAvailableCommands,
+} from "../Drivers/OhMyPiSkillDispatch.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   ProviderAdapterProcessError,
@@ -75,6 +90,14 @@ const encodeUnknownJsonStringExit = Schema.encodeUnknownExit(Schema.fromJsonStri
 
 const PROVIDER = ProviderDriverKind.make("ohMyPi");
 const OH_MY_PI_RESUME_VERSION = 1 as const;
+/**
+ * omp reports its command list about fifty milliseconds after session setup,
+ * on new and resumed sessions alike; past this bound a prompt goes out
+ * dispatching nothing, reaching the model as the text the user typed.
+ */
+const OH_MY_PI_COMMANDS_WAIT = Duration.seconds(5);
+/** What a session that never reported dispatches from: nothing. */
+const OH_MY_PI_EMPTY_CATALOG = ohMyPiWorkspaceCatalog(undefined);
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
@@ -318,6 +341,15 @@ interface OhMyPiSessionContext {
   promptsInFlight: number;
   interruptionVersion: number;
   stopped: boolean;
+  /** Settled once this session reported its own command list. */
+  readonly commandsReported: Deferred.Deferred<void>;
+  /**
+   * What this session's own omp advertised. The workspace snapshot is a menu
+   * cache keyed by cwd, written by whichever probe or session reported last; a
+   * skill added or a plugin installed since then makes it disagree. Dispatch
+   * from the process that will actually receive the prompt.
+   */
+  catalog: OhMyPiWorkspaceCatalog | undefined;
 }
 
 function settlePendingApprovalsAsCancelled(
@@ -414,6 +446,10 @@ export function makeOhMyPiAdapter(
     const path = yield* Path.Path;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const serverConfig = yield* Effect.service(ServerConfig);
+    const launchConfigDir = path.join(
+      ohMyPiInstanceStateDir(path, serverConfig.stateDir, boundInstanceId),
+      "config",
+    );
     const crypto = yield* Crypto.Crypto;
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -778,6 +814,26 @@ export function makeOhMyPiAdapter(
           });
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          // The toggles are stated at every launch, resume included; see OhMyPiSessionOptions.
+          const toggles = resolveOhMyPiSessionToggles(ohMyPiModelSelection?.options);
+          const overlay = ohMyPiConfigOverlay(toggles);
+          const overlayPath = path.join(launchConfigDir, overlay.fileName);
+          yield* writeFileStringAtomically({
+            filePath: overlayPath,
+            contents: overlay.contents,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterProcessError({
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  detail: `Could not write the OhMyPi launch config at '${overlayPath}'.`,
+                  cause,
+                }),
+            ),
+          );
           const acp = yield* makeOhMyPiAcpRuntime({
             ohMyPiSettings,
             environment: {
@@ -790,6 +846,7 @@ export function makeOhMyPiAdapter(
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,
+            launchArgs: ohMyPiLaunchArgs({ toggles, overlayPath }),
             observeToolCallUpdate: (toolCall) =>
               mapExtensionFailure(
                 Effect.suspend(() => {
@@ -960,6 +1017,8 @@ export function makeOhMyPiAdapter(
             promptsInFlight: 0,
             interruptionVersion: 0,
             stopped: false,
+            commandsReported: yield* Deferred.make<void>(),
+            catalog: undefined,
           };
           for (const observed of pendingObservedToolCalls.splice(0)) {
             yield* emitOhMyPiChildTaskEvents(ctx, observed);
@@ -975,9 +1034,13 @@ export function makeOhMyPiAdapter(
                   case "ConfigOptionsUpdated":
                     return;
                   case "AvailableCommandsUpdated":
+                    ctx.catalog = ohMyPiWorkspaceCatalog(
+                      splitOhMyPiAvailableCommands(event.availableCommands),
+                    );
                     yield* (
                       options?.onAvailableCommands?.(event.availableCommands, cwd) ?? Effect.void
                     );
+                    yield* Deferred.succeed(ctx.commandsReported, undefined);
                     return;
                   case "ConnectionTerminated":
                     ctx.session = { ...ctx.session, status: "error", updatedAt: yield* nowIso };
@@ -1190,9 +1253,24 @@ export function makeOhMyPiAdapter(
               }
 
               const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
-              const rawPrompt = input.input?.trim() ?? "";
-              if (rawPrompt) {
-                promptParts.push({ type: "text", text: rawPrompt });
+              // The first prompt waits for this session's own command list, since
+              // dispatch reads it and omp reports it shortly after setup. A
+              // process that never reports settles the wait on its first timeout,
+              // so later prompts do not pay it again and dispatch nothing.
+              yield* Deferred.await(ctx.commandsReported).pipe(
+                Effect.timeoutOption(OH_MY_PI_COMMANDS_WAIT),
+                Effect.flatMap((reported) =>
+                  Option.isSome(reported)
+                    ? Effect.void
+                    : Deferred.succeed(ctx.commandsReported, undefined),
+                ),
+              );
+              const prompt = prepareOhMyPiPrompt(
+                input.input?.trim() ?? "",
+                ctx.catalog ?? OH_MY_PI_EMPTY_CATALOG,
+              );
+              if (prompt.text) {
+                promptParts.push({ type: "text", text: prompt.text });
               }
               if (input.attachments && input.attachments.length > 0) {
                 for (const attachment of input.attachments) {
@@ -1248,23 +1326,27 @@ export function makeOhMyPiAdapter(
                 );
               }
 
-              // ACP has no system-message field; keep runtime context separate from the user's text.
+              // ACP has no system-message field; keep runtime context separate from the
+              // user's text. A prompt omp consumes itself travels alone, or the block
+              // would become the command's arguments; the next ordinary turn carries it.
               const result =
                 interruptionVersion !== ctx.interruptionVersion
                   ? { stopReason: "cancelled" as const }
                   : yield* ctx.acp
                       .prompt(
                         {
-                          prompt: [
-                            ...promptParts,
-                            {
-                              type: "text",
-                              text: buildRuntimeInstructions({
-                                harness: "OhMyPi",
-                                model: resolvedModel,
-                              }),
-                            },
-                          ],
+                          prompt: prompt.consumedByCommand
+                            ? promptParts
+                            : [
+                                ...promptParts,
+                                {
+                                  type: "text",
+                                  text: buildRuntimeInstructions({
+                                    harness: "OhMyPi",
+                                    model: resolvedModel,
+                                  }),
+                                },
+                              ],
                         },
                         { dispatched },
                       )
@@ -1417,7 +1499,11 @@ export function makeOhMyPiAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        supportsConversationRollback: false,
+        sessionRestartOptionIds: OH_MY_PI_SESSION_OPTION_IDS,
+      },
       compaction: { type: "slash-command", command: "/compact" },
       startSession,
       sendTurn,

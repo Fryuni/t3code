@@ -247,12 +247,15 @@ function getTraitsSectionVisibility(input: {
     showFastMode,
     showContextWindow,
     showAgent,
+    // Every boolean renders as an On/Off group, so a provider whose only
+    // options are toggles (OhMyPi's default model) still gets the control.
     hasAnyControls:
       showEffort ||
       showThinking ||
       showFastMode ||
       showContextWindow ||
       showAgent ||
+      selected.booleanDescriptors.length > 0 ||
       (selected.modelIsUnavailable && selected.descriptors.length > 0),
   };
 }
