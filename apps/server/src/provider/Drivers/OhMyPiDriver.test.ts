@@ -41,6 +41,8 @@ const testLayer = ServerConfig.layerTest(process.cwd(), { prefix: "t3-omp-driver
   Layer.provideMerge(Layer.succeed(ProviderEventLoggers, NoOpProviderEventLoggers)),
 );
 const instanceId = ProviderInstanceId.make("omp-test");
+/** omp always follows session setup with a command update; the adapter waits for it. */
+const OMP_BOOTSTRAP_ENV = { T3_ACP_AVAILABLE_COMMANDS: "[]" } as const;
 const threadId = ThreadId.make("omp-thread");
 
 it.layer(testLayer)("OhMyPi driver", (it) => {
@@ -136,6 +138,54 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
       }).pipe(Effect.scoped),
   );
 
+  it.effect("waits for the workspace catalog before preparing the first prompt", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const logPath = path.join(directory, "catalog-race.jsonl");
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-catalog-mock",
+          env: {
+            T3_ACP_REQUEST_LOG_PATH: logPath,
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            T3_ACP_AVAILABLE_COMMANDS: JSON.stringify([
+              { name: "skill:grill-me", description: "Interview relentlessly" },
+            ]),
+            T3_ACP_AVAILABLE_COMMANDS_DELAY_MS: "400",
+          },
+          source: execScriptSource({
+            scriptPath: NodeURL.fileURLToPath(
+              new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+            ),
+          }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      yield* instance.adapter.sendTurn({ threadId, input: "$grill-me", attachments: [] });
+      const prompts = (yield* fs.readFileString(logPath))
+        .split("\n")
+        .filter((line) => line.includes('"method":"session/prompt"'));
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain('"text":"/skill:grill-me"');
+      expect(prompts[0]).not.toContain("runtime_info");
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
+  );
+
   for (const sendDuringPreparation of [false, true]) {
     it.effect(`steers within one turn (send during preparation: ${sendDuringPreparation})`, () =>
       Effect.gen(function* () {
@@ -148,6 +198,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
             directory,
             name: "omp-steering-mock",
             env: {
+              ...OMP_BOOTSTRAP_ENV,
               T3_ACP_REQUEST_LOG_PATH: logPath,
               T3_ACP_COMPLETE_FIRST_PROMPT_ON_CANCEL: "1",
             },
@@ -243,7 +294,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         writeFakeCli({
           directory,
           name: "omp-stop-mock",
-          env: { T3_ACP_REQUEST_LOG_PATH: logPath },
+          env: { ...OMP_BOOTSTRAP_ENV, T3_ACP_REQUEST_LOG_PATH: logPath },
           source: execScriptSource({
             scriptPath: NodeURL.fileURLToPath(
               new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
@@ -343,7 +394,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         writeFakeCli({
           directory,
           name: "omp-background-tool-updates-mock",
-          env: { T3_ACP_EMIT_ASSISTANT_DURING_TOOL_UPDATES: "1" },
+          env: { ...OMP_BOOTSTRAP_ENV, T3_ACP_EMIT_ASSISTANT_DURING_TOOL_UPDATES: "1" },
           source: execScriptSource({
             scriptPath: NodeURL.fileURLToPath(
               new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
@@ -445,7 +496,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         writeFakeCli({
           directory,
           name: "omp-task-progress-mock",
-          env: { T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES: "1" },
+          env: { ...OMP_BOOTSTRAP_ENV, T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES: "1" },
           source: execScriptSource({
             scriptPath: NodeURL.fileURLToPath(
               new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
@@ -667,7 +718,7 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         writeFakeCli({
           directory,
           name: "omp-active-child-stop-mock",
-          env: { T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES: "1" },
+          env: { ...OMP_BOOTSTRAP_ENV, T3_ACP_EMIT_OH_MY_PI_TASK_UPDATES: "1" },
           source: execScriptSource({
             scriptPath: NodeURL.fileURLToPath(
               new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),

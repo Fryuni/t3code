@@ -17,6 +17,8 @@ const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
 /** JSON `AvailableCommand[]` published after session setup, like omp's bootstrap update. */
 const availableCommandsJson = process.env.T3_ACP_AVAILABLE_COMMANDS;
+/** Delay that publication past the setup response, as omp does. */
+const availableCommandsDelayMs = Number(process.env.T3_ACP_AVAILABLE_COMMANDS_DELAY_MS ?? "0");
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
@@ -438,16 +440,23 @@ const program = Effect.gen(function* () {
     yield* agent.handleLogout(() => Effect.succeed({}));
   }
 
-  const publishConfiguredCommands = (targetSessionId: string) =>
-    availableCommandsJson === undefined
-      ? Effect.void
-      : agent.client.sessionUpdate({
-          sessionId: targetSessionId,
-          update: {
-            sessionUpdate: "available_commands_update",
-            availableCommands: JSON.parse(availableCommandsJson),
-          },
-        });
+  const publishConfiguredCommands = (targetSessionId: string) => {
+    if (availableCommandsJson === undefined) return Effect.void;
+    const publish = agent.client.sessionUpdate({
+      sessionId: targetSessionId,
+      update: {
+        sessionUpdate: "available_commands_update",
+        availableCommands: JSON.parse(availableCommandsJson),
+      },
+    });
+    return availableCommandsDelayMs > 0
+      ? Effect.sleep(`${availableCommandsDelayMs} millis`).pipe(
+          Effect.andThen(publish),
+          Effect.forkDetach,
+          Effect.asVoid,
+        )
+      : publish;
+  };
 
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {

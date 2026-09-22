@@ -103,7 +103,11 @@ export interface OhMyPiAdapterLiveOptions {
     commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
     cwd: string,
   ) => Effect.Effect<void>;
-  /** The workspace's known commands and skills, from the probe or an earlier session. */
+  /**
+   * The workspace's known commands and skills, from the probe or a session.
+   * May wait for them: the first turn in a fresh workspace can otherwise
+   * outrun omp's command update and go out unprepared.
+   */
   readonly workspaceCatalog?: (
     cwd: string,
   ) => Effect.Effect<ServerProviderWorkspaceSnapshot | undefined>;

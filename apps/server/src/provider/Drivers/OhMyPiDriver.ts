@@ -7,8 +7,10 @@ import {
 import { createModelCapabilities } from "@t3tools/shared/model";
 import * as Crypto from "effect/Crypto";
 import * as DateTime from "effect/DateTime";
+import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
@@ -17,6 +19,7 @@ import { ChildProcessSpawner } from "effect/unstable/process";
 import * as BackgroundPolicy from "../../background/BackgroundPolicy.ts";
 import { ServerConfig } from "../../config.ts";
 import { ServerSettingsService } from "../../serverSettings.ts";
+import { subscribeBeforeSnapshotWithoutMutex } from "../../utils/subscribeBeforeSnapshot.ts";
 import { ProviderDriverError } from "../Errors.ts";
 import { probeOhMyPiWorkspaceCommands } from "../acp/OhMyPiAcpSupport.ts";
 import { makeOhMyPiAdapter } from "../Layers/OhMyPiAdapter.ts";
@@ -49,6 +52,11 @@ const capabilities = createModelCapabilities({
 });
 /** Live sessions and probes both report per workspace; keep a bounded set. */
 const MAX_WORKSPACE_SNAPSHOTS = 32;
+/**
+ * omp sends its command list about fifty milliseconds after `session/new`,
+ * and the probe takes about a second; past this a prompt goes out unprepared.
+ */
+const WORKSPACE_CATALOG_WAIT = Duration.seconds(5);
 
 export type OhMyPiDriverEnv =
   | BackgroundPolicy.BackgroundPolicy
@@ -124,6 +132,22 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           Effect.map((draft) =>
             draft.workspaceSnapshots?.find((workspace) => workspace.cwd === cwd),
           ),
+        );
+      // The first turn in a fresh workspace can outrun both the live session's
+      // command update and the probe; subscribe before re-checking so an update
+      // between the two cannot be missed.
+      const awaitWorkspace = (cwd: string) =>
+        subscribeBeforeSnapshotWithoutMutex(metadata.pubsub, SubscriptionRef.get(metadata)).pipe(
+          Effect.flatMap(({ latest, changes }) =>
+            Stream.concat(Stream.make(latest), changes).pipe(
+              Stream.map((draft) => draft.workspaceSnapshots?.find((entry) => entry.cwd === cwd)),
+              Stream.filter((workspace) => workspace !== undefined),
+              Stream.runHead,
+            ),
+          ),
+          Effect.scoped,
+          Effect.timeoutOption(WORKSPACE_CATALOG_WAIT),
+          Effect.map((found) => Option.getOrUndefined(Option.flatten(found))),
         );
       // omp's command list is the one source for a workspace's skills and slash
       // commands, whether a live session or the probe reported it; a live session
@@ -240,7 +264,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         environment: processEnv,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
         onAvailableCommands: (commands, cwd) => recordWorkspaceCommands(cwd, commands),
-        workspaceCatalog: findWorkspace,
+        workspaceCatalog: awaitWorkspace,
       });
       const unsupported = (operation: string) =>
         Effect.fail(
