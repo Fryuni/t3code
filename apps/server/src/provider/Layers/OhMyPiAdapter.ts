@@ -92,8 +92,8 @@ const PROVIDER = ProviderDriverKind.make("ohMyPi");
 const OH_MY_PI_RESUME_VERSION = 1 as const;
 /**
  * omp reports its command list about fifty milliseconds after session setup,
- * on new and resumed sessions alike; past this bound a prompt goes out with
- * whatever the workspace already knew.
+ * on new and resumed sessions alike; past this bound a prompt goes out
+ * dispatching nothing, reaching the model as the text the user typed.
  */
 const OH_MY_PI_COMMANDS_WAIT = Duration.seconds(5);
 /** What a session that never reported dispatches from: nothing. */
@@ -344,9 +344,10 @@ interface OhMyPiSessionContext {
   /** Settled once this session reported its own command list. */
   readonly commandsReported: Deferred.Deferred<void>;
   /**
-   * What this session's own omp advertised. Launch options gate commands, so
-   * two threads in one workspace can differ; dispatch from the session that
-   * will run the prompt, never from the workspace's shared snapshot.
+   * What this session's own omp advertised. The workspace snapshot is a menu
+   * cache keyed by cwd, written by whichever probe or session reported last; a
+   * skill added or a plugin installed since then makes it disagree. Dispatch
+   * from the process that will actually receive the prompt.
    */
   catalog: OhMyPiWorkspaceCatalog | undefined;
 }

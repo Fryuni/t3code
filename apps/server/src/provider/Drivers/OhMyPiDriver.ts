@@ -139,11 +139,10 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         SubscriptionRef.update(metadata, (draft) => {
           const recorded = draft.workspaceSnapshots ?? [];
           // A probe only runs for a workspace with no entry, so an entry that
-          // appeared since came from a live session. omp advertises what its own
-          // configuration enables and the probe launches without a thread's
-          // options, so letting the slower probe land would narrow the menu.
-          // Reading the entry rather than remembering the cwd keeps this in step
-          // with eviction: a workspace that ages out can be probed again.
+          // appeared since came from a live session: the same list, read later,
+          // by the process the user is talking to. Reading the entry rather than
+          // remembering the cwd keeps this in step with eviction, so a workspace
+          // that ages out can be probed again.
           if (source === "probe" && recorded.some((workspace) => workspace.cwd === cwd)) {
             return draft;
           }

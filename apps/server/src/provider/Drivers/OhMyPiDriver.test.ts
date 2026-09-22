@@ -202,9 +202,9 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
               { name: "computer", description: "Drive the screen" },
             ]),
           },
-          // The probe is the launch carrying `--session-dir`. It reports a
-          // narrower list, late, standing in for the commands omp gates behind
-          // options the probe cannot know.
+          // The probe is the launch carrying `--session-dir`. It reports late
+          // and disagrees, standing in for a read that the live session's own,
+          // later one should win over.
           source:
             `
               if (process.argv.includes("--session-dir")) {
@@ -266,9 +266,9 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
               { name: "computer", description: "Drive the screen" },
             ]),
           },
-          // Approval mode is the launch difference standing in for the options
-          // that gate omp's commands: the second thread's omp advertises a
-          // different set for the very same workspace.
+          // Approval mode stands in for anything that makes two omp processes
+          // in one workspace disagree — a skill added or a plugin installed
+          // between the two session starts: the second advertises another set.
           source:
             `
               if (process.argv.includes("always-ask")) {
