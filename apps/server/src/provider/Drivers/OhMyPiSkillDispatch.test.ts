@@ -32,6 +32,19 @@ describe("prepareOhMyPiPrompt", () => {
     });
   });
 
+  it("leaves attached context verbatim and never dispatches from it", () => {
+    const envelope =
+      '\n\n<t3_context version="1">\n<context kind="terminal" ref="ctx_1">$grill-me</context>\n</t3_context>';
+    expect(prepareOhMyPiPrompt(`fix this${envelope}`, catalog)).toEqual({
+      text: `fix this${envelope}`,
+      consumedByCommand: false,
+    });
+    expect(prepareOhMyPiPrompt(`$grill-me${envelope}`, catalog)).toEqual({
+      text: `/skill:grill-me${envelope}`,
+      consumedByCommand: true,
+    });
+  });
+
   it("follows omp's prefix rules for inline skill tokens", () => {
     expect(prepareOhMyPiPrompt("/tmp/x is broken, $grill-me", catalog).consumedByCommand).toBe(
       false,

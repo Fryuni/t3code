@@ -20,6 +20,7 @@ import type {
   ServerProviderSlashCommand,
   ServerProviderWorkspaceSnapshot,
 } from "@t3tools/contracts";
+import { splitComposerContextEnvelope } from "@t3tools/shared/composerContextReferences";
 
 /**
  * Same token shape the Claude and Cursor skill dispatchers use, so a `$name`
@@ -61,11 +62,13 @@ export function prepareOhMyPiPrompt(
   prompt: string,
   catalog: OhMyPiWorkspaceCatalog,
 ): OhMyPiPreparedPrompt {
-  const text = prompt.replace(SKILL_MENTION_PATTERN, (match, prefix: string, name: string) =>
+  // Only the user's own text carries mentions; attached context is data.
+  const { body, envelope } = splitComposerContextEnvelope(prompt);
+  const text = body.replace(SKILL_MENTION_PATTERN, (match, prefix: string, name: string) =>
     catalog.skillNames.has(name) ? `${prefix}/${SKILL_COMMAND_PREFIX}${name}` : match,
   );
   return {
-    text,
+    text: `${text}${envelope}`,
     consumedByCommand:
       invokesSkill(text, catalog.skillNames) || opensWithCommand(text, catalog.commandNames),
   };

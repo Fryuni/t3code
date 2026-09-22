@@ -195,6 +195,8 @@ describe("resolveProviderSkillInstructionsPath", () => {
       "C:/Users/dev/SKILL.md",
     );
     expect(resolveProviderSkillInstructionsPath({ path: "skill://grill-me" })).toBeUndefined();
+    expect(resolveProviderSkillInstructionsPath({ path: "file:///tmp/SKILL.md" })).toBeUndefined();
+    expect(resolveProviderSkillInstructionsPath({ path: "mailto:dev" })).toBeUndefined();
     expect(resolveProviderSkillInstructionsPath({})).toBeUndefined();
   });
 });

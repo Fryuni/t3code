@@ -10,6 +10,7 @@ import {
   projectComposerContextForProvider,
   replaceComposerContextReferences,
   sanitizeComposerContextLabel,
+  splitComposerContextEnvelope,
 } from "./composerContextReferences.ts";
 
 const ctx = (value: string) => value as ComposerContextId;
@@ -261,5 +262,20 @@ describe("provider projection", () => {
     expect(projected).toContain('<context kind="terminal" id="ctx_t" unavailable="true"/>');
     expect(projected).not.toContain("another payload");
     expect(projected).not.toContain("boom");
+  });
+});
+
+describe("splitComposerContextEnvelope", () => {
+  it("separates the user's text from the projected envelope", () => {
+    const projected =
+      'run it\n\n<t3_context version="1">\n<context kind="terminal" ref="ctx_1">$grill-me</context>\n</t3_context>';
+    expect(splitComposerContextEnvelope(projected)).toEqual({
+      body: "run it",
+      envelope: projected.slice("run it".length),
+    });
+    expect(splitComposerContextEnvelope("plain prose")).toEqual({
+      body: "plain prose",
+      envelope: "",
+    });
   });
 });
