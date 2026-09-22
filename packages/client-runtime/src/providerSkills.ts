@@ -20,15 +20,18 @@ function normalizePathSeparators(pathValue: string): string {
 }
 
 /**
- * The skill's instruction file, when the provider reported one. OhMyPi names
- * its skills with its own `skill://` scheme, which no client can open, so a
- * composer must not offer to view those.
+ * The skill's instruction file, when the provider reported one, with the `/`
+ * separators the clients use for every path. OhMyPi names its skills with its
+ * own `skill://` scheme, which no client can open, so a composer must not
+ * offer to view those.
  */
 export function resolveProviderSkillInstructionsPath(
   skill: Partial<Pick<ServerProviderSkill, "path">>,
 ): string | undefined {
   const path = skill.path?.trim() ?? "";
-  return path.length > 0 && !/^[a-z][a-z0-9+.-]*:\/\//iu.test(path) ? path : undefined;
+  return path.length > 0 && !/^[a-z][a-z0-9+.-]*:\/\//iu.test(path)
+    ? normalizePathSeparators(path)
+    : undefined;
 }
 
 export function formatProviderSkillDisplayName(
