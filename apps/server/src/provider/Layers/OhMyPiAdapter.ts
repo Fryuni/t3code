@@ -1242,9 +1242,15 @@ export function makeOhMyPiAdapter(
               const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
               // The first prompt waits for this session's own command list, so a
               // catalog cached from a probe or an earlier session cannot go stale
-              // across a restart.
+              // across a restart. A process that never reports settles the wait on
+              // its first timeout, so later prompts do not pay it again.
               yield* Deferred.await(ctx.commandsReported).pipe(
                 Effect.timeoutOption(OH_MY_PI_COMMANDS_WAIT),
+                Effect.flatMap((reported) =>
+                  Option.isSome(reported)
+                    ? Effect.void
+                    : Deferred.succeed(ctx.commandsReported, undefined),
+                ),
               );
               const workspaceCwd = ctx.session.cwd;
               const prompt = prepareOhMyPiPrompt(

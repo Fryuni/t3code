@@ -293,6 +293,9 @@ describe("stripComposerContextMarkers", () => {
         "/computer [Terminal: build log; ref=ctx_1] status [Pull request: #39; ref=ctx_2]",
       ),
     ).toBe("/computer status");
+    expect(stripComposerContextMarkers("/advisor on [Foo 2: later kind; ref=ctx_3]")).toBe(
+      "/advisor on",
+    );
     expect(stripComposerContextMarkers("plain [not a marker] text")).toBe(
       "plain [not a marker] text",
     );

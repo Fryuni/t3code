@@ -291,8 +291,12 @@ export function projectComposerContextForProvider(input: {
 }
 
 const CONTEXT_ENVELOPE_OPENING = `\n\n<${CONTEXT_ENVELOPE_TAG} version="1">\n`;
-/** The in-place marker `formatComposerContextProviderMarker` writes; labels never contain `]`. */
-const CONTEXT_MARKER_PATTERN = /\[[A-Z][A-Za-z ]*: [^\]]*; ref=[^\]\s]+\]/gu;
+/**
+ * The in-place marker `formatComposerContextProviderMarker` writes. Kinds are
+ * `[a-z0-9-]` and display with spaces for dashes, so a label like `Foo 2`
+ * carries digits; captured labels never contain `]`.
+ */
+const CONTEXT_MARKER_PATTERN = /\[[A-Z][A-Za-z0-9 ]*: [^\]]*; ref=[^\]\s]+\]/gu;
 
 /**
  * Remove the in-place markers a projection left in the user's text, for a
