@@ -44,6 +44,7 @@ const instanceId = ProviderInstanceId.make("omp-test");
 /** omp always follows session setup with a command update; the adapter waits for it. */
 const OMP_BOOTSTRAP_ENV = { T3_ACP_AVAILABLE_COMMANDS: "[]" } as const;
 const threadId = ThreadId.make("omp-thread");
+const otherThreadId = ThreadId.make("omp-thread-2");
 
 it.layer(testLayer)("OhMyPi driver", (it) => {
   it.effect("does not start a disabled CLI", () =>
@@ -242,6 +243,80 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           workspace.slashCommands.map((command) => command.name),
         ),
       ).toEqual([["computer"]]);
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
+  );
+
+  it.effect("dispatches from each session's own commands, not the workspace's", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const logPath = path.join(directory, "own-catalog.jsonl");
+      const otherLogPath = path.join(directory, "other-catalog.jsonl");
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-two-thread-mock",
+          env: {
+            T3_ACP_REQUEST_LOG_PATH: logPath,
+            T3_OTHER_REQUEST_LOG_PATH: otherLogPath,
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            T3_ACP_AVAILABLE_COMMANDS: JSON.stringify([
+              { name: "computer", description: "Drive the screen" },
+            ]),
+          },
+          // Approval mode is the launch difference standing in for the options
+          // that gate omp's commands: the second thread's omp advertises a
+          // different set for the very same workspace.
+          source:
+            `
+              if (process.argv.includes("always-ask")) {
+                process.env.T3_ACP_REQUEST_LOG_PATH = process.env.T3_OTHER_REQUEST_LOG_PATH;
+                process.env.T3_ACP_AVAILABLE_COMMANDS = JSON.stringify([
+                  { name: "compact", description: "Compact the conversation" },
+                ]);
+              }
+            ` +
+            execScriptSource({
+              scriptPath: NodeURL.fileURLToPath(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+            }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      yield* instance.adapter.startSession({
+        threadId: otherThreadId,
+        cwd: directory,
+        runtimeMode: "approval-required",
+      });
+      // Returns only once the second thread's list has reached the workspace
+      // snapshot, so the shared entry now disagrees with the first thread.
+      yield* instance.adapter.sendTurn({
+        threadId: otherThreadId,
+        input: "hello",
+        attachments: [],
+      });
+      yield* instance.adapter.sendTurn({ threadId, input: "/computer status", attachments: [] });
+      const prompts = (yield* fs.readFileString(logPath))
+        .split("\n")
+        .filter((line) => line.includes('"method":"session/prompt"'));
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain('"text":"/computer status"');
+      // A builtin travels alone; omp folds a second block into its arguments.
+      expect(prompts[0]).not.toContain("runtime_info");
       yield* instance.adapter.stopAll();
     }).pipe(Effect.scoped),
   );

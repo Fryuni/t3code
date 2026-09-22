@@ -18,7 +18,6 @@ import {
   RuntimeTaskId,
   RuntimeRequestId,
   type RuntimeMode,
-  type ServerProviderWorkspaceSnapshot,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -53,7 +52,12 @@ import {
   resolveOhMyPiSessionToggles,
 } from "../OhMyPiSessionOptions.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
-import { ohMyPiWorkspaceCatalog, prepareOhMyPiPrompt } from "../Drivers/OhMyPiSkillDispatch.ts";
+import {
+  type OhMyPiWorkspaceCatalog,
+  ohMyPiWorkspaceCatalog,
+  prepareOhMyPiPrompt,
+  splitOhMyPiAvailableCommands,
+} from "../Drivers/OhMyPiSkillDispatch.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   ProviderAdapterProcessError,
@@ -92,6 +96,8 @@ const OH_MY_PI_RESUME_VERSION = 1 as const;
  * whatever the workspace already knew.
  */
 const OH_MY_PI_COMMANDS_WAIT = Duration.seconds(5);
+/** What a session that never reported dispatches from: nothing. */
+const OH_MY_PI_EMPTY_CATALOG = ohMyPiWorkspaceCatalog(undefined);
 function encodeJsonStringForDiagnostics(input: unknown): string | undefined {
   const result = encodeUnknownJsonStringExit(input);
   return Exit.isSuccess(result) ? result.value : undefined;
@@ -110,10 +116,6 @@ export interface OhMyPiAdapterLiveOptions {
     commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
     cwd: string,
   ) => Effect.Effect<void>;
-  /** The workspace's known commands and skills, from the probe or a session. */
-  readonly workspaceCatalog?: (
-    cwd: string,
-  ) => Effect.Effect<ServerProviderWorkspaceSnapshot | undefined>;
 }
 
 interface PendingApproval {
@@ -341,6 +343,12 @@ interface OhMyPiSessionContext {
   stopped: boolean;
   /** Settled once this session reported its own command list. */
   readonly commandsReported: Deferred.Deferred<void>;
+  /**
+   * What this session's own omp advertised. Launch options gate commands, so
+   * two threads in one workspace can differ; dispatch from the session that
+   * will run the prompt, never from the workspace's shared snapshot.
+   */
+  catalog: OhMyPiWorkspaceCatalog | undefined;
 }
 
 function settlePendingApprovalsAsCancelled(
@@ -1009,6 +1017,7 @@ export function makeOhMyPiAdapter(
             interruptionVersion: 0,
             stopped: false,
             commandsReported: yield* Deferred.make<void>(),
+            catalog: undefined,
           };
           for (const observed of pendingObservedToolCalls.splice(0)) {
             yield* emitOhMyPiChildTaskEvents(ctx, observed);
@@ -1024,6 +1033,9 @@ export function makeOhMyPiAdapter(
                   case "ConfigOptionsUpdated":
                     return;
                   case "AvailableCommandsUpdated":
+                    ctx.catalog = ohMyPiWorkspaceCatalog(
+                      splitOhMyPiAvailableCommands(event.availableCommands),
+                    );
                     yield* (
                       options?.onAvailableCommands?.(event.availableCommands, cwd) ?? Effect.void
                     );
@@ -1240,10 +1252,10 @@ export function makeOhMyPiAdapter(
               }
 
               const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
-              // The first prompt waits for this session's own command list, so a
-              // catalog cached from a probe or an earlier session cannot go stale
-              // across a restart. A process that never reports settles the wait on
-              // its first timeout, so later prompts do not pay it again.
+              // The first prompt waits for this session's own command list, since
+              // dispatch reads it and omp reports it shortly after setup. A
+              // process that never reports settles the wait on its first timeout,
+              // so later prompts do not pay it again and dispatch nothing.
               yield* Deferred.await(ctx.commandsReported).pipe(
                 Effect.timeoutOption(OH_MY_PI_COMMANDS_WAIT),
                 Effect.flatMap((reported) =>
@@ -1252,14 +1264,9 @@ export function makeOhMyPiAdapter(
                     : Deferred.succeed(ctx.commandsReported, undefined),
                 ),
               );
-              const workspaceCwd = ctx.session.cwd;
               const prompt = prepareOhMyPiPrompt(
                 input.input?.trim() ?? "",
-                ohMyPiWorkspaceCatalog(
-                  workspaceCwd === undefined
-                    ? undefined
-                    : yield* options?.workspaceCatalog?.(workspaceCwd) ?? Effect.succeed(undefined),
-                ),
+                ctx.catalog ?? OH_MY_PI_EMPTY_CATALOG,
               );
               if (prompt.text) {
                 promptParts.push({ type: "text", text: prompt.text });

@@ -252,7 +252,6 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         environment: processEnv,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
         onAvailableCommands: (commands, cwd) => recordWorkspaceCommands("live", cwd, commands),
-        workspaceCatalog: findWorkspace,
       });
       const unsupported = (operation: string) =>
         Effect.fail(
