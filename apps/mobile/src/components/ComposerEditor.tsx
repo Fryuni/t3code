@@ -1,3 +1,4 @@
+import { resolveProviderSkillInstructionsPath } from "@t3tools/client-runtime/providerSkills";
 import { ComposerContextId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -159,6 +160,9 @@ export function ComposerEditor({
   const selectedSkill = selectedSkillName
     ? props.skills?.find((skill) => skill.name === selectedSkillName)
     : undefined;
+  const selectedSkillInstructionsPath = selectedSkill
+    ? resolveProviderSkillInstructionsPath(selectedSkill)
+    : undefined;
   const record = draft.context?.records.find(
     (entry) => entry.contextId === selectedReference?.contextId,
   );
@@ -221,11 +225,11 @@ export function ComposerEditor({
               : undefined)
           }
           {...(selectedSkill?.description ? { skillDescription: selectedSkill.description } : {})}
-          {...(selectedSkill?.path && onOpenMention
+          {...(selectedSkillInstructionsPath && onOpenMention
             ? {
                 onOpenSkill: () => {
                   setSelected(null);
-                  onOpenMention(selectedSkill.path!);
+                  onOpenMention(selectedSkillInstructionsPath);
                 },
               }
             : {})}

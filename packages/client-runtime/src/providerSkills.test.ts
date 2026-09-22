@@ -8,6 +8,7 @@ import {
   getProviderSkillsForSlashMenu,
   resolveProviderSkillsForCwd,
   resolveProviderSlashCommandsForCwd,
+  resolveProviderSkillInstructionsPath,
   resolveProviderSkillSourceKind,
 } from "./providerSkills.ts";
 
@@ -182,6 +183,19 @@ describe("getProviderSlashCommandsForSlashMenu", () => {
     expect(
       getProviderSlashCommandsForSlashMenu(commands, visibleSkills).map((command) => command.name),
     ).toEqual(["ask-matt", "compact"]);
+  });
+});
+
+describe("resolveProviderSkillInstructionsPath", () => {
+  it("offers filesystem paths and withholds scheme identifiers", () => {
+    expect(
+      resolveProviderSkillInstructionsPath({ path: "/home/dev/.claude/skills/x/SKILL.md" }),
+    ).toBe("/home/dev/.claude/skills/x/SKILL.md");
+    expect(resolveProviderSkillInstructionsPath({ path: "C:\\Users\\dev\\SKILL.md" })).toBe(
+      "C:\\Users\\dev\\SKILL.md",
+    );
+    expect(resolveProviderSkillInstructionsPath({ path: "skill://grill-me" })).toBeUndefined();
+    expect(resolveProviderSkillInstructionsPath({})).toBeUndefined();
   });
 });
 

@@ -96,8 +96,9 @@ function opensWithCommand(text: string, commandNames: ReadonlySet<string>): bool
 
 /**
  * omp advertises each skill as a `skill:<name>` command. Those become `$`
- * skills, identified only by omp's own `skill://` scheme, and leave the slash
- * menu; everything else stays a slash command.
+ * skills and leave the slash menu; everything else stays a slash command. A
+ * skill's only identifier is omp's own `skill://` scheme: the clients pick a
+ * source badge from it and do not offer to open it as a file.
  */
 export function splitOhMyPiAvailableCommands(
   commands: ReadonlyArray<{
