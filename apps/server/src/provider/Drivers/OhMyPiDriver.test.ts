@@ -113,6 +113,14 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
             id: "thinking",
             options: [{ id: "off" }, { id: "auto" }, { id: "low" }, { id: "high" }],
           },
+          { id: "advisor", type: "boolean" },
+          { id: "computerUse", type: "boolean" },
+          { id: "prewalk", type: "boolean" },
+        ]);
+        expect(first.models[0]?.capabilities?.optionDescriptors?.map((d) => d.id)).toEqual([
+          "advisor",
+          "computerUse",
+          "prewalk",
         ]);
         for (const output of ["not json", "exit", '{"models":[{"name":"missing ID"}]}']) {
           yield* fs.writeFileString(catalogFile, output);
@@ -733,6 +741,12 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
               T3_ACP_REQUEST_LOG_PATH: logPath,
               T3_ACP_EMIT_TOOL_CALLS: "1",
               T3_ACP_ALLOW_ONCE_OPTION_ID: "omp-allow-42",
+              // @effect-diagnostics-next-line preferSchemaOverJson:off
+              T3_ACP_AVAILABLE_COMMANDS: JSON.stringify([
+                { name: "compact", description: "Compact the conversation" },
+                { name: "skill:grill-me", description: "Interview relentlessly" },
+                { name: "advisor", description: "Toggle advisor", input: { hint: "[on|off]" } },
+              ]),
             },
             source:
               `
@@ -770,6 +784,29 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         expect(refreshed.models.map((model) => model.slug)).toContain("openai/gpt");
         expect(refreshed.version).toBe("18.1.14");
         expect(yield* fs.exists(logPath)).toBe(false);
+
+        // The workspace probe reads omp's command list without a thread.
+        const { stateDir } = yield* ServerConfig;
+        const instanceDir = path.join(stateDir, "ohmypi", instanceId);
+        const scoped = yield* instance.snapshotForCwd!(directory);
+        expect(scoped.skills).toEqual([
+          {
+            name: "grill-me",
+            description: "Interview relentlessly",
+            path: "skill://grill-me",
+            enabled: true,
+          },
+        ]);
+        expect(scoped.slashCommands.map((command) => command.name)).toEqual(["compact", "advisor"]);
+        expect((yield* instance.snapshot.getSnapshot).workspaceSnapshots?.[0]?.cwd).toBe(directory);
+        const probeArgv = (yield* fs.readFileString(argvPath)).trim().split("\n");
+        expect(probeArgv).toHaveLength(1);
+        expect(probeArgv[0]).toContain(
+          `acp\t--session-dir\t${path.join(instanceDir, "probe-sessions")}`,
+        );
+        expect(yield* fs.readDirectory(path.join(instanceDir, "probe-sessions"))).toEqual([]);
+        expect(yield* fs.readFileString(logPath)).toContain('"method":"session/close"');
+
         const events = yield* Queue.unbounded<ProviderRuntimeEvent>();
         yield* instance.adapter.streamEvents.pipe(
           Stream.runForEach((event) => Queue.offer(events, event)),
@@ -779,9 +816,20 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
           threadId,
           cwd: directory,
           runtimeMode: "approval-required",
-          modelSelection: { instanceId, model: OH_MY_PI_DEFAULT_MODEL },
+          modelSelection: {
+            instanceId,
+            model: OH_MY_PI_DEFAULT_MODEL,
+            options: [{ id: "advisor", value: true }],
+          },
         });
         expect(session.provider).toBe("ohMyPi");
+        const overlayPath = path.join(instanceDir, "config", "advisor-on.computer-off.yml");
+        expect((yield* fs.readFileString(argvPath)).trim().split("\n")[1]).toBe(
+          `acp\t--approval-mode\talways-ask\t--no-prewalk\t--config\t${overlayPath}`,
+        );
+        expect(yield* fs.readFileString(overlayPath)).toBe(
+          "advisor:\n  enabled: true\ncomputer:\n  enabled: false\n",
+        );
         expect((yield* instance.snapshot.getSnapshot).models).toEqual(refreshed.models);
         const turn = yield* instance.adapter
           .sendTurn({
@@ -809,13 +857,46 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         expect((yield* instance.snapshot.getSnapshot).models).toEqual(refreshed.models);
         expect(seen.some((event) => event.type === "content.delta")).toBe(true);
         expect(seen.some((event) => event.type === "request.resolved")).toBe(true);
+
+        // A skill mention becomes omp's invocation and travels without the runtime block.
+        const skillTurn = yield* instance.adapter
+          .sendTurn({ threadId, input: "please $grill-me now", attachments: [] })
+          .pipe(Effect.forkChild);
+        while (true) {
+          const event = yield* Queue.take(events);
+          if (event.type === "request.opened") {
+            yield* instance.adapter.respondToRequest(
+              threadId,
+              ApprovalRequestId.make(event.requestId!),
+              "accept",
+            );
+          }
+          if (event.type === "turn.completed") break;
+        }
+        yield* Fiber.join(skillTurn);
+
         yield* instance.adapter.stopSession(threadId);
         yield* instance.adapter.startSession({
           threadId,
           cwd: directory,
           runtimeMode: "approval-required",
           resumeCursor: session.resumeCursor,
+          modelSelection: {
+            instanceId,
+            model: OH_MY_PI_DEFAULT_MODEL,
+            options: [
+              { id: "computerUse", value: true },
+              { id: "prewalk", value: true },
+            ],
+          },
         });
+        const resumeOverlayPath = path.join(instanceDir, "config", "advisor-off.computer-on.yml");
+        expect((yield* fs.readFileString(argvPath)).trim().split("\n")[2]).toBe(
+          `acp\t--approval-mode\talways-ask\t--prewalk\t--config\t${resumeOverlayPath}`,
+        );
+        expect(yield* fs.readFileString(resumeOverlayPath)).toBe(
+          "advisor:\n  enabled: false\ncomputer:\n  enabled: true\n",
+        );
         const interruptedTurn = yield* instance.adapter
           .sendTurn({ threadId, input: "wait for approval", attachments: [] })
           .pipe(Effect.forkChild);
@@ -827,6 +908,20 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
         expect(requests).toContain('"methodId":"agent"');
         expect(requests).toContain('"method":"session/load"');
         expect(requests).not.toContain('"value":"oh-my-pi-default"');
+        const promptTexts = requests
+          .split("\n")
+          .filter((line) => line.includes('"method":"session/prompt"'))
+          .map((line) =>
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            (
+              JSON.parse(line) as {
+                params: { prompt: Array<{ type: string; text?: string }> };
+              }
+            ).params.prompt.flatMap((block) => (block.type === "text" ? [block.text] : [])),
+          );
+        expect(promptTexts[0]?.[0]).toBe("hello");
+        expect(promptTexts[0]?.[1]).toContain("<runtime_info>");
+        expect(promptTexts[1]).toEqual(["please /skill:grill-me now"]);
         expect(yield* fs.readFileString(argvPath)).toContain("acp\t--approval-mode\talways-ask");
         yield* instance.adapter.stopAll();
         expect(yield* instance.adapter.listSessions()).toEqual([]);

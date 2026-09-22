@@ -15,6 +15,8 @@ import type * as AcpSchema from "effect-acp/schema";
 const requestLogPath = process.env.T3_ACP_REQUEST_LOG_PATH;
 const exitLogPath = process.env.T3_ACP_EXIT_LOG_PATH;
 const antigravityProfile = process.env.T3_ACP_ANTIGRAVITY === "1";
+/** JSON `AvailableCommand[]` published after session setup, like omp's bootstrap update. */
+const availableCommandsJson = process.env.T3_ACP_AVAILABLE_COMMANDS;
 const emitToolCalls = process.env.T3_ACP_EMIT_TOOL_CALLS === "1";
 const emitInterleavedAssistantToolCalls =
   process.env.T3_ACP_EMIT_INTERLEAVED_ASSISTANT_TOOL_CALLS === "1";
@@ -436,11 +438,23 @@ const program = Effect.gen(function* () {
     yield* agent.handleLogout(() => Effect.succeed({}));
   }
 
+  const publishConfiguredCommands = (targetSessionId: string) =>
+    availableCommandsJson === undefined
+      ? Effect.void
+      : agent.client.sessionUpdate({
+          sessionId: targetSessionId,
+          update: {
+            sessionUpdate: "available_commands_update",
+            availableCommands: JSON.parse(availableCommandsJson),
+          },
+        });
+
   yield* agent.handleCreateSession(() =>
     Effect.gen(function* () {
       if (antigravityProfile) {
         yield* publishAntigravityCommands(sessionId);
       }
+      yield* publishConfiguredCommands(sessionId);
       return {
         sessionId,
         modes: modeState(),
@@ -465,6 +479,7 @@ const program = Effect.gen(function* () {
       if (antigravityProfile) {
         yield* publishAntigravityCommands(request.sessionId);
       }
+      yield* publishConfiguredCommands(request.sessionId);
       return {
         modes: modeState(),
         models: modelState(),
@@ -528,6 +543,7 @@ const program = Effect.gen(function* () {
           content: { type: "text", text: "replay" },
         },
       });
+      yield* publishConfiguredCommands(requestedSessionId);
       return {
         modes: modeState(),
         models: modelState(),

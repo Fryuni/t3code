@@ -4,6 +4,7 @@ import { resolveSpawnCommand } from "@t3tools/shared/shell";
 import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { ChildProcess } from "effect/unstable/process";
+import { OH_MY_PI_SESSION_OPTION_DESCRIPTORS } from "../OhMyPiSessionOptions.ts";
 import { parseGenericCliVersion, spawnAndCollect } from "../providerSnapshot.ts";
 
 const ModelsOutput = Schema.Struct({
@@ -72,20 +73,22 @@ export const probeOhMyPiModels = Effect.fn("probeOhMyPiModels")(function* (
         subProvider: model.provider,
         isCustom: false,
         capabilities: createModelCapabilities({
-          optionDescriptors:
-            thinking.length > 0
+          optionDescriptors: [
+            ...(thinking.length > 0
               ? [
                   {
                     id: "thinking",
                     label: "Thinking",
-                    type: "select",
+                    type: "select" as const,
                     options: [...new Set(["off", "auto", ...thinking])].map((id) => ({
                       id,
                       label: id === "off" ? "Off" : id === "auto" ? "Auto" : id,
                     })),
                   },
                 ]
-              : [],
+              : []),
+            ...OH_MY_PI_SESSION_OPTION_DESCRIPTORS,
+          ],
         }),
       },
     ];

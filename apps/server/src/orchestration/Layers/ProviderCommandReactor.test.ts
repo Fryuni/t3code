@@ -172,6 +172,7 @@ describe("ProviderCommandReactor", () => {
     readonly deferReactorStart?: boolean;
     readonly threadModelSelection?: ModelSelection;
     readonly sessionModelSwitch?: "unsupported" | "in-session";
+    readonly sessionRestartOptionIds?: ReadonlyArray<string>;
     readonly requiresNewThreadForModelChange?: boolean;
     readonly unreadableHistory?: boolean;
     readonly titleRegenerationCompletionDispatchFailures?: number;
@@ -367,6 +368,9 @@ describe("ProviderCommandReactor", () => {
       getCapabilities: (_provider) =>
         Effect.succeed({
           sessionModelSwitch: input?.sessionModelSwitch ?? "in-session",
+          ...(input?.sessionRestartOptionIds
+            ? { sessionRestartOptionIds: input.sessionRestartOptionIds }
+            : {}),
         }),
       assertConversationRollbackSupported: () => unsupported(),
       getInstanceInfo: (instanceId) => {
@@ -3187,6 +3191,7 @@ describe("ProviderCommandReactor", () => {
         instanceId: ProviderInstanceId.make("claudeAgent"),
         model: "claude-sonnet-4-6",
       },
+      sessionRestartOptionIds: ["effort", "fastMode", "contextWindow", "thinking"],
     });
     const now = "2026-01-01T00:00:00.000Z";
 
@@ -3246,6 +3251,62 @@ describe("ProviderCommandReactor", () => {
         "claude-sonnet-4-6",
         [{ id: "effort", value: "max" }],
       ),
+    });
+  });
+
+  it("restarts only when a launch-time option changes, not an in-session one", async () => {
+    const instanceId = ProviderInstanceId.make("omp");
+    const harness = await createHarness({
+      threadModelSelection: { instanceId, model: "oh-my-pi-default" },
+      sessionRestartOptionIds: ["advisor", "computerUse", "prewalk"],
+    });
+    const now = "2026-01-01T00:00:00.000Z";
+    const startTurn = (
+      suffix: string,
+      options: ReadonlyArray<{ id: string; value: string | boolean }>,
+    ) =>
+      Effect.runPromise(
+        harness.engine.dispatch({
+          type: "thread.turn.start",
+          commandId: CommandId.make(`cmd-turn-start-launch-option-${suffix}`),
+          threadId: ThreadId.make("thread-1"),
+          message: {
+            messageId: asMessageId(`user-message-launch-option-${suffix}`),
+            role: "user",
+            text: `turn ${suffix}`,
+            attachments: [],
+          },
+          modelSelection: createModelSelection(instanceId, "oh-my-pi-default", options),
+          interactionMode: DEFAULT_PROVIDER_INTERACTION_MODE,
+          runtimeMode: "approval-required",
+          createdAt: now,
+        }),
+      );
+
+    await startTurn("1", [{ id: "thinking", value: "low" }]);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 1);
+    expect(harness.startSession.mock.calls.length).toBe(1);
+
+    // Thinking applies in-session, and an explicit off equals the unset default.
+    await startTurn("2", [
+      { id: "thinking", value: "high" },
+      { id: "advisor", value: false },
+    ]);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 2);
+    expect(harness.startSession.mock.calls.length).toBe(1);
+
+    await startTurn("3", [
+      { id: "thinking", value: "high" },
+      { id: "advisor", value: true },
+    ]);
+    await waitFor(() => harness.startSession.mock.calls.length === 2);
+    await waitFor(() => harness.sendTurn.mock.calls.length === 3);
+    expect(harness.startSession.mock.calls[1]?.[1]).toMatchObject({
+      resumeCursor: { opaque: "resume-1" },
+      modelSelection: createModelSelection(instanceId, "oh-my-pi-default", [
+        { id: "thinking", value: "high" },
+        { id: "advisor", value: true },
+      ]),
     });
   });
 

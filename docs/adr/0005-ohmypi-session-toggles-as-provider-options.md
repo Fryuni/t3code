@@ -19,14 +19,17 @@ traits picker, mobile thread settings, new-thread defaults, and project model
 defaults carry them with no OhMyPi-specific UI.
 
 The adapter applies them at launch rather than by sending commands. `omp acp`
-forwards `--advisor` and `--prewalk`, and computer use is set through
-`--config` with a small YAML overlay that T3 writes under its own home. The
-overlay merges on top of omp's global config instead of replacing it. A process
-launched this way reports the toggles on for new and resumed sessions alike,
-and the same session resumed without the flags reports them off, so the desired
-state is exactly what the process was told. Every launch passes all three
-explicitly, on or off, so the control never depends on omp's global config and a
-user preference lives in T3's new-thread and project defaults. Changing a toggle
+forwards launch flags, so prewalk travels as `--prewalk` or `--no-prewalk`; omp
+ignores prewalk's config key while restoring a session but honors the flags.
+Advisor and computer use have no off flag, so both ride a small YAML overlay
+that T3 writes under its userdata and passes with `--config`. The overlay
+deep-merges on top of omp's global and project config instead of replacing it,
+and an explicit `false` there overrides a global `true`. A process launched this
+way reports the toggles on for new and resumed sessions alike, and the same
+session resumed without them reports them off, so the desired state is exactly
+what the process was told. Every launch states all three explicitly, on or off,
+so the control never depends on omp's global config and a user preference lives
+in T3's new-thread and project defaults. Changing a toggle
 mid-thread reuses the reactor's restart-with-resume path that already handles
 permission mode and Claude model selection changes. The reactor learns which
 options need a restart from an adapter capability that lists their ids, so a

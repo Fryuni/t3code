@@ -18,6 +18,7 @@ import {
   RuntimeTaskId,
   RuntimeRequestId,
   type RuntimeMode,
+  type ServerProviderWorkspaceSnapshot,
   type ThreadId,
   TurnId,
 } from "@t3tools/contracts";
@@ -41,8 +42,17 @@ import * as EffectAcpErrors from "effect-acp/errors";
 import type * as EffectAcpSchema from "effect-acp/schema";
 
 import { resolveAttachmentPath } from "../../attachmentStore.ts";
+import { writeFileStringAtomically } from "../../atomicWrite.ts";
 import { ServerConfig } from "../../config.ts";
+import {
+  OH_MY_PI_SESSION_OPTION_IDS,
+  ohMyPiConfigOverlay,
+  ohMyPiInstanceStateDir,
+  ohMyPiLaunchArgs,
+  resolveOhMyPiSessionToggles,
+} from "../OhMyPiSessionOptions.ts";
 import { buildRuntimeInstructions } from "../RuntimeInstructions.ts";
+import { ohMyPiWorkspaceCatalog, prepareOhMyPiPrompt } from "../Drivers/OhMyPiSkillDispatch.ts";
 import * as McpProviderSession from "../../mcp/McpProviderSession.ts";
 import {
   ProviderAdapterProcessError,
@@ -93,6 +103,10 @@ export interface OhMyPiAdapterLiveOptions {
     commands: ReadonlyArray<EffectAcpSchema.AvailableCommand>,
     cwd: string,
   ) => Effect.Effect<void>;
+  /** The workspace's known commands and skills, from the probe or an earlier session. */
+  readonly workspaceCatalog?: (
+    cwd: string,
+  ) => Effect.Effect<ServerProviderWorkspaceSnapshot | undefined>;
 }
 
 interface PendingApproval {
@@ -414,6 +428,10 @@ export function makeOhMyPiAdapter(
     const path = yield* Path.Path;
     const childProcessSpawner = yield* ChildProcessSpawner.ChildProcessSpawner;
     const serverConfig = yield* Effect.service(ServerConfig);
+    const launchConfigDir = path.join(
+      ohMyPiInstanceStateDir(path, serverConfig.stateDir, boundInstanceId),
+      "config",
+    );
     const crypto = yield* Crypto.Crypto;
     const nativeEventLogger =
       options?.nativeEventLogger ??
@@ -778,6 +796,26 @@ export function makeOhMyPiAdapter(
           });
 
           const mcpSession = McpProviderSession.readMcpProviderSession(input.threadId);
+          // The toggles are stated at every launch, resume included; see OhMyPiSessionOptions.
+          const toggles = resolveOhMyPiSessionToggles(ohMyPiModelSelection?.options);
+          const overlay = ohMyPiConfigOverlay(toggles);
+          const overlayPath = path.join(launchConfigDir, overlay.fileName);
+          yield* writeFileStringAtomically({
+            filePath: overlayPath,
+            contents: overlay.contents,
+          }).pipe(
+            Effect.provideService(FileSystem.FileSystem, fileSystem),
+            Effect.provideService(Path.Path, path),
+            Effect.mapError(
+              (cause) =>
+                new ProviderAdapterProcessError({
+                  provider: PROVIDER,
+                  threadId: input.threadId,
+                  detail: `Could not write the OhMyPi launch config at '${overlayPath}'.`,
+                  cause,
+                }),
+            ),
+          );
           const acp = yield* makeOhMyPiAcpRuntime({
             ohMyPiSettings,
             environment: {
@@ -790,6 +828,7 @@ export function makeOhMyPiAdapter(
             childProcessSpawner,
             cwd,
             runtimeMode: input.runtimeMode,
+            launchArgs: ohMyPiLaunchArgs({ toggles, overlayPath }),
             observeToolCallUpdate: (toolCall) =>
               mapExtensionFailure(
                 Effect.suspend(() => {
@@ -1190,9 +1229,17 @@ export function makeOhMyPiAdapter(
               }
 
               const promptParts: Array<EffectAcpSchema.ContentBlock> = [];
-              const rawPrompt = input.input?.trim() ?? "";
-              if (rawPrompt) {
-                promptParts.push({ type: "text", text: rawPrompt });
+              const workspaceCwd = ctx.session.cwd;
+              const prompt = prepareOhMyPiPrompt(
+                input.input?.trim() ?? "",
+                ohMyPiWorkspaceCatalog(
+                  workspaceCwd === undefined
+                    ? undefined
+                    : yield* options?.workspaceCatalog?.(workspaceCwd) ?? Effect.succeed(undefined),
+                ),
+              );
+              if (prompt.text) {
+                promptParts.push({ type: "text", text: prompt.text });
               }
               if (input.attachments && input.attachments.length > 0) {
                 for (const attachment of input.attachments) {
@@ -1248,23 +1295,27 @@ export function makeOhMyPiAdapter(
                 );
               }
 
-              // ACP has no system-message field; keep runtime context separate from the user's text.
+              // ACP has no system-message field; keep runtime context separate from the
+              // user's text. A prompt omp consumes itself travels alone, or the block
+              // would become the command's arguments; the next ordinary turn carries it.
               const result =
                 interruptionVersion !== ctx.interruptionVersion
                   ? { stopReason: "cancelled" as const }
                   : yield* ctx.acp
                       .prompt(
                         {
-                          prompt: [
-                            ...promptParts,
-                            {
-                              type: "text",
-                              text: buildRuntimeInstructions({
-                                harness: "OhMyPi",
-                                model: resolvedModel,
-                              }),
-                            },
-                          ],
+                          prompt: prompt.consumedByCommand
+                            ? promptParts
+                            : [
+                                ...promptParts,
+                                {
+                                  type: "text",
+                                  text: buildRuntimeInstructions({
+                                    harness: "OhMyPi",
+                                    model: resolvedModel,
+                                  }),
+                                },
+                              ],
                         },
                         { dispatched },
                       )
@@ -1417,7 +1468,11 @@ export function makeOhMyPiAdapter(
 
     return {
       provider: PROVIDER,
-      capabilities: { sessionModelSwitch: "in-session", supportsConversationRollback: false },
+      capabilities: {
+        sessionModelSwitch: "in-session",
+        supportsConversationRollback: false,
+        sessionRestartOptionIds: OH_MY_PI_SESSION_OPTION_IDS,
+      },
       compaction: { type: "slash-command", command: "/compact" },
       startSession,
       sendTurn,

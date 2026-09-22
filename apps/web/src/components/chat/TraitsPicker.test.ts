@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
-import { buildTraitsTriggerDisplay, buildUnavailableModelOptionDescriptors } from "./TraitsPicker";
+import {
+  buildTraitsTriggerDisplay,
+  buildUnavailableModelOptionDescriptors,
+  shouldRenderTraitsControls,
+} from "./TraitsPicker";
 
 function selectDescriptor(
   id: string,
@@ -153,6 +157,32 @@ describe("buildTraitsTriggerDisplay", () => {
         ultrathinkPromptControlled: true,
       }),
     ).toEqual({ label: "Ultrathink", showFastModeIcon: true });
+  });
+});
+
+describe("shouldRenderTraitsControls", () => {
+  it("renders the control for a model whose only options are toggles", () => {
+    const models = [
+      {
+        slug: "oh-my-pi-default",
+        name: "OhMyPi default",
+        isCustom: false,
+        isDefault: true,
+        capabilities: {
+          optionDescriptors: [{ id: "advisor", label: "Advisor", type: "boolean" as const }],
+        },
+      },
+      { slug: "bare", name: "Bare", isCustom: false, capabilities: { optionDescriptors: [] } },
+    ];
+    const input = {
+      provider: ProviderDriverKind.make("ohMyPi"),
+      models,
+      prompt: "",
+      modelOptions: undefined,
+      planModeEnabled: true,
+    };
+    expect(shouldRenderTraitsControls({ ...input, model: "oh-my-pi-default" })).toBe(true);
+    expect(shouldRenderTraitsControls({ ...input, model: "bare" })).toBe(false);
   });
 });
 

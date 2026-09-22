@@ -52,6 +52,12 @@ export interface ProviderAdapterCapabilities {
   readonly promptlessTurnContinuation?: boolean;
   /** False when native conversation history cannot be rewound. */
   readonly supportsConversationRollback?: boolean;
+  /**
+   * Option ids the provider applies only when its process starts. A turn that
+   * changes one of them restarts the session on its resume cursor; every other
+   * option is applied in-session by `sendTurn`.
+   */
+  readonly sessionRestartOptionIds?: ReadonlyArray<string>;
 }
 
 export interface ProviderThreadTurnSnapshot {
