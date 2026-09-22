@@ -186,6 +186,66 @@ it.layer(testLayer)("OhMyPi driver", (it) => {
     }).pipe(Effect.scoped),
   );
 
+  it.effect("keeps a live command list when a slower probe finishes after it", () =>
+    Effect.gen(function* () {
+      const fs = yield* FileSystem.FileSystem;
+      const directory = yield* fs.makeTempDirectoryScoped();
+      const binaryPath = yield* Effect.sync(() =>
+        writeFakeCli({
+          directory,
+          name: "omp-late-probe-mock",
+          env: {
+            // What a thread's own session advertises, reported at once.
+            // @effect-diagnostics-next-line preferSchemaOverJson:off
+            T3_ACP_AVAILABLE_COMMANDS: JSON.stringify([
+              { name: "computer", description: "Drive the screen" },
+            ]),
+          },
+          // The probe is the launch carrying `--session-dir`. It reports a
+          // narrower list, late, standing in for the commands omp gates behind
+          // options the probe cannot know.
+          source:
+            `
+              if (process.argv.includes("--session-dir")) {
+                process.env.T3_ACP_AVAILABLE_COMMANDS = JSON.stringify([
+                  { name: "compact", description: "Compact the conversation" },
+                ]);
+                process.env.T3_ACP_AVAILABLE_COMMANDS_DELAY_MS = "400";
+              }
+            ` +
+            execScriptSource({
+              scriptPath: NodeURL.fileURLToPath(
+                new URL("../../../scripts/acp-mock-agent.ts", import.meta.url),
+              ),
+            }),
+        }),
+      );
+      const instance = yield* OhMyPiDriver.create({
+        instanceId,
+        displayName: undefined,
+        enabled: true,
+        environment: [],
+        config: { ...OhMyPiDriver.defaultConfig(), binaryPath },
+      });
+      const probe = yield* instance.snapshotForCwd!(directory).pipe(Effect.forkChild);
+      yield* instance.adapter.startSession({
+        threadId,
+        cwd: directory,
+        runtimeMode: "full-access",
+      });
+      // The adapter settles its command wait only after the driver has recorded
+      // the session's list, so the live write has landed once this returns.
+      yield* instance.adapter.sendTurn({ threadId, input: "hello", attachments: [] });
+      yield* Fiber.join(probe);
+      expect(
+        (yield* instance.snapshot.getSnapshot).workspaceSnapshots?.map((workspace) =>
+          workspace.slashCommands.map((command) => command.name),
+        ),
+      ).toEqual([["computer"]]);
+      yield* instance.adapter.stopAll();
+    }).pipe(Effect.scoped),
+  );
+
   for (const sendDuringPreparation of [false, true]) {
     it.effect(`steers within one turn (send during preparation: ${sendDuringPreparation})`, () =>
       Effect.gen(function* () {

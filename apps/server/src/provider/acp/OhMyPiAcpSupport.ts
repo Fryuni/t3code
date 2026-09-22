@@ -18,6 +18,8 @@ import * as AcpSessionRuntime from "./AcpSessionRuntime.ts";
 const OH_MY_PI_CLIENT_INFO = { name: "t3-code", version: "0.0.0" } as const;
 /** omp sends `available_commands_update` about fifty milliseconds after `session/new`. */
 const OH_MY_PI_WORKSPACE_PROBE_TIMEOUT = Duration.seconds(20);
+/** The probe session is disposable, so closing it politely is worth only a moment. */
+const OH_MY_PI_WORKSPACE_PROBE_CLOSE_TIMEOUT = Duration.seconds(2);
 
 interface OhMyPiAcpRuntimeInput extends Omit<
   AcpSessionRuntime.AcpSessionRuntimeOptions,
@@ -100,11 +102,17 @@ export const probeOhMyPiWorkspaceCommands = Effect.fn("probeOhMyPiWorkspaceComma
           return Effect.void;
       }
     }).pipe(Effect.forkScoped);
-    const started = yield* acp.start();
+    // Every wait is bounded on its own: an omp that hangs during handshake,
+    // before reporting, or on close would otherwise keep both the probe process
+    // and the caller alive forever. Leaving the scope kills the process, so a
+    // close that does not answer promptly is abandoned rather than waited on.
+    const started = yield* acp.start().pipe(Effect.timeout(OH_MY_PI_WORKSPACE_PROBE_TIMEOUT));
     const available = yield* Deferred.await(commands).pipe(
       Effect.timeout(OH_MY_PI_WORKSPACE_PROBE_TIMEOUT),
     );
-    yield* acp.request("session/close", { sessionId: started.sessionId }).pipe(Effect.ignore);
+    yield* acp
+      .request("session/close", { sessionId: started.sessionId })
+      .pipe(Effect.timeout(OH_MY_PI_WORKSPACE_PROBE_CLOSE_TIMEOUT), Effect.ignore);
     return available;
   },
   Effect.scoped,

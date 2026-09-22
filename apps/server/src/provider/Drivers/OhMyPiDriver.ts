@@ -10,6 +10,7 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
+import * as Ref from "effect/Ref";
 import * as Schema from "effect/Schema";
 import * as Stream from "effect/Stream";
 import * as SubscriptionRef from "effect/SubscriptionRef";
@@ -126,9 +127,14 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           ),
         );
       // omp's command list is the one source for a workspace's skills and slash
-      // commands, whether a live session or the probe reported it; a live session
-      // always replaces what the probe found.
+      // commands, whether a live session or the probe reported it. omp advertises
+      // what its own configuration enables, and the probe launches without a
+      // thread's options, so it can report fewer commands than the session
+      // running them: once a live session has named a cwd, a probe that lands
+      // afterwards is dropped rather than allowed to narrow the menu.
+      const liveWorkspaces = yield* Ref.make<ReadonlySet<string>>(new Set());
       const recordWorkspaceCommands = (
+        source: "live" | "probe",
         cwd: string,
         commands: ReadonlyArray<{
           readonly name: string;
@@ -136,13 +142,25 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
           readonly input?: { readonly hint: string } | null;
         }>,
       ) =>
-        SubscriptionRef.update(metadata, (draft) => ({
-          ...draft,
-          workspaceSnapshots: [
-            ...(draft.workspaceSnapshots ?? []).filter((workspace) => workspace.cwd !== cwd),
-            { cwd, checkedAt: draft.checkedAt, ...splitOhMyPiAvailableCommands(commands) },
-          ].slice(-MAX_WORKSPACE_SNAPSHOTS),
-        }));
+        Ref.modify(liveWorkspaces, (live) =>
+          source === "live"
+            ? ([true, new Set(live).add(cwd)] as const)
+            : ([!live.has(cwd), live] as const),
+        ).pipe(
+          Effect.flatMap((accepted) =>
+            accepted
+              ? SubscriptionRef.update(metadata, (draft) => ({
+                  ...draft,
+                  workspaceSnapshots: [
+                    ...(draft.workspaceSnapshots ?? []).filter(
+                      (workspace) => workspace.cwd !== cwd,
+                    ),
+                    { cwd, checkedAt: draft.checkedAt, ...splitOhMyPiAvailableCommands(commands) },
+                  ].slice(-MAX_WORKSPACE_SNAPSHOTS),
+                }))
+              : Effect.void,
+          ),
+        );
       // A throwaway ACP session in a T3-owned session directory; see ADR 0006.
       const probeWorkspace = (cwd: string) =>
         Effect.gen(function* () {
@@ -158,7 +176,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
             cwd,
             sessionDir,
           });
-          yield* recordWorkspaceCommands(cwd, commands);
+          yield* recordWorkspaceCommands("probe", cwd, commands);
         }).pipe(
           Effect.scoped,
           Effect.provideService(Crypto.Crypto, crypto),
@@ -239,7 +257,7 @@ export const OhMyPiDriver: ProviderDriver<OhMyPiSettings, OhMyPiDriverEnv> = {
         instanceId,
         environment: processEnv,
         ...(eventLoggers.native ? { nativeEventLogger: eventLoggers.native } : {}),
-        onAvailableCommands: (commands, cwd) => recordWorkspaceCommands(cwd, commands),
+        onAvailableCommands: (commands, cwd) => recordWorkspaceCommands("live", cwd, commands),
         workspaceCatalog: findWorkspace,
       });
       const unsupported = (operation: string) =>
