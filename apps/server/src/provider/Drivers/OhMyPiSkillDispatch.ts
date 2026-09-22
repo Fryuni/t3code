@@ -20,7 +20,10 @@ import type {
   ServerProviderSlashCommand,
   ServerProviderWorkspaceSnapshot,
 } from "@t3tools/contracts";
-import { splitComposerContextEnvelope } from "@t3tools/shared/composerContextReferences";
+import {
+  splitComposerContextEnvelope,
+  stripComposerContextMarkers,
+} from "@t3tools/shared/composerContextReferences";
 
 /**
  * Same token shape the Claude and Cursor skill dispatchers use, so a `$name`
@@ -75,7 +78,7 @@ export function prepareOhMyPiPrompt(
   const skill = invokesSkill(text, catalog.skillNames);
   const command = !skill && opensWithCommand(text, catalog.commandNames);
   return {
-    text: command ? text : `${text}${envelope}`,
+    text: command ? stripComposerContextMarkers(text) : `${text}${envelope}`,
     consumedByCommand: skill || command,
   };
 }

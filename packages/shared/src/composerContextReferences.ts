@@ -291,6 +291,20 @@ export function projectComposerContextForProvider(input: {
 }
 
 const CONTEXT_ENVELOPE_OPENING = `\n\n<${CONTEXT_ENVELOPE_TAG} version="1">\n`;
+/** The in-place marker `formatComposerContextProviderMarker` writes; labels never contain `]`. */
+const CONTEXT_MARKER_PATTERN = /\[[A-Z][A-Za-z ]*: [^\]]*; ref=[^\]\s]+\]/gu;
+
+/**
+ * Remove the in-place markers a projection left in the user's text, for a
+ * provider command that never reaches the model and would otherwise receive
+ * them as arguments.
+ */
+export function stripComposerContextMarkers(text: string): string {
+  return text
+    .replace(CONTEXT_MARKER_PATTERN, "")
+    .replace(/[ \t]{2,}/gu, " ")
+    .trim();
+}
 
 /**
  * Split a projected prompt into the user-authored text and the context

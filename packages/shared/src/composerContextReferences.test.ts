@@ -11,6 +11,7 @@ import {
   replaceComposerContextReferences,
   sanitizeComposerContextLabel,
   splitComposerContextEnvelope,
+  stripComposerContextMarkers,
 } from "./composerContextReferences.ts";
 
 const ctx = (value: string) => value as ComposerContextId;
@@ -282,5 +283,18 @@ describe("splitComposerContextEnvelope", () => {
       body: prose,
       envelope: projected.slice("run it".length),
     });
+  });
+});
+
+describe("stripComposerContextMarkers", () => {
+  it("removes projected markers and tidies the spacing", () => {
+    expect(
+      stripComposerContextMarkers(
+        "/computer [Terminal: build log; ref=ctx_1] status [Pull request: #39; ref=ctx_2]",
+      ),
+    ).toBe("/computer status");
+    expect(stripComposerContextMarkers("plain [not a marker] text")).toBe(
+      "plain [not a marker] text",
+    );
   });
 });

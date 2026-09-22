@@ -44,7 +44,9 @@ describe("prepareOhMyPiPrompt", () => {
       consumedByCommand: true,
     });
     // A builtin never reaches the model, so attached context would only break its arguments.
-    expect(prepareOhMyPiPrompt(`/computer status${envelope}`, catalog)).toEqual({
+    expect(
+      prepareOhMyPiPrompt(`/computer status [Terminal: log; ref=ctx_1]${envelope}`, catalog),
+    ).toEqual({
       text: "/computer status",
       consumedByCommand: true,
     });
