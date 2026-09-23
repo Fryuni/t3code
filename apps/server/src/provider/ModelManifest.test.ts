@@ -378,6 +378,22 @@ describe("ModelManifest service", () => {
     ),
   );
 
+  it.live("keeps a newer bundled catalog when the remote manifest is an older edit", () =>
+    Effect.gen(function* () {
+      const service = yield* make;
+      assert.deepStrictEqual(yield* service.refresh, BUNDLED_MODEL_MANIFEST);
+      assert.deepStrictEqual(yield* service.current, BUNDLED_MODEL_MANIFEST);
+    }).pipe(
+      Effect.scoped,
+      Effect.provide(
+        serviceLayers({
+          prefix: "model-manifest-stale-remote-test",
+          response: () => Response.json({ ...REMOTE_MANIFEST, updatedAt: "2000-01-01T00:00:00Z" }),
+        }),
+      ),
+    ),
+  );
+
   it.effect("preserves the last-good remote cache when later payloads are invalid", () => {
     let responseIndex = 0;
     const responses = [REMOTE_CLAUDE_MANIFEST, ...INVALID_REMOTE_MANIFESTS];

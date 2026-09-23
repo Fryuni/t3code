@@ -4,9 +4,8 @@
  *
  * Provider catalogs and legacy classification live in `model-manifest.json`.
  * The bundled copy ships with every release; at runtime the service refreshes
- * it from the same file on `main`. Preference order is remote, then the last
- * successful on-disk copy, then the bundle. A failed fetch never fails a
- * provider check.
+ * it from the same file on `main`. The newest edit among remote, on-disk,
+ * and bundled copies wins. A failed fetch never fails a provider check.
  *
  * Providers with authoritative discovery can use only the classification
  * overlay. Providers with static catalogs can resolve presentation and
@@ -398,6 +397,7 @@ export const make = Effect.gen(function* () {
       Effect.catchCause(() => Effect.succeed(null)),
     );
     if (fetched === null) return manifest;
+    if (manifestUpdatedAtMs(fetched) < manifestUpdatedAtMs(manifest)) return manifest;
 
     manifest = fetched;
     fetchedAtMs = now;
