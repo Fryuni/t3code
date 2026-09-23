@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-12T00:41:55Z",
+  "updatedAt": "2026-09-23T00:00:00Z",
   "currentModels": {
     "codex": [
       "gpt-6-astra",
@@ -16,7 +16,7 @@
   "providers": {
     "claudeAgent": {
       "defaults": {
-        "chat": "claude-fable-5-1"
+        "chat": "claude-opus-5-5"
       },
       "profiles": {
         "fable-5": {
@@ -578,10 +578,22 @@
           }
         },
         {
+          "slug": "claude-opus-5-5",
+          "name": "Claude Opus 5.5",
+          "aliases": ["opus", "opus-5.5", "claude-opus-5.5"],
+          "status": "current",
+          "profile": "opus-5",
+          "adapter": {
+            "claudeCode": {
+              "minVersion": "2.1.280"
+            }
+          }
+        },
+        {
           "slug": "claude-opus-5",
           "name": "Claude Opus 5",
-          "aliases": ["opus", "opus-5", "claude-opus-5.0", "claude-opus-5-0"],
-          "status": "current",
+          "aliases": ["opus-5", "claude-opus-5.0", "claude-opus-5-0"],
+          "status": "legacy",
           "profile": "opus-5",
           "adapter": {
             "claudeCode": {
