@@ -8,8 +8,25 @@ import {
   normalizeGitRemoteUrl,
   parseGitHubRepositoryNameWithOwnerFromRemoteUrl,
   parseOriginUrlFromGitConfig,
+  sanitizeNewRefName,
   WORKTREE_BRANCH_PREFIX,
 } from "./git.ts";
+
+describe("sanitizeNewRefName", () => {
+  it("trims ASCII whitespace and replaces internal runs without changing case or dashes", () => {
+    expect(sanitizeNewRefName(" \tFeature new\r\nbranch--name\n ")).toBe(
+      "Feature-new-branch--name",
+    );
+  });
+
+  it.each(["\u00a0", "\u2003", "\ufeff"])(
+    "preserves Unicode whitespace accepted in git refs: %j",
+    (whitespace) => {
+      const name = `${whitespace}Feature${whitespace}branch${whitespace}`;
+      expect(sanitizeNewRefName(` \t${name}\r\n `)).toBe(name);
+    },
+  );
+});
 
 describe("normalizeGitRemoteUrl", () => {
   it("canonicalizes equivalent GitHub remotes across protocol variants", () => {

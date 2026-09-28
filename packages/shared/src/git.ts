@@ -275,7 +275,7 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
 // dashes are left alone, since ref names are case sensitive and consecutive
 // dashes are valid.
 export function sanitizeNewRefName(rawName: string): string {
-  return rawName.trim().replace(/[ \t\n\r\f\v]+/g, "-");
+  return rawName.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, "").replace(/[ \t\n\r\f\v]+/g, "-");
 }
 
 /**
