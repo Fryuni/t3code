@@ -100,17 +100,26 @@ vi.mock("@t3tools/contracts", () => ({
   DEFAULT_SERVER_SETTINGS: {},
 }));
 vi.mock("@t3tools/shared/projectSettings", () => ({
-  resolveProjectSettings: (settings: typeof testState.targetSettings) => ({
-    settings,
+  // Environment settings pass through; the tests set project fields on the
+  // project record, which the hook still honors until the server folds them.
+  // With a file argument the env mode resolves like the real chain.
+  resolveProjectSettings: (
+    settings: typeof testState.targetSettings,
+    _projectId: unknown,
+    _project: unknown,
+    projectFile?: { defaultThreadEnvMode?: "local" | "worktree" } | null,
+  ) => ({
+    settings:
+      projectFile === undefined
+        ? settings
+        : {
+            ...settings,
+            defaultThreadEnvMode:
+              settings.defaultThreadEnvMode ?? projectFile?.defaultThreadEnvMode ?? "local",
+          },
     sources: { defaultModelSelection: "environment", defaultThreadEnvMode: "environment" },
     overrides: settings.projectSettingsOverrides["project-remote"] ?? {},
   }),
-}));
-vi.mock("@t3tools/shared/threadEnvMode", () => ({
-  resolveDefaultThreadEnvMode: (input: {
-    readonly projectFile: "local" | "worktree" | null;
-    readonly globalDefault: "local" | "worktree";
-  }) => input.projectFile ?? input.globalDefault,
 }));
 vi.mock("@tanstack/react-router", () => ({
   useParams: () => null,
@@ -137,7 +146,7 @@ vi.mock("../lib/chatThreadActions", async (importOriginal) => ({
   resolveNewThreadModelSelectionOverride: () => null,
 }));
 vi.mock("../lib/t3ProjectFileDefaults", () => ({
-  readT3ProjectFileDefaultThreadEnvMode: () => testState.projectFileRead,
+  readT3ProjectFile: () => testState.projectFileRead,
 }));
 vi.mock("../lib/utils", () => ({
   newDraftId: () => "draft-delayed",
