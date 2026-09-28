@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "updatedAt": "2026-09-28T00:00:00Z",
+  "updatedAt": "2026-09-28T18:05:39Z",
   "compatibility": [
     {
       "driver": "codex",
@@ -29,6 +29,15 @@
       "ranges": [
         { "range": ">=2026.05.09", "status": "supported" },
         { "range": "<2026.05.09", "status": "unknown" }
+      ]
+    },
+    {
+      "driver": "ohMyPi",
+      "t3CodeRange": ">=0.0.42",
+      "recommendedRange": ">=18.2.7",
+      "ranges": [
+        { "range": ">=18.2.7", "status": "supported" },
+        { "range": "<18.2.7", "status": "unknown" }
       ]
     },
     {
