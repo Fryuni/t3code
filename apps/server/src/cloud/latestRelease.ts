@@ -3,6 +3,8 @@ import * as Effect from "effect/Effect";
 import * as Schema from "effect/Schema";
 import { HttpClient, HttpClientRequest, HttpClientResponse } from "effect/unstable/http";
 
+import { cliReleaseTagVersion } from "@t3tools/shared/cliRelease";
+
 import { isExactServiceVersion } from "./serviceProtocol.ts";
 
 export class LatestReleaseError extends Schema.TaggedError<LatestReleaseError>()(
@@ -55,7 +57,7 @@ export const resolveLatestReleaseVersion = Effect.fn("cloud.latest_release.resol
       () => new LatestReleaseError({ reason: "The latest t3 release had an unexpected shape." }),
     ),
   );
-  const version = /^v(.+)$/.exec(release.tag_name)?.[1];
+  const version = cliReleaseTagVersion(release.tag_name);
   if (version === undefined || !isExactServiceVersion(version)) {
     return yield* new LatestReleaseError({
       reason: `The latest release '${release.tag_name}' is not a t3 version.`,
