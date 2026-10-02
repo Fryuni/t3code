@@ -21,8 +21,9 @@ concurrency:
 jobs:
   check:
     name: Check for new commits
-    # Manual runs from other branches would publish that branch as latest.
-    if: github.ref == 'refs/heads/main'
+    # Schedules always run on the default branch; manual runs from any other
+    # branch would publish that branch as latest.
+    if: github.event_name == 'schedule' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:

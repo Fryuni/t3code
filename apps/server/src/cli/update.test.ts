@@ -12,36 +12,35 @@ import {
   HostProcessWorkingDirectory,
 } from "@t3tools/shared/hostProcess";
 
-import { repointLauncher, resolveLatestReleaseVersion, resolveLauncherPath } from "./update.ts";
+import { repointLauncher, resolveLauncherPath, resolveUpdateTarget } from "./update.ts";
 
 const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
-const latestReleaseClient = (tagName: string, requests: string[] = []) =>
+const latestReleaseClient = (requests: string[]) =>
   HttpClient.make((request) => {
     requests.push(request.url);
     return Effect.succeed(
-      HttpClientResponse.fromWeb(request, new Response(JSON.stringify({ tag_name: tagName }))),
+      HttpClientResponse.fromWeb(request, Response.json({ tag_name: "v0.0.44-fork.20261002.7" })),
     );
   });
 
-it.effect("t3 update reads a fork build's target from the latest release", () =>
+it.effect("a fork build updates to its latest release and has no channels", () =>
   Effect.gen(function* () {
     const requests: string[] = [];
-    const version = yield* resolveLatestReleaseVersion(LATEST_URL).pipe(
-      Effect.provideService(
-        HttpClient.HttpClient,
-        latestReleaseClient("v0.0.44-fork.20261002.7", requests),
-      ),
-    );
-    assert.equal(version, "0.0.44-fork.20261002.7");
-    assert.deepStrictEqual(requests, [LATEST_URL]);
-
-    for (const tagName of ["desktop-latest", "v1.2", "0.0.44"]) {
-      const error = yield* resolveLatestReleaseVersion(LATEST_URL).pipe(
-        Effect.provideService(HttpClient.HttpClient, latestReleaseClient(tagName)),
-        Effect.flip,
+    const resolve = (input: Parameters<typeof resolveUpdateTarget>[0]) =>
+      resolveUpdateTarget(input, LATEST_URL).pipe(
+        Effect.provideService(HttpClient.HttpClient, latestReleaseClient(requests)),
       );
-      assert.equal(error._tag, "CliUpdateError", tagName);
-    }
+
+    assert.equal(
+      yield* resolve({ channel: undefined, requestedVersion: undefined }),
+      "0.0.44-fork.20261002.7",
+    );
+    assert.equal(yield* resolve({ channel: undefined, requestedVersion: "0.0.43" }), "0.0.43");
+    const error = yield* resolve({ channel: "nightly", requestedVersion: undefined }).pipe(
+      Effect.flip,
+    );
+    assert.include(error.reason, "--channel does not apply");
+    assert.deepStrictEqual(requests, [LATEST_URL]);
   }),
 );
 
