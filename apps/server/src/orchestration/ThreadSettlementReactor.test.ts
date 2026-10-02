@@ -62,7 +62,7 @@ import { ServerConfig } from "../config.ts";
 import * as StorageCleanup from "../storageCleanup.ts";
 import { withWorkspaceLease } from "../workspace/workspaceLease.ts";
 import { TerminalManager } from "../terminal/Manager.ts";
-import { GitVcsDriver } from "../vcs/GitVcsDriver.ts";
+import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import { ThreadDeletionReactor } from "./Services/ThreadDeletionReactor.ts";
 import { ProviderService } from "../provider/Services/ProviderService.ts";
 
@@ -1702,7 +1702,7 @@ describe("storage cleanup", () => {
     "files-extended",
   ] as const) {
     it.effect(
-      `retains protected worktrees (${protection}) and expires only old artifacts and rotated logs`,
+      `cleans eligible worktrees (${protection}) and expires only old artifacts and rotated logs`,
       () =>
         Effect.gen(function* () {
           yield* TestClock.setTime(Date.parse(NOW));
@@ -1710,8 +1710,33 @@ describe("storage cleanup", () => {
           const path = yield* Path.Path;
           const config = yield* ServerConfig;
           const worktreePath = path.join(config.worktreesDir, "feature");
-          yield* fs.makeDirectory(worktreePath, { recursive: true });
-          yield* fs.writeFileString(path.join(worktreePath, ".git"), "gitdir: /test/admin");
+          const realGit =
+            protection === "ignored" ||
+            protection === "ignored-directory" ||
+            protection === "deleted-ignored"
+              ? yield* GitVcsDriver.make
+              : null;
+          if (realGit === null) {
+            yield* fs.makeDirectory(worktreePath, { recursive: true });
+            yield* fs.writeFileString(path.join(worktreePath, ".git"), "gitdir: /test/admin");
+          } else {
+            yield* fs.writeFileString(
+              path.join(config.baseDir, ".gitignore"),
+              ".env\n.cache/\nbuild/\nnode_modules/\n",
+            );
+            for (const args of [
+              ["init"],
+              ["add", ".gitignore"],
+              ["-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "init"],
+              ["worktree", "add", "-b", "feature", worktreePath],
+            ]) {
+              yield* realGit.execute({
+                operation: "test.storageCleanup.setup",
+                cwd: config.baseDir,
+                args,
+              });
+            }
+          }
           const secondWorktreePath = path.join(config.worktreesDir, "feature-two");
           if (protection === "unchanged-two-worktrees") {
             yield* fs.makeDirectory(secondWorktreePath);
@@ -1725,6 +1750,16 @@ describe("storage cleanup", () => {
           if (protection === "ignored-directory") {
             yield* fs.makeDirectory(path.join(worktreePath, ".cache"));
             yield* fs.writeFileString(path.join(worktreePath, ".cache", "local-data"), "keep");
+            yield* fs.makeDirectory(path.join(worktreePath, "build"));
+            yield* fs.writeFileString(
+              path.join(worktreePath, "build", "tsconfig.tsbuildinfo"),
+              "cache",
+            );
+            yield* fs.makeDirectory(path.join(worktreePath, "node_modules"));
+            yield* fs.writeFileString(
+              path.join(worktreePath, "node_modules", "dependency"),
+              "installed",
+            );
           }
           yield* fs.makeDirectory(config.browserArtifactsDir, { recursive: true });
           const oldImage = path.join(config.browserArtifactsDir, "old.png");
@@ -1963,7 +1998,7 @@ describe("storage cleanup", () => {
                         : [],
                     ),
                 }),
-                Layer.mock(GitVcsDriver)({
+                Layer.mock(GitVcsDriver.GitVcsDriver)({
                   resolvePrimaryRemoteName: () => Effect.succeed("origin"),
                   resolveDefaultBranchName: () => Effect.succeed("main"),
                   fetchRemoteTrackingBranch: (input) =>
@@ -1987,39 +2022,6 @@ describe("storage cleanup", () => {
                             ? "c".repeat(40)
                             : "a".repeat(40),
                       };
-                    }),
-                  statusDetailsLocal: (cwd) =>
-                    Effect.succeed({
-                      isRepo: true,
-                      hasOriginRemote: false,
-                      isDefaultBranch: false,
-                      branch: cwd === secondWorktreePath ? "feature-two" : "feature",
-                      upstreamRef: null,
-                      hasWorkingTreeChanges:
-                        protection === "dirty" || protection === "deleted-dirty",
-                      workingTree: { files: [], insertions: 0, deletions: 0 },
-                      hasUpstream: false,
-                      aheadCount: 0,
-                      behindCount: 0,
-                      aheadOfDefaultCount: 0,
-                    }),
-                  execute: (input) =>
-                    Effect.succeed({
-                      exitCode: ChildProcessSpawner.ExitCode(
-                        input.operation === "StorageCleanup.integratedBranch" &&
-                          (protection === "diverged" || input.args.at(-1) !== "b".repeat(40))
-                          ? 1
-                          : 0,
-                      ),
-                      stdout:
-                        protection === "ignored" || protection === "deleted-ignored"
-                          ? ".env\0"
-                          : protection === "ignored-directory"
-                            ? ".cache/\0"
-                            : "",
-                      stderr: "",
-                      stdoutTruncated: false,
-                      stderrTruncated: false,
                     }).pipe(
                       Effect.tap(() =>
                         (protection.startsWith("policy-") ||
@@ -2047,10 +2049,41 @@ describe("storage cleanup", () => {
                           : Effect.void,
                       ),
                     ),
+                  statusDetailsLocal: (cwd) =>
+                    Effect.succeed({
+                      isRepo: true,
+                      hasOriginRemote: false,
+                      isDefaultBranch: false,
+                      branch: cwd === secondWorktreePath ? "feature-two" : "feature",
+                      upstreamRef: null,
+                      hasWorkingTreeChanges:
+                        protection === "dirty" || protection === "deleted-dirty",
+                      workingTree: { files: [], insertions: 0, deletions: 0 },
+                      hasUpstream: false,
+                      aheadCount: 0,
+                      behindCount: 0,
+                      aheadOfDefaultCount: 0,
+                    }),
+                  execute: (input) =>
+                    Effect.succeed({
+                      exitCode: ChildProcessSpawner.ExitCode(
+                        input.operation === "StorageCleanup.integratedBranch" &&
+                          (protection === "diverged" || input.args.at(-1) !== "b".repeat(40))
+                          ? 1
+                          : 0,
+                      ),
+                      stdout: "",
+                      stderr: "",
+                      stdoutTruncated: false,
+                      stderrTruncated: false,
+                    }),
+                  ...realGit,
                   removeWorktree: (input) => {
                     assert.strictEqual(input.force, false);
                     removals.push(input.path);
-                    return fs.remove(input.path, { recursive: true }).pipe(Effect.orDie);
+                    return realGit === null
+                      ? fs.remove(input.path, { recursive: true }).pipe(Effect.orDie)
+                      : realGit.removeWorktree(input);
                   },
                 }),
                 Layer.mock(TerminalManager)({
@@ -2114,6 +2147,9 @@ describe("storage cleanup", () => {
             protection === "project-custom" ||
             protection === "deleted-project-custom" ||
             protection === "none" ||
+            protection === "ignored" ||
+            protection === "ignored-directory" ||
+            protection === "deleted-ignored" ||
             protection === "settled-old" ||
             protection === "deleted" ||
             protection === "deleted-event" ||
