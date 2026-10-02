@@ -152,6 +152,26 @@ describe("versionSkew", () => {
     });
   });
 
+  it("does not offer this client's version to a fork build", () => {
+    expect(
+      resolveServerConfigVersionMismatch({
+        environment: {
+          environmentId: EnvironmentId.make("environment-1"),
+          label: "Remote",
+          platform: {
+            os: "linux",
+            arch: "x64",
+          },
+          serverVersion: "0.0.33-fork.20261002.1",
+          releaseRepository: "someone/t3code",
+          capabilities: {
+            repositoryIdentity: true,
+          },
+        },
+      }),
+    ).toBeNull();
+  });
+
   it("keys dismissals by environment, client version, and server version", () => {
     const environmentId = EnvironmentId.make("environment-dismissal");
     const key = buildVersionMismatchDismissalKey(environmentId, {
