@@ -5,7 +5,29 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
+declare const __T3CODE_BUILD_RELEASE_REPOSITORY__: string | undefined;
+
+/**
+ * A fork's release workflow bakes its own `owner/repo` into the server bundle,
+ * so that build downloads from the fork and updates to the fork's latest
+ * release. Builds from source, and every other bundle importing this module,
+ * leave it unset and follow upstream.
+ */
+const CLI_RELEASE_REPOSITORY_OVERRIDE =
+  typeof __T3CODE_BUILD_RELEASE_REPOSITORY__ === "undefined"
+    ? undefined
+    : __T3CODE_BUILD_RELEASE_REPOSITORY__.trim() || undefined;
+const CLI_RELEASE_REPOSITORY = CLI_RELEASE_REPOSITORY_OVERRIDE ?? "pingdotgg/t3code";
+
+/**
+ * Set only in fork builds. GitHub's latest release for the fork is the whole
+ * update policy there: forks publish no channel trains to walk.
+ */
+export const CLI_RELEASE_LATEST_URL =
+  CLI_RELEASE_REPOSITORY_OVERRIDE === undefined
+    ? undefined
+    : `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY_OVERRIDE}/releases/latest`;
+
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";

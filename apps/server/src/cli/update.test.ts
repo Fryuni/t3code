@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import {
   HostProcessEnvironment,
   HostProcessInvokedAs,
@@ -11,7 +12,38 @@ import {
   HostProcessWorkingDirectory,
 } from "@t3tools/shared/hostProcess";
 
-import { repointLauncher, resolveLauncherPath } from "./update.ts";
+import { repointLauncher, resolveLatestReleaseVersion, resolveLauncherPath } from "./update.ts";
+
+const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
+const latestReleaseClient = (tagName: string, requests: string[] = []) =>
+  HttpClient.make((request) => {
+    requests.push(request.url);
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(request, new Response(JSON.stringify({ tag_name: tagName }))),
+    );
+  });
+
+it.effect("t3 update reads a fork build's target from the latest release", () =>
+  Effect.gen(function* () {
+    const requests: string[] = [];
+    const version = yield* resolveLatestReleaseVersion(LATEST_URL).pipe(
+      Effect.provideService(
+        HttpClient.HttpClient,
+        latestReleaseClient("v0.0.44-fork.20261002.7", requests),
+      ),
+    );
+    assert.equal(version, "0.0.44-fork.20261002.7");
+    assert.deepStrictEqual(requests, [LATEST_URL]);
+
+    for (const tagName of ["desktop-latest", "v1.2", "0.0.44"]) {
+      const error = yield* resolveLatestReleaseVersion(LATEST_URL).pipe(
+        Effect.provideService(HttpClient.HttpClient, latestReleaseClient(tagName)),
+        Effect.flip,
+      );
+      assert.equal(error._tag, "CliUpdateError", tagName);
+    }
+  }),
+);
 
 it.layer(NodeServices.layer)("t3 update launcher", (it) => {
   it.effect("repoints a symlink that lives in a runtime versions tree", () =>

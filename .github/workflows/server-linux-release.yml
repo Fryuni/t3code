@@ -1,0 +1,134 @@
+name: Server Linux release
+
+# Publishes a linux-x64 build of the t3 server as this repository's latest
+# GitHub release whenever the default branch has moved past the commit the
+# latest release was cut from. The build bakes this repository in as its
+# release source (see packages/shared/src/cliRelease.ts), so `t3 update` on it
+# follows these releases instead of upstream's.
+
+on:
+  schedule:
+    - cron: "23 */4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: server-linux-release
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: Check for new commits
+    # Manual runs from other branches would publish that branch as latest.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.compare.outputs.build }}
+    steps:
+      - id: compare
+        name: Compare the latest release with the branch head
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="$(gh release view --repo "$GITHUB_REPOSITORY" --json tagName --jq .tagName 2>/dev/null || true)"
+          released_sha=""
+          if [[ -n "$tag" ]]; then
+            released_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha)"
+          fi
+          if [[ "$released_sha" == "$GITHUB_SHA" ]]; then
+            echo "Latest release $tag already contains $GITHUB_SHA; skipping."
+            echo "build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Latest release is ${tag:-missing} (${released_sha:-no commit}); building $GITHUB_SHA."
+            echo "build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  release:
+    name: Build and release linux-x64
+    needs: check
+    if: needs.check.outputs.build == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      T3CODE_RELEASE_REPOSITORY: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          sparse-checkout: |
+            /*
+            !/.repos/
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Vite+
+        uses: voidzero-dev/setup-vp@v1
+        with:
+          node-version-file: package.json
+          cache: true
+          run-install: true
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      # Upstream's version core plus a fork suffix: exact semver that sorts
+      # after every earlier fork build, and stays on the stable channel.
+      - id: version
+        name: Resolve release version
+        run: |
+          set -euo pipefail
+          core="$(node -p 'require("./apps/server/package.json").version.split(/[-+]/)[0]')"
+          version="${core}-fork.$(date -u +%Y%m%d).${{ github.run_number }}"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Releasing $version"
+
+      - name: Align package versions to release version
+        run: node scripts/update-release-package-versions.ts "${{ steps.version.outputs.version }}"
+
+      - name: Build server bundle and web client
+        run: vp run --filter t3 build
+
+      - name: Build CLI single-executable
+        env:
+          # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
+          VP_NODE_VERSION: "26.8.2"
+        run: node apps/server/scripts/cli.ts build-exe --verbose
+
+      - name: Build resource monitor
+        run: |
+          set -euo pipefail
+          vp run build:resource-monitor
+          mkdir -p "$RUNNER_TEMP/cli-resource-monitor/linux-x64"
+          cp native/resource-monitor/target/release/t3-resource-monitor "$RUNNER_TEMP/cli-resource-monitor/linux-x64/"
+
+      - name: Build CLI archive
+        run: |
+          node scripts/build-cli-archive.ts \
+            --platform linux \
+            --arch x64 \
+            --version "${{ steps.version.outputs.version }}" \
+            --resource-monitor-dir "$RUNNER_TEMP/cli-resource-monitor" \
+            --output-dir release-cli
+
+      - name: Smoke-test CLI archive
+        run: node scripts/smoke-cli-archive.ts --archive release-cli/* --expect-version "${{ steps.version.outputs.version }}"
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          cd release-cli
+          sha256sum t3-* > SHA256SUMS
+          gh release create "v$VERSION" t3-* SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "t3 $VERSION" \
+            --notes "linux-x64 server build of $GITHUB_SHA." \
+            --latest

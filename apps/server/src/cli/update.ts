@@ -9,6 +9,7 @@ import {
 import {
   CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_CHANNELS,
+  CLI_RELEASE_LATEST_URL,
   cliReleaseIndexPageUrl,
   cliReleaseChannelOf,
   newestCliReleaseVersion,
@@ -60,11 +61,31 @@ const ReleaseIndex = Schema.Array(
   }),
 );
 const decodeReleaseIndex = Schema.decodeUnknownEffect(Schema.fromJsonString(ReleaseIndex));
+const decodeLatestRelease = Schema.decodeUnknownEffect(
+  Schema.fromJsonString(Schema.Struct({ tag_name: Schema.String })),
+);
 
 const RELEASE_INDEX_TIMEOUT = Duration.seconds(30);
 // Enough to walk past a long run of nightlies without hammering the API when
 // a channel genuinely has nothing published.
 const RELEASE_INDEX_MAX_PAGES = 10;
+
+const fetchReleaseJson = (httpClient: HttpClient.HttpClient, url: string) =>
+  httpClient
+    .execute(
+      HttpClientRequest.get(url).pipe(
+        HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
+      ),
+    )
+    .pipe(
+      Effect.flatMap(HttpClientResponse.filterStatusOk),
+      Effect.flatMap((response) => response.text),
+      Effect.mapError(() => new CliUpdateError({ reason: "Could not list t3 releases." })),
+      Effect.timeoutOrElse({
+        duration: RELEASE_INDEX_TIMEOUT,
+        orElse: () => Effect.fail(new CliUpdateError({ reason: "Timed out listing t3 releases." })),
+      }),
+    );
 
 /** Asks GitHub for the newest published version on a channel, page by page. */
 const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
@@ -72,22 +93,7 @@ const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
 ) {
   const httpClient = yield* HttpClient.HttpClient;
   for (let page = 1; page <= RELEASE_INDEX_MAX_PAGES; page += 1) {
-    const body = yield* httpClient
-      .execute(
-        HttpClientRequest.get(cliReleaseIndexPageUrl(page)).pipe(
-          HttpClientRequest.setHeader("Accept", "application/vnd.github+json"),
-        ),
-      )
-      .pipe(
-        Effect.flatMap(HttpClientResponse.filterStatusOk),
-        Effect.flatMap((response) => response.text),
-        Effect.mapError(() => new CliUpdateError({ reason: "Could not list t3 releases." })),
-        Effect.timeoutOrElse({
-          duration: RELEASE_INDEX_TIMEOUT,
-          orElse: () =>
-            Effect.fail(new CliUpdateError({ reason: "Timed out listing t3 releases." })),
-        }),
-      );
+    const body = yield* fetchReleaseJson(httpClient, cliReleaseIndexPageUrl(page));
     const releases = yield* decodeReleaseIndex(body).pipe(
       Effect.mapError(
         () => new CliUpdateError({ reason: "The t3 release index had an unexpected shape." }),
@@ -98,6 +104,32 @@ const resolveNewestVersion = Effect.fn("cli.update.resolve_newest")(function* (
     if (releases.length === 0) break;
   }
   return yield* new CliUpdateError({ reason: `No published ${channel} release was found.` });
+});
+
+/**
+ * Reads the version a fork build updates to from GitHub's latest release,
+ * which already excludes drafts and prereleases.
+ */
+export const resolveLatestReleaseVersion = Effect.fn("cli.update.resolve_latest")(function* (
+  url: string,
+) {
+  const httpClient = yield* HttpClient.HttpClient;
+  const release = yield* fetchReleaseJson(httpClient, url).pipe(
+    Effect.flatMap((body) =>
+      decodeLatestRelease(body).pipe(
+        Effect.mapError(
+          () => new CliUpdateError({ reason: "The latest t3 release had an unexpected shape." }),
+        ),
+      ),
+    ),
+  );
+  const version = /^v(.+)$/.exec(release.tag_name)?.[1];
+  if (version === undefined || !isExactServiceVersion(version)) {
+    return yield* new CliUpdateError({
+      reason: `The latest release '${release.tag_name}' is not a t3 version.`,
+    });
+  }
+  return version;
 });
 
 /** Whether a launcher target lives inside `<baseDir>/runtime/versions`. */
@@ -358,12 +390,19 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
       reason: `'${input.requestedVersion}' is not an exact t3 version.`,
     });
   }
+  if (CLI_RELEASE_LATEST_URL !== undefined && input.channel !== undefined) {
+    return yield* new CliUpdateError({
+      reason: "This t3 build follows its repository's latest release; --channel does not apply.",
+    });
+  }
   const progress = createUpdateProgress();
   progress.status("Checking for updates...");
   const targetVersion = yield* (
-    input.requestedVersion === undefined
-      ? resolveNewestVersion(channel)
-      : Effect.succeed(input.requestedVersion)
+    input.requestedVersion !== undefined
+      ? Effect.succeed(input.requestedVersion)
+      : CLI_RELEASE_LATEST_URL !== undefined
+        ? resolveLatestReleaseVersion(CLI_RELEASE_LATEST_URL)
+        : resolveNewestVersion(channel)
   ).pipe(Effect.ensuring(Effect.sync(progress.finish)));
   const targetChannel = cliReleaseChannelOf(targetVersion);
 
