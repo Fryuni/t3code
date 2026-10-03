@@ -50,7 +50,10 @@ import {
   classifyMarkdownImageSource,
   markdownImageSourceFragment,
 } from "@t3tools/client-runtime/markdown-images";
-import { inlineCodeFilePathCandidate } from "@t3tools/client-runtime/markdown-links";
+import {
+  formatFilePathPosition,
+  inlineCodeFilePathCandidate,
+} from "@t3tools/client-runtime/markdown-links";
 import { mediaFileReference, mediaUrlReference } from "@t3tools/client-runtime/media-reference";
 import { mediaKindFromPath, mediaMimeTypeFromExtension } from "@t3tools/shared/filePreview";
 import * as Cause from "effect/Cause";
@@ -1188,7 +1191,7 @@ interface MarkdownFileLinkProps {
   href: string;
   targetPath: string;
   iconPath: string;
-  displayPath: string;
+  relativePath: string;
   /** What the files panel opens: workspace-relative inside the workspace, the
       absolute host path outside it, null when the panel cannot show the file. */
   panelPath: string | null;
@@ -1929,7 +1932,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
   href,
   targetPath,
   iconPath,
-  displayPath,
+  relativePath,
   panelPath,
   line,
   label,
@@ -2146,7 +2149,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
           return;
         }
         if (clicked === "copy-relative") {
-          handleCopy(displayPath, "Relative path");
+          handleCopy(relativePath, "Relative path");
           return;
         }
         if (clicked === "copy-full") {
@@ -2160,7 +2163,7 @@ const MarkdownFileLink = memo(function MarkdownFileLink({
       }
     },
     [
-      displayPath,
+      relativePath,
       handleCopy,
       handleOpenInBrowser,
       handleOpenInEditor,
@@ -2269,7 +2272,7 @@ function areMarkdownFileLinkPropsEqual(
     previous.href === next.href &&
     previous.targetPath === next.targetPath &&
     previous.iconPath === next.iconPath &&
-    previous.displayPath === next.displayPath &&
+    previous.relativePath === next.relativePath &&
     previous.panelPath === next.panelPath &&
     previous.line === next.line &&
     previous.label === next.label &&
@@ -2640,7 +2643,10 @@ function useChatMarkdownState({
           href={fileLinkMeta.targetPath}
           targetPath={fileLinkMeta.targetPath}
           iconPath={fileLinkMeta.filePath}
-          displayPath={fileLinkMeta.displayPath}
+          relativePath={formatFilePathPosition({
+            ...fileLinkMeta,
+            path: fileLinkMeta.workspaceRelativePath ?? fileLinkMeta.filePath,
+          })}
           panelPath={panelPath}
           line={fileLinkMeta.line}
           label={labelParts.join(" · ")}
