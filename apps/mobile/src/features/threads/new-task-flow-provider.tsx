@@ -97,6 +97,7 @@ import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
   filterNewTaskBranches,
   resolveNewTaskBranchWorktreePath,
+  resolveNewTaskBranchRemoteName,
   resolveNewTaskLocalWorkspaceSelection,
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
@@ -675,8 +676,24 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const hasMoreBranches =
     branchState.data?.nextCursor !== null && branchState.data?.nextCursor !== undefined;
   const allBranchRefs = branchState.refs;
-  const selectedBranchRemoteName =
-    allBranchRefs.find((branch) => branch.name === selectedBranchName)?.remoteName ?? null;
+  const selectedBranchRefQuery = useEnvironmentQuery(
+    branchTarget.environmentId !== null && branchTarget.cwd !== null && selectedBranchName !== null
+      ? vcsEnvironment.listRefs({
+          environmentId: branchTarget.environmentId,
+          input: {
+            cwd: branchTarget.cwd,
+            query: selectedBranchName,
+            limit: 10,
+            includeMatchingRemoteRefs: true,
+          },
+        })
+      : null,
+  );
+  const selectedBranchRemoteName = resolveNewTaskBranchRemoteName({
+    branchName: selectedBranchName,
+    branches: allBranchRefs,
+    queriedBranches: selectedBranchRefQuery.data?.refs ?? [],
+  });
   const availableBranches = useMemo(
     () =>
       pipe(

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   filterNewTaskBranches,
   resolveNewTaskBranchWorktreePath,
+  resolveNewTaskBranchRemoteName,
   resolveNewTaskBranchLabel,
   resolveNewTaskLocalWorkspaceSelection,
 } from "./new-task-context-presentation";
@@ -117,18 +118,123 @@ describe("resolveNewTaskBranchLabel", () => {
     ).toBe("From origin/main");
   });
 
-  it.each(["main", "origin/main", "upstream/main"])(
-    "labels upstream base %s without duplicating a remote prefix",
-    (branchName) => {
+  it.each([
+    { branchName: "main", branchRemoteName: null },
+    { branchName: "origin/main", branchRemoteName: "origin" },
+    { branchName: "upstream/main", branchRemoteName: "upstream" },
+  ])(
+    "labels upstream base $branchName without duplicating a remote prefix",
+    ({ branchName, branchRemoteName }) => {
       expect(
         resolveNewTaskBranchLabel({
           branchName,
+          branchRemoteName,
           startFromRemote: "upstream",
           workspaceMode: "worktree",
         }),
       ).toBe("From upstream/main");
     },
   );
+
+  it.each(
+    ["origin/topic", "upstream/topic"].flatMap((branchName) =>
+      (["origin", "upstream"] as const).flatMap((startFromRemote) =>
+        [null, undefined].map((branchRemoteName) => ({
+          branchName,
+          branchRemoteName,
+          startFromRemote,
+        })),
+      ),
+    ),
+  )(
+    "preserves local or unresolved $branchName with source=$startFromRemote and metadata=$branchRemoteName",
+    ({ branchName, branchRemoteName, startFromRemote }) => {
+      expect(
+        resolveNewTaskBranchLabel({
+          branchName,
+          branchRemoteName,
+          startFromRemote,
+          workspaceMode: "worktree",
+        }),
+      ).toBe(`From ${startFromRemote}/${branchName}`);
+    },
+  );
+
+  it("keeps the selected remote source when clearing search drops it from the first page", () => {
+    const selectedRef = {
+      name: "fork-vendor/topic",
+      isRemote: true,
+      remoteName: "fork-vendor",
+    };
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      name: `branch-${index}`,
+      isRemote: false,
+    }));
+    for (const branches of [[selectedRef], firstPage]) {
+      expect(
+        resolveNewTaskBranchLabel({
+          branchName: selectedRef.name,
+          branchRemoteName: resolveNewTaskBranchRemoteName({
+            branchName: selectedRef.name,
+            branches,
+            queriedBranches: [selectedRef],
+          }),
+          startFromRemote: "upstream",
+          workspaceMode: "worktree",
+        }),
+      ).toBe("From upstream/topic");
+    }
+  });
+
+  it.each([false, true])(
+    "preserves local branch prefixes when local and remote names collide (listed local: %s)",
+    (listedLocal) => {
+      const localRef = { name: "origin/topic", isRemote: false };
+      const remoteRef = { name: "origin/topic", isRemote: true, remoteName: "origin" };
+      expect(
+        resolveNewTaskBranchLabel({
+          branchName: localRef.name,
+          branchRemoteName: resolveNewTaskBranchRemoteName({
+            branchName: localRef.name,
+            branches: listedLocal ? [localRef] : [remoteRef],
+            queriedBranches: listedLocal ? [remoteRef] : [localRef, remoteRef],
+          }),
+          startFromRemote: "upstream",
+          workspaceMode: "worktree",
+        }),
+      ).toBe("From upstream/origin/topic");
+    },
+  );
+
+  it("keeps a restored branch intact while its exact-ref metadata is pending", () => {
+    expect(
+      resolveNewTaskBranchLabel({
+        branchName: "fork-vendor/topic",
+        branchRemoteName: resolveNewTaskBranchRemoteName({
+          branchName: "fork-vendor/topic",
+          branches: [],
+          queriedBranches: [],
+        }),
+        startFromRemote: "upstream",
+        workspaceMode: "worktree",
+      }),
+    ).toBe("From upstream/fork-vendor/topic");
+  });
+
+  it("does not use metadata from a substring match returned by the exact-ref query", () => {
+    expect(
+      resolveNewTaskBranchLabel({
+        branchName: "origin/topic",
+        branchRemoteName: resolveNewTaskBranchRemoteName({
+          branchName: "origin/topic",
+          branches: [],
+          queriedBranches: [{ name: "origin/topic-extra", isRemote: true, remoteName: "origin" }],
+        }),
+        startFromRemote: "upstream",
+        workspaceMode: "worktree",
+      }),
+    ).toBe("From upstream/origin/topic");
+  });
 
   it("uses the chosen remote for a branch selected from another configured remote", () => {
     expect(

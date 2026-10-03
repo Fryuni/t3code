@@ -2178,6 +2178,45 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("refName operations", () => {
+    it.effect.each([false, true])(
+      "puts an exact queried ref before partial matches with a colliding local ref: %s",
+      (hasCollidingLocalRef) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepoWithCommit(cwd);
+          const remote = yield* makeTmpDir("git-vcs-driver-fork-");
+          yield* git(remote, ["init", "--bare"]);
+          yield* git(cwd, ["remote", "add", "fork", remote]);
+          yield* git(cwd, ["update-ref", "refs/remotes/fork/topic", "HEAD"]);
+          for (let index = 0; index < 12; index++) {
+            yield* git(cwd, ["branch", `partial-${index}/fork/topic`]);
+          }
+          if (hasCollidingLocalRef) {
+            yield* git(cwd, ["branch", "fork/topic"]);
+          }
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const unfiltered = yield* driver.listRefs({ cwd });
+
+          const queried = yield* driver.listRefs({ cwd, query: "fork/topic", limit: 10 });
+
+          assert.equal(queried.refs[0]?.name, "fork/topic");
+          assert.equal(queried.refs[0]?.isRemote, !hasCollidingLocalRef);
+          const exactCount = hasCollidingLocalRef ? 2 : 1;
+          const remoteRef = queried.refs[exactCount - 1];
+          assert.equal(remoteRef?.name, "fork/topic");
+          assert.equal(remoteRef?.remoteName, "fork");
+          assert.equal(queried.totalCount, 12 + exactCount);
+          assert.equal(queried.nextCursor, 10);
+          const partialMatches = unfiltered.refs.filter(
+            (ref) => ref.name !== "fork/topic" && ref.name.includes("fork/topic"),
+          );
+          assert.deepEqual(
+            queried.refs.slice(exactCount),
+            partialMatches.slice(0, 10 - exactCount),
+          );
+        }),
+    );
+
     it.effect("optionally includes remote refs that match local branches", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

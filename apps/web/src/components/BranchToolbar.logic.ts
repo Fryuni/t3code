@@ -219,6 +219,23 @@ export function resolveBranchToolbarValue(input: {
   return currentGitBranch ?? activeThreadBranch;
 }
 
+export function resolveSelectedBranchRef(input: {
+  branchName: string | null;
+  listedRefs: ReadonlyArray<VcsRef>;
+  queriedRefs: ReadonlyArray<VcsRef>;
+}) {
+  if (input.branchName === null) return null;
+  const matches = (ref: VcsRef) => ref.name === input.branchName;
+  const matchesLocal = (ref: VcsRef) => matches(ref) && ref.isRemote !== true;
+  return (
+    input.listedRefs.find(matchesLocal) ??
+    input.queriedRefs.find(matchesLocal) ??
+    input.listedRefs.find(matches) ??
+    input.queriedRefs.find(matches) ??
+    null
+  );
+}
+
 export function resolveBranchTriggerLabel(input: {
   activeWorktreePath: string | null;
   effectiveEnvMode: EnvMode;

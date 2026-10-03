@@ -13,6 +13,7 @@ import {
   resolveBranchTriggerLabel,
   resolveBranchToolbarPrBranch,
   resolveBranchToolbarValue,
+  resolveSelectedBranchRef,
   resolveLockedWorkspaceLabel,
   resolveLocalCheckoutBranchMismatch,
   resolvePreviousWorktreeLabel,
@@ -199,6 +200,61 @@ describe("resolveBranchToolbarValue", () => {
         currentGitBranch: "main",
       }),
     ).toBe("main");
+  });
+});
+
+describe("resolveSelectedBranchRef", () => {
+  const localRef: VcsRef = {
+    name: "origin/topic",
+    isRemote: false,
+    current: false,
+    isDefault: false,
+    worktreePath: "/repo/topic",
+  };
+  const remoteRef: VcsRef = {
+    ...localRef,
+    isRemote: true,
+    remoteName: "origin",
+    worktreePath: null,
+  };
+
+  it.each([
+    { caseName: "both listed", listedRefs: [localRef, remoteRef], queriedRefs: [] },
+    { caseName: "local queried", listedRefs: [remoteRef], queriedRefs: [localRef] },
+    { caseName: "local listed", listedRefs: [localRef], queriedRefs: [remoteRef] },
+  ])("keeps a local branch's full upstream source and checkout ($caseName)", (refs) => {
+    const selected = resolveSelectedBranchRef({ branchName: "origin/topic", ...refs });
+    expect(selected).toBe(localRef);
+    expect(selected?.worktreePath).toBe("/repo/topic");
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: selected?.name ?? null,
+        resolvedActiveBranchIsRemote: selected?.isRemote === true,
+        resolvedActiveBranchRemoteName: selected?.remoteName ?? null,
+        startFromRemote: "upstream",
+      }),
+    ).toBe("From upstream/origin/topic");
+  });
+
+  it("uses an explicit remote when the matching local branch is absent", () => {
+    const selected = resolveSelectedBranchRef({
+      branchName: "origin/topic",
+      listedRefs: [],
+      queriedRefs: [remoteRef],
+    });
+    expect(selected).toBe(remoteRef);
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: selected?.name ?? null,
+        resolvedActiveBranchIsRemote: selected?.isRemote === true,
+        resolvedActiveBranchRemoteName: selected?.remoteName ?? null,
+        startFromRemote: "upstream",
+      }),
+    ).toBe("From upstream/topic");
   });
 });
 

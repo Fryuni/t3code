@@ -57,6 +57,7 @@ import {
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
+  resolveSelectedBranchRef,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
   sanitizeNewRefName,
@@ -360,8 +361,6 @@ export function BranchToolbarBranchSelector({
     canonicalActiveBranch,
     (_currentBranch: string | null, optimisticBranch: string | null) => optimisticBranch,
   );
-  const listedActiveBranch =
-    resolvedActiveBranch === null ? null : (branchByName.get(resolvedActiveBranch) ?? null);
   const activeBranchRefQuery = useEnvironmentQuery(
     branchCwd !== null && resolvedActiveBranch !== null
       ? vcsEnvironment.listRefs({
@@ -370,20 +369,22 @@ export function BranchToolbarBranchSelector({
             cwd: branchCwd,
             query: resolvedActiveBranch,
             limit: 10,
+            includeMatchingRemoteRefs: true,
           },
         })
       : null,
   );
-  const queriedActiveBranch = activeBranchRefQuery.data?.refs.find(
-    (refName) => refName.name === resolvedActiveBranch,
+  const selectedBranchRef = useMemo(
+    () =>
+      resolveSelectedBranchRef({
+        branchName: resolvedActiveBranch,
+        listedRefs: refs,
+        queriedRefs: activeBranchRefQuery.data?.refs ?? [],
+      }),
+    [resolvedActiveBranch, refs, activeBranchRefQuery.data?.refs],
   );
-  const selectedBranchRef = listedActiveBranch ?? queriedActiveBranch;
   const resolvedActiveBranchIsRemote =
-    listedActiveBranch !== null
-      ? listedActiveBranch.isRemote === true
-      : queriedActiveBranch
-        ? queriedActiveBranch.isRemote === true
-        : null;
+    selectedBranchRef === null ? null : selectedBranchRef.isRemote === true;
   const [isBranchActionPending, startBranchActionTransition] = useTransition();
   const totalBranchCount = branchRefState.data?.totalCount ?? 0;
   const branchStatusText = isInitialBranchesLoadPending

@@ -241,7 +241,17 @@ function filterBranchesForListQuery(
   }
 
   const normalizedQuery = query.toLowerCase();
-  return refs.filter((refName) => refName.name.toLowerCase().includes(normalizedQuery));
+  const exactLocalMatches: Array<VcsRef> = [];
+  const exactRemoteMatches: Array<VcsRef> = [];
+  const partialMatches: Array<VcsRef> = [];
+  for (const ref of refs) {
+    if (ref.name === query) {
+      (ref.isRemote ? exactRemoteMatches : exactLocalMatches).push(ref);
+    } else if (ref.name.toLowerCase().includes(normalizedQuery)) {
+      partialMatches.push(ref);
+    }
+  }
+  return [...exactLocalMatches, ...exactRemoteMatches, ...partialMatches];
 }
 
 function paginateBranches(input: {
