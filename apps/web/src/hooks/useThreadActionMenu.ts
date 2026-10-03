@@ -205,7 +205,7 @@ export function useThreadActionMenu(input: {
                 branch: thread.branch,
                 worktreePath: thread.worktreePath,
                 envMode: thread.worktreePath ? "worktree" : "local",
-                startFromOrigin: false,
+                startFromRemote: null,
               }),
             );
             if (result._tag === "Failure") {

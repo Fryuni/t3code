@@ -250,7 +250,7 @@ describe("host context compatibility", () => {
             workspaceMode: "local",
             branch: null,
             worktreePath: null,
-            startFromOrigin: false,
+            startFromRemote: null,
             worktreeBranchName: "unused",
           }).message;
     expect(message).not.toHaveProperty("context");

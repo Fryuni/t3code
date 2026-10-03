@@ -203,6 +203,58 @@ describe("resolveBranchToolbarValue", () => {
 });
 
 describe("resolveBranchTriggerLabel", () => {
+  it.each(["main", "feature/demo"])("shows the upstream source for local branch %s", (branch) => {
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: branch,
+        resolvedActiveBranchIsRemote: false,
+        startFromRemote: "upstream",
+      }),
+    ).toBe(`From upstream/${branch}`);
+  });
+
+  it.each(["origin/feature/demo", "upstream/feature/demo"])(
+    "shows upstream when the selected ref is %s",
+    (branch) => {
+      expect(
+        resolveBranchTriggerLabel({
+          activeWorktreePath: null,
+          effectiveEnvMode: "worktree",
+          resolvedActiveBranch: branch,
+          resolvedActiveBranchIsRemote: true,
+          startFromRemote: "upstream",
+        }),
+      ).toBe("From upstream/feature/demo");
+    },
+  );
+
+  it("keeps the selected ref when no remote is chosen", () => {
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: "origin/feature/demo",
+        resolvedActiveBranchIsRemote: true,
+        startFromRemote: null,
+      }),
+    ).toBe("From origin/feature/demo");
+  });
+
+  it("uses remote metadata when the remote name contains slashes", () => {
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: "my-org/fork/feature/demo",
+        resolvedActiveBranchIsRemote: true,
+        resolvedActiveBranchRemoteName: "my-org/fork",
+        startFromRemote: "upstream",
+      }),
+    ).toBe("From upstream/feature/demo");
+  });
+
   it("shows the origin ref when a new worktree will start from origin", () => {
     expect(
       resolveBranchTriggerLabel({
@@ -210,7 +262,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
     ).toBe("From origin/main");
   });
@@ -222,7 +274,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "feature/demo",
         resolvedActiveBranchIsRemote: false,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
     ).toBe("From origin/feature/demo");
   });
@@ -234,7 +286,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
-        startFromOrigin: false,
+        startFromRemote: null,
       }),
     ).toBe("From main");
   });
@@ -246,21 +298,21 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "origin/feature/demo",
         resolvedActiveBranchIsRemote: true,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
     ).toBe("From origin/feature/demo");
   });
 
-  it("preserves an explicit ref from a non-origin remote", () => {
+  it("uses the selected remote for an explicit ref from another remote", () => {
     expect(
       resolveBranchTriggerLabel({
         activeWorktreePath: null,
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "upstream/feature/demo",
         resolvedActiveBranchIsRemote: true,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
-    ).toBe("From upstream/feature/demo");
+    ).toBe("From origin/feature/demo");
   });
 
   it("keeps current-checkout labels and empty state unchanged", () => {
@@ -270,7 +322,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "local",
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
     ).toBe("main");
     expect(
@@ -279,7 +331,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: null,
         resolvedActiveBranchIsRemote: null,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
     ).toBe("Select ref");
   });
@@ -291,7 +343,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "upstream/feature/demo",
         resolvedActiveBranchIsRemote: null,
-        startFromOrigin: true,
+        startFromRemote: "origin",
       }),
     ).toBe("From upstream/feature/demo");
   });
@@ -927,7 +979,7 @@ it("labels an existing branch without a base or origin prefix", () => {
       effectiveEnvMode: "worktree",
       resolvedActiveBranch: "feature/existing",
       resolvedActiveBranchIsRemote: false,
-      startFromOrigin: true,
+      startFromRemote: "origin",
       createNewBranch: false,
     }),
   ).toBe("feature/existing");

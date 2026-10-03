@@ -11706,15 +11706,50 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
   );
 
   it.effect.each([
-    { baseBranch: "main", remoteBranch: "main" },
-    { baseBranch: "dev", remoteBranch: "dev" },
-    { baseBranch: "feature/dev", remoteBranch: "feature/dev" },
-    { baseBranch: "origin/dev", remoteBranch: "dev" },
-    { baseBranch: "origin/feature/dev", remoteBranch: "feature/dev" },
+    {
+      baseBranch: "upstream/topic",
+      remoteBranch: "upstream/topic",
+      remoteName: "origin" as const,
+      localRefExists: true,
+    },
+    {
+      baseBranch: "origin/topic",
+      remoteBranch: "origin/topic",
+      remoteName: "upstream" as const,
+      localRefExists: true,
+    },
+    { baseBranch: "main", remoteBranch: "main", remoteName: "origin" as const },
+    { baseBranch: "dev", remoteBranch: "dev", remoteName: "origin" as const },
+    { baseBranch: "feature/dev", remoteBranch: "feature/dev", remoteName: "origin" as const },
+    { baseBranch: "origin/dev", remoteBranch: "dev", remoteName: "origin" as const },
+    {
+      baseBranch: "origin/feature/dev",
+      remoteBranch: "feature/dev",
+      remoteName: "origin" as const,
+    },
+    {
+      baseBranch: "mirror/feature/dev",
+      remoteBranch: "feature/dev",
+      remoteName: "upstream" as const,
+    },
+    { baseBranch: "main", remoteBranch: "main", remoteName: "upstream" as const },
+    { baseBranch: "feature/dev", remoteBranch: "feature/dev", remoteName: "upstream" as const },
+    {
+      baseBranch: "origin/feature/dev",
+      remoteBranch: "feature/dev",
+      remoteName: "upstream" as const,
+    },
+    {
+      baseBranch: "upstream/feature/dev",
+      remoteBranch: "feature/dev",
+      remoteName: "upstream" as const,
+    },
   ])(
-    "bootstraps first-send worktree turns from $baseBranch on the server before dispatching turn start",
-    ({ baseBranch, remoteBranch }) =>
+    "bootstraps first-send worktree turns from $remoteName/$baseBranch on the server before dispatching turn start",
+    (scenario) =>
       Effect.gen(function* () {
+        const { baseBranch, remoteBranch, remoteName } = scenario;
+        const localRefExists = "localRefExists" in scenario && scenario.localRefExists;
         const dispatchedCommands: Array<OrchestrationCommand> = [];
         const bootstrapGitOperations: string[] = [];
         const refreshStatus = vi.fn((_: string) =>
@@ -11762,7 +11797,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               bootstrapGitOperations.push("resolve-remote-commit");
               return {
                 commitSha: fetchedOriginCommit,
-                remoteRefName: `origin/${remoteBranch}`,
+                remoteRefName: `${remoteName}/${remoteBranch}`,
               };
             }),
         );
@@ -11801,7 +11836,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
               isInsideWorkTree: () => Effect.succeed(true),
             },
             gitVcsDriver: {
-              execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+              execute: (input) =>
+                Effect.succeed({
+                  ...SUCCESSFUL_GIT_EXECUTION,
+                  ...(input.args[0] === "remote" ? { stdout: "origin\nupstream\nmirror\n" } : {}),
+                  ...(input.args[0] === "show-ref"
+                    ? { exitCode: ChildProcessSpawner.ExitCode(localRefExists ? 0 : 1) }
+                    : {}),
+                }),
               remoteExists,
               fetchRemote,
               remoteBranchExists,
@@ -11858,6 +11900,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
                   baseBranch,
                   branch: "t3code/bootstrap-refName",
                   startFromOrigin: true,
+                  ...(remoteName === "upstream" ? { startFromRemote: remoteName } : {}),
                 },
                 runSetupScript: true,
               },
@@ -11902,18 +11945,19 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
         });
         assert.deepEqual(fetchRemote.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
-          remoteName: "origin",
-          refName: baseBranch,
+          remoteName,
+          refName: `${remoteName}/${remoteBranch}`,
+          ...(remoteName === "upstream" ? { requireBranch: true } : {}),
         });
         assert.deepEqual(remoteBranchExists.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
-          remoteName: "origin",
+          remoteName,
           refName: remoteBranch,
         });
         assert.deepEqual(resolveRemoteTrackingCommit.mock.calls[0]?.[0], {
           cwd: "/tmp/project",
-          refName: baseBranch,
-          fallbackRemoteName: "origin",
+          refName: `${remoteName}/${remoteBranch}`,
+          fallbackRemoteName: remoteName,
         });
         assert.deepEqual(bootstrapGitOperations, [
           "remote-exists",
@@ -11966,7 +12010,7 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
           assert.equal(fetchStage?.status, "done");
           assert.equal(
             fetchStage?.detail,
-            `origin/${remoteBranch} at ${fetchedOriginCommit.slice(0, 7)}`,
+            `${remoteName}/${remoteBranch} at ${fetchedOriginCommit.slice(0, 7)}`,
           );
           assert.equal(settledActivity.payload.phase, "done");
           assert.equal(settledActivity.payload.threadId, ThreadId.make("thread-bootstrap"));
@@ -12036,7 +12080,14 @@ it.layer(NodeServices.layer)("server router seam", (it) => {
             isInsideWorkTree: () => Effect.succeed(true),
           },
           gitVcsDriver: {
-            execute: () => Effect.succeed(SUCCESSFUL_GIT_EXECUTION),
+            execute: (input) =>
+              Effect.succeed({
+                ...SUCCESSFUL_GIT_EXECUTION,
+                ...(input.args[0] === "remote" ? { stdout: "origin\nupstream\n" } : {}),
+                ...(input.args[0] === "show-ref"
+                  ? { exitCode: ChildProcessSpawner.ExitCode(1) }
+                  : {}),
+              }),
             remoteExists,
             fetchRemote,
             remoteBranchExists,

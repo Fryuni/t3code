@@ -4,9 +4,10 @@ import type {
   VcsRef,
   ProjectId,
   WorktreeSubmodules,
+  WorktreeStartRemote,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { sanitizeNewRefName } from "@t3tools/shared/git";
+import { deriveLocalBranchNameFromRemoteRef, sanitizeNewRefName } from "@t3tools/shared/git";
 import { toSortableTimestamp } from "../lib/threadSort";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -223,7 +224,8 @@ export function resolveBranchTriggerLabel(input: {
   effectiveEnvMode: EnvMode;
   resolvedActiveBranch: string | null;
   resolvedActiveBranchIsRemote: boolean | null;
-  startFromOrigin: boolean;
+  resolvedActiveBranchRemoteName?: string | null;
+  startFromRemote: WorktreeStartRemote;
   createNewBranch?: boolean;
 }): string {
   const {
@@ -231,16 +233,23 @@ export function resolveBranchTriggerLabel(input: {
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    startFromOrigin,
+    resolvedActiveBranchRemoteName,
+    startFromRemote,
     createNewBranch = true,
   } = input;
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
   if (effectiveEnvMode === "worktree" && !activeWorktreePath && createNewBranch) {
+    const branchName = resolvedActiveBranchIsRemote
+      ? resolvedActiveBranchRemoteName &&
+        resolvedActiveBranch.startsWith(`${resolvedActiveBranchRemoteName}/`)
+        ? resolvedActiveBranch.slice(resolvedActiveBranchRemoteName.length + 1)
+        : deriveLocalBranchNameFromRemoteRef(resolvedActiveBranch)
+      : resolvedActiveBranch;
     const baseRef =
-      startFromOrigin && resolvedActiveBranchIsRemote === false
-        ? `origin/${resolvedActiveBranch}`
+      startFromRemote !== null && resolvedActiveBranchIsRemote !== null
+        ? `${startFromRemote}/${branchName}`
         : resolvedActiveBranch;
     return `From ${baseRef}`;
   }

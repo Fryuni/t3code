@@ -257,12 +257,18 @@ describe.each([
         "remote-project",
         projectRef,
         opened!.draftId,
-        expect.objectContaining({ envMode: "worktree", startFromOrigin }),
+        expect.objectContaining({
+          envMode: "worktree",
+          startFromRemote: startFromOrigin ? "origin" : null,
+        }),
       );
       if (draft) {
         expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
           draft.draftId,
-          expect.objectContaining({ envMode: "worktree", startFromOrigin }),
+          expect.objectContaining({
+            envMode: "worktree",
+            startFromRemote: startFromOrigin ? "origin" : null,
+          }),
         );
       }
     },
@@ -311,10 +317,13 @@ describe.each([
     );
   });
 
-  it.each([true, false])(
-    "preserves an existing-branch choice with start-from-origin %s",
-    async (startFromOrigin) => {
-      testState.reset(draft, { envMode: "worktree", startFromOrigin: !startFromOrigin });
+  it.each(["origin", "upstream", null] as const)(
+    "preserves an existing-branch choice with starting remote %s",
+    async (startFromRemote) => {
+      testState.reset(draft, {
+        envMode: "worktree",
+        startFromOrigin: startFromRemote !== "origin",
+      });
       const openThread = useNewThreadHandler();
       const projectRef = {
         environmentId: "environment-ssh",
@@ -323,7 +332,7 @@ describe.each([
 
       const opened = await openThread(projectRef, {
         envMode: "worktree",
-        startFromOrigin,
+        startFromRemote,
         createNewBranch: false,
       });
 
@@ -331,7 +340,7 @@ describe.each([
         "remote-project",
         projectRef,
         opened!.draftId,
-        expect.objectContaining({ envMode: "worktree", startFromOrigin, createNewBranch: false }),
+        expect.objectContaining({ envMode: "worktree", startFromRemote, createNewBranch: false }),
       );
     },
   );

@@ -91,7 +91,7 @@ describe("resolveNewTaskBranchLabel", () => {
     expect(
       resolveNewTaskBranchLabel({
         branchName: "feature/mobile",
-        startFromOrigin: true,
+        startFromRemote: "origin",
         workspaceMode: "local",
       }),
     ).toBe("feature/mobile");
@@ -101,7 +101,7 @@ describe("resolveNewTaskBranchLabel", () => {
     expect(
       resolveNewTaskBranchLabel({
         branchName: "main",
-        startFromOrigin: false,
+        startFromRemote: null,
         workspaceMode: "worktree",
       }),
     ).toBe("From main");
@@ -111,17 +111,41 @@ describe("resolveNewTaskBranchLabel", () => {
     expect(
       resolveNewTaskBranchLabel({
         branchName: "main",
-        startFromOrigin: true,
+        startFromRemote: "origin",
         workspaceMode: "worktree",
       }),
     ).toBe("From origin/main");
+  });
+
+  it.each(["main", "origin/main", "upstream/main"])(
+    "labels upstream base %s without duplicating a remote prefix",
+    (branchName) => {
+      expect(
+        resolveNewTaskBranchLabel({
+          branchName,
+          startFromRemote: "upstream",
+          workspaceMode: "worktree",
+        }),
+      ).toBe("From upstream/main");
+    },
+  );
+
+  it("uses the chosen remote for a branch selected from another configured remote", () => {
+    expect(
+      resolveNewTaskBranchLabel({
+        branchName: "fork-vendor/feature/mobile",
+        branchRemoteName: "fork-vendor",
+        startFromRemote: "upstream",
+        workspaceMode: "worktree",
+      }),
+    ).toBe("From upstream/feature/mobile");
   });
 
   it("prompts when no branch is available", () => {
     expect(
       resolveNewTaskBranchLabel({
         branchName: null,
-        startFromOrigin: true,
+        startFromRemote: "origin",
         workspaceMode: "worktree",
       }),
     ).toBe("Choose branch");
@@ -133,7 +157,7 @@ it("labels an existing branch without a base or origin prefix", () => {
     resolveNewTaskBranchLabel({
       branchName: "feature/existing",
       workspaceMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
       createNewBranch: false,
     }),
   ).toBe("feature/existing");
