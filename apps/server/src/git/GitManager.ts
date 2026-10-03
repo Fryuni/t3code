@@ -1032,6 +1032,7 @@ export const make = Effect.gen(function* () {
       isRepo: details.isRepo,
       ...(hostingProvider ? { sourceControlProvider: hostingProvider } : {}),
       hasPrimaryRemote: details.hasOriginRemote,
+      ...("remoteNames" in details ? { remoteNames: details.remoteNames } : {}),
       isDefaultRef: details.isDefaultBranch,
       refName: details.branch,
       hasWorkingTreeChanges: details.hasWorkingTreeChanges,

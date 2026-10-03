@@ -1,5 +1,5 @@
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, WorktreeStartRemote } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
   FolderGit2Icon,
@@ -79,8 +79,8 @@ interface BranchToolbarProps {
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
   createNewBranch: boolean;
   onCreateNewBranchChange: (createNewBranch: boolean) => void;
-  startFromOrigin: boolean;
-  onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  startFromRemote: WorktreeStartRemote;
+  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
   envLocked: boolean;
@@ -518,8 +518,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   onActiveThreadBranchOverrideChange,
   createNewBranch,
   onCreateNewBranchChange,
-  startFromOrigin,
-  onStartFromOriginChange,
+  startFromRemote,
+  onStartFromRemoteChange,
   autoEnvironmentLabel,
   onAutoEnvironment,
   envLocked,
@@ -723,8 +723,8 @@ export const BranchToolbar = memo(function BranchToolbar({
           {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
           createNewBranch={createNewBranch}
           onCreateNewBranchChange={onCreateNewBranchChange}
-          startFromOrigin={startFromOrigin}
-          onStartFromOriginChange={onStartFromOriginChange}
+          startFromRemote={startFromRemote}
+          onStartFromRemoteChange={onStartFromRemoteChange}
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
         />

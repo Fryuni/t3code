@@ -21,6 +21,7 @@ import {
   type ScopedThreadRef,
   ThreadId,
   SnapShotSource,
+  WorktreeStartRemote,
 } from "@t3tools/contracts";
 import {
   parseScopedProjectKey,
@@ -82,7 +83,7 @@ const isSnapShotSource = Schema.is(SnapShotSource);
 const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
-const COMPOSER_DRAFT_STORAGE_VERSION = 9;
+const COMPOSER_DRAFT_STORAGE_VERSION = 10;
 const DraftThreadEnvModeSchema = Schema.Literals(["local", "worktree"]);
 export type DraftThreadEnvMode = typeof DraftThreadEnvModeSchema.Type;
 
@@ -322,7 +323,7 @@ const PersistedDraftThreadState = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
-  startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  startFromRemote: WorktreeStartRemote.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
   createNewBranch: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
@@ -450,7 +451,7 @@ export interface DraftSessionState {
   branch: string | null;
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
-  startFromOrigin: boolean;
+  startFromRemote: WorktreeStartRemote;
   createNewBranch: boolean;
   promotedTo?: ScopedThreadRef | null;
 }
@@ -521,7 +522,7 @@ interface ComposerDraftStoreState {
       worktreePath?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
-      startFromOrigin?: boolean;
+      startFromRemote?: WorktreeStartRemote;
       createNewBranch?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
@@ -539,7 +540,7 @@ interface ComposerDraftStoreState {
       worktreePath?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
-      startFromOrigin?: boolean;
+      startFromRemote?: WorktreeStartRemote;
       createNewBranch?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
@@ -556,7 +557,7 @@ interface ComposerDraftStoreState {
       projectRef?: ScopedProjectRef;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
-      startFromOrigin?: boolean;
+      startFromRemote?: WorktreeStartRemote;
       createNewBranch?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
@@ -1508,7 +1509,7 @@ function createDraftThreadState(
     worktreePath?: string | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
-    startFromOrigin?: boolean;
+    startFromRemote?: WorktreeStartRemote;
     createNewBranch?: boolean;
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
@@ -1519,7 +1520,7 @@ function createDraftThreadState(
   // A project change (including switching environments within a logical
   // project) invalidates machine-specific context: the branch may not exist
   // there and the worktree path certainly doesn't. The user's *intent* —
-  // env mode and start-from-origin — is machine-independent and carries.
+  // env mode and starting remote — is machine-independent and carries.
   const projectChanged =
     existingThread !== undefined &&
     (existingThread.environmentId !== projectRef.environmentId ||
@@ -1536,10 +1537,10 @@ function createDraftThreadState(
         ? null
         : (existingThread?.branch ?? null)
       : (options.branch ?? null);
-  const nextStartFromOrigin =
-    options?.startFromOrigin === undefined
-      ? (existingThread?.startFromOrigin ?? false)
-      : options.startFromOrigin;
+  const nextStartFromRemote =
+    options?.startFromRemote === undefined
+      ? (existingThread?.startFromRemote ?? null)
+      : options.startFromRemote;
   const environmentSelection =
     options?.environmentSelection ?? existingThread?.environmentSelection;
   return {
@@ -1565,7 +1566,7 @@ function createDraftThreadState(
     worktreePath: nextWorktreePath,
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
-    startFromOrigin: nextStartFromOrigin,
+    startFromRemote: nextStartFromRemote,
     createNewBranch: options?.createNewBranch ?? existingThread?.createNewBranch ?? true,
     promotedTo: null,
   };
@@ -1600,7 +1601,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
-    left.startFromOrigin === right.startFromOrigin &&
+    left.startFromRemote === right.startFromRemote &&
     left.createNewBranch === right.createNewBranch &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
@@ -1701,7 +1702,14 @@ function normalizePersistedDraftThreads(
       const createdAt = candidateDraftThread.createdAt;
       const branch = candidateDraftThread.branch;
       const worktreePath = candidateDraftThread.worktreePath;
-      const startFromOrigin = candidateDraftThread.startFromOrigin === true;
+      const startFromRemote =
+        candidateDraftThread.startFromRemote === "origin" ||
+        candidateDraftThread.startFromRemote === "upstream" ||
+        candidateDraftThread.startFromRemote === null
+          ? candidateDraftThread.startFromRemote
+          : candidateDraftThread.startFromOrigin === true
+            ? "origin"
+            : null;
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
       const promotedToCandidate = candidateDraftThread.promotedTo;
       const promotedToRecord =
@@ -1749,7 +1757,7 @@ function normalizePersistedDraftThreads(
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
-        startFromOrigin,
+        startFromRemote,
         createNewBranch: candidateDraftThread.createNewBranch !== false,
         ...(candidateDraftThread.environmentSelection === "manual" ||
         candidateDraftThread.environmentSelection === "auto"
@@ -1812,7 +1820,7 @@ function normalizePersistedDraftThreads(
           branch: null,
           worktreePath: null,
           envMode: "local",
-          startFromOrigin: false,
+          startFromRemote: null,
           createNewBranch: true,
           promotedTo: null,
         };
@@ -2496,7 +2504,7 @@ function toHydratedDraftThreadState(
     branch: persistedDraftThread.branch,
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
-    startFromOrigin: persistedDraftThread.startFromOrigin,
+    startFromRemote: persistedDraftThread.startFromRemote,
     createNewBranch: persistedDraftThread.createNewBranch,
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
@@ -2753,7 +2761,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
             }
             // Mirrors createDraftThreadState: a project/environment change
             // drops machine-specific context (branch, worktree path) but
-            // keeps the user's env mode and start-from-origin intent.
+            // keeps the user's env mode and starting-remote intent.
             const projectChanged =
               nextProjectRef.environmentId !== existing.environmentId ||
               nextProjectRef.projectId !== existing.projectId;
@@ -2769,10 +2777,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   ? null
                   : existing.branch
                 : (options.branch ?? null);
-            const nextStartFromOrigin =
-              options.startFromOrigin === undefined
-                ? existing.startFromOrigin
-                : options.startFromOrigin;
+            const nextStartFromRemote =
+              options.startFromRemote === undefined
+                ? existing.startFromRemote
+                : options.startFromRemote;
             const environmentSelection =
               options.environmentSelection ??
               (options.branch != null || options.worktreePath != null
@@ -2800,7 +2808,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               worktreePath: nextWorktreePath,
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
-              startFromOrigin: nextStartFromOrigin,
+              startFromRemote: nextStartFromRemote,
               createNewBranch: options.createNewBranch ?? existing.createNewBranch,
               promotedTo: existing.promotedTo ?? null,
             };
@@ -2816,7 +2824,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.branch === existing.branch &&
               nextDraftThread.worktreePath === existing.worktreePath &&
               nextDraftThread.envMode === existing.envMode &&
-              nextDraftThread.startFromOrigin === existing.startFromOrigin &&
+              nextDraftThread.startFromRemote === existing.startFromRemote &&
               nextDraftThread.createNewBranch === existing.createNewBranch &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
             if (isUnchanged) {

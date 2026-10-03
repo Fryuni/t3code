@@ -14,6 +14,7 @@ import {
   type EnvironmentId,
   type ThreadId,
   type VcsRef,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
@@ -56,6 +57,7 @@ import {
   resolveBranchToolbarPrBranch,
   resolveBranchSelectionTarget,
   resolveBranchToolbarValue,
+  resolveSelectedBranchRef,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
   sanitizeNewRefName,
@@ -69,6 +71,7 @@ import {
 } from "./ThreadStatusIndicators";
 import { ComposerControl } from "./chat/ComposerControl";
 import { Switch } from "./ui/switch";
+import { Toggle, ToggleGroup } from "./ui/toggle-group";
 import { getVirtualizedScrollFadeClassName } from "./ui/scroll-area";
 import {
   Combobox,
@@ -101,8 +104,8 @@ interface BranchToolbarBranchSelectorProps {
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
   createNewBranch: boolean;
   onCreateNewBranchChange: (createNewBranch: boolean) => void;
-  startFromOrigin: boolean;
-  onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  startFromRemote: WorktreeStartRemote;
+  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -124,13 +127,13 @@ export function BranchToolbarBranchSelector({
   onActiveThreadBranchOverrideChange,
   createNewBranch: createNewBranchProp,
   onCreateNewBranchChange,
-  startFromOrigin,
-  onStartFromOriginChange,
+  startFromRemote,
+  onStartFromRemoteChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
-  const startFromOriginSwitchId = useId();
+  const startFromRemoteSwitchId = useId();
   const createNewBranchSwitchId = useId();
   // Fan-out gives every model its own worktree on its own generated branch, so
   // checking out one existing branch cannot be honored: the bootstrap below
@@ -267,6 +270,9 @@ export function BranchToolbarBranchSelector({
           input: { cwd: branchCwd },
         }),
   );
+  const hasForkRemotes =
+    branchStatusQuery.data?.remoteNames?.includes("origin") === true &&
+    branchStatusQuery.data.remoteNames.includes("upstream");
   const trimmedBranchQuery = branchQuery.trim();
   const deferredTrimmedBranchQuery = deferredBranchQuery.trim();
   // The server filters refs by substring, so it has to be given the sanitized
@@ -355,8 +361,6 @@ export function BranchToolbarBranchSelector({
     canonicalActiveBranch,
     (_currentBranch: string | null, optimisticBranch: string | null) => optimisticBranch,
   );
-  const listedActiveBranch =
-    resolvedActiveBranch === null ? null : (branchByName.get(resolvedActiveBranch) ?? null);
   const activeBranchRefQuery = useEnvironmentQuery(
     branchCwd !== null && resolvedActiveBranch !== null
       ? vcsEnvironment.listRefs({
@@ -365,20 +369,22 @@ export function BranchToolbarBranchSelector({
             cwd: branchCwd,
             query: resolvedActiveBranch,
             limit: 10,
+            includeMatchingRemoteRefs: true,
           },
         })
       : null,
   );
-  const queriedActiveBranch = activeBranchRefQuery.data?.refs.find(
-    (refName) => refName.name === resolvedActiveBranch,
+  const selectedBranchRef = useMemo(
+    () =>
+      resolveSelectedBranchRef({
+        branchName: resolvedActiveBranch,
+        listedRefs: refs,
+        queriedRefs: activeBranchRefQuery.data?.refs ?? [],
+      }),
+    [resolvedActiveBranch, refs, activeBranchRefQuery.data?.refs],
   );
-  const selectedBranchRef = listedActiveBranch ?? queriedActiveBranch;
   const resolvedActiveBranchIsRemote =
-    listedActiveBranch !== null
-      ? listedActiveBranch.isRemote === true
-      : queriedActiveBranch
-        ? queriedActiveBranch.isRemote === true
-        : null;
+    selectedBranchRef === null ? null : selectedBranchRef.isRemote === true;
   const [isBranchActionPending, startBranchActionTransition] = useTransition();
   const totalBranchCount = branchRefState.data?.totalCount ?? 0;
   const branchStatusText = isInitialBranchesLoadPending
@@ -690,7 +696,8 @@ export function BranchToolbarBranchSelector({
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    startFromOrigin,
+    resolvedActiveBranchRemoteName: selectedBranchRef?.remoteName ?? null,
+    startFromRemote,
     createNewBranch,
   });
 
@@ -977,33 +984,69 @@ export function BranchToolbarBranchSelector({
                     : "Turn off to check out the selected local branch in a new worktree. The branch must not already be checked out."}
                 </TooltipPopup>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger
-                  render={
-                    <label
-                      htmlFor={startFromOriginSwitchId}
-                      className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
-                    >
-                      <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
-                        <RefreshIcon aria-hidden="true" size="xs" className="shrink-0" />
-                        <span className="truncate">Start from origin</span>
-                      </span>
-                      <Switch
-                        id={startFromOriginSwitchId}
-                        checked={createNewBranch && startFromOrigin}
-                        disabled={!createNewBranch}
-                        size="sm"
-                        aria-label="Start worktree from origin"
-                        onCheckedChange={(checked) => onStartFromOriginChange(Boolean(checked))}
-                      />
-                    </label>
-                  }
-                />
-                <TooltipPopup side="top">
-                  Creates the worktree from the latest matching branch on origin instead of your
-                  local branch.
-                </TooltipPopup>
-              </Tooltip>
+              {hasForkRemotes || startFromRemote === "upstream" ? (
+                <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-xs">
+                  <span
+                    id={startFromRemoteSwitchId}
+                    className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground"
+                  >
+                    <RefreshIcon aria-hidden="true" size="xs" className="shrink-0" />
+                    <span>Start from remote</span>
+                  </span>
+                  <ToggleGroup
+                    value={[createNewBranch ? (startFromRemote ?? "off") : "off"]}
+                    disabled={!createNewBranch}
+                    aria-labelledby={startFromRemoteSwitchId}
+                    onValueChange={(values) => {
+                      const remote = values[0];
+                      if (remote === "off" || remote === "origin" || remote === "upstream") {
+                        onStartFromRemoteChange(remote === "off" ? null : remote);
+                      }
+                    }}
+                  >
+                    <Toggle value="off">Off</Toggle>
+                    <Toggle value="origin">origin</Toggle>
+                    <Toggle value="upstream" disabled={!hasForkRemotes}>
+                      upstream
+                    </Toggle>
+                  </ToggleGroup>
+                  <span className="basis-full text-muted-foreground">
+                    {hasForkRemotes
+                      ? "Start from the latest matching remote branch, or turn off to use the selected ref."
+                      : "The upstream choice requires remotes named origin and upstream. Choose another source to continue."}
+                  </span>
+                </div>
+              ) : (
+                <Tooltip>
+                  <TooltipTrigger
+                    render={
+                      <label
+                        htmlFor={startFromRemoteSwitchId}
+                        className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
+                      >
+                        <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
+                          <RefreshIcon aria-hidden="true" size="xs" className="shrink-0" />
+                          <span className="truncate">Start from origin</span>
+                        </span>
+                        <Switch
+                          id={startFromRemoteSwitchId}
+                          checked={createNewBranch && startFromRemote === "origin"}
+                          disabled={!createNewBranch}
+                          size="sm"
+                          aria-label="Start worktree from origin"
+                          onCheckedChange={(checked) =>
+                            onStartFromRemoteChange(checked ? "origin" : null)
+                          }
+                        />
+                      </label>
+                    }
+                  />
+                  <TooltipPopup side="top">
+                    Creates the worktree from the latest matching branch on origin instead of your
+                    local branch.
+                  </TooltipPopup>
+                </Tooltip>
+              )}
             </>
           ) : null}
           {branchStatusText ? <ComboboxStatus>{branchStatusText}</ComboboxStatus> : null}

@@ -1631,23 +1631,25 @@ describe("resolveSendEnvMode", () => {
 });
 
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
-  it.each([true, false])(
-    "preserves the worktree mode and only reusable base branches (createNewBranch=%s)",
-    (createNewBranch) => {
-      expect(
-        resolveBackgroundDraftWorkspaceOptions({
+  it.each(["origin", "upstream", null] as const)(
+    "preserves the selected worktree remote %s and reusable base branches",
+    (startFromRemote) => {
+      for (const createNewBranch of [true, false]) {
+        expect(
+          resolveBackgroundDraftWorkspaceOptions({
+            envMode: "worktree",
+            branch: "main",
+            startFromRemote,
+            createNewBranch,
+          }),
+        ).toEqual({
           envMode: "worktree",
-          branch: "main",
-          startFromOrigin: true,
+          branch: createNewBranch ? "main" : null,
+          worktreePath: null,
+          startFromRemote,
           createNewBranch,
-        }),
-      ).toEqual({
-        envMode: "worktree",
-        branch: createNewBranch ? "main" : null,
-        worktreePath: null,
-        startFromOrigin: true,
-        createNewBranch,
-      });
+        });
+      }
     },
   );
 
@@ -1656,14 +1658,14 @@ describe("resolveBackgroundDraftWorkspaceOptions", () => {
       resolveBackgroundDraftWorkspaceOptions({
         envMode: "local",
         branch: "feature/existing",
-        startFromOrigin: false,
+        startFromRemote: "upstream",
         createNewBranch: false,
       }),
     ).toEqual({
       envMode: "local",
       branch: "feature/existing",
       worktreePath: null,
-      startFromOrigin: false,
+      startFromRemote: null,
       createNewBranch: false,
     });
   });

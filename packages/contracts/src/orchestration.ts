@@ -24,6 +24,7 @@ import {
   TurnId,
 } from "./baseSchemas.ts";
 import { ProviderInstanceId } from "./providerInstance.ts";
+import { WorktreeStartRemote } from "./vcs.ts";
 import {
   PullRequestActor,
   PullRequestChecksState,
@@ -1304,6 +1305,7 @@ const ThreadTurnStartBootstrapPrepareWorktree = Schema.Struct({
   projectCwd: TrimmedNonEmptyString,
   baseBranch: TrimmedNonEmptyString,
   branch: Schema.optional(TrimmedNonEmptyString),
+  startFromRemote: Schema.optional(WorktreeStartRemote),
   startFromOrigin: Schema.optional(Schema.Boolean),
   requireWorktree: Schema.optional(Schema.Boolean),
 });

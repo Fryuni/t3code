@@ -4,6 +4,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { describe, expect, it } from "vite-plus/test";
@@ -57,7 +58,7 @@ describe("project thread title", () => {
       workspaceMode: "local",
       branch: null,
       worktreePath: null,
-      startFromOrigin: false,
+      startFromRemote: null,
       worktreeBranchName: "unused",
     });
 
@@ -86,7 +87,7 @@ describe("new thread on an existing branch", () => {
         workspaceMode: "local",
         branch: "feature/existing",
         worktreePath,
-        startFromOrigin: false,
+        startFromRemote: null,
         worktreeBranchName: "unused",
       });
 
@@ -103,9 +104,15 @@ describe("new thread on an existing branch", () => {
 });
 
 describe("new worktree branch choice", () => {
-  it.each([true, false, undefined])(
-    "builds a worktree start with createNewBranch=%s",
-    (createNewBranch) => {
+  it.each(
+    [true, false, undefined].flatMap((createNewBranch) =>
+      ([null, "origin", "upstream"] satisfies ReadonlyArray<WorktreeStartRemote>).map(
+        (startFromRemote) => ({ createNewBranch, startFromRemote }),
+      ),
+    ),
+  )(
+    "builds a worktree start with createNewBranch=$createNewBranch and remote=$startFromRemote",
+    ({ createNewBranch, startFromRemote }) => {
       const input = buildProjectThreadStartTurnInput({
         projectId: ProjectId.make("project"),
         projectCwd: "/workspace",
@@ -121,7 +128,7 @@ describe("new worktree branch choice", () => {
         workspaceMode: "worktree",
         branch: "feature/existing",
         worktreePath: null,
-        startFromOrigin: true,
+        startFromRemote,
         ...(createNewBranch !== undefined ? { createNewBranch } : {}),
         worktreeBranchName: "t3code/new-branch",
       });
@@ -129,7 +136,11 @@ describe("new worktree branch choice", () => {
         projectCwd: "/workspace",
         baseBranch: "feature/existing",
         ...(createNewBranch !== false
-          ? { branch: "t3code/new-branch", startFromOrigin: true }
+          ? {
+              branch: "t3code/new-branch",
+              startFromRemote,
+              startFromOrigin: startFromRemote === "origin",
+            }
           : {}),
       });
       expect(input.bootstrap.runSetupScript).toBe(true);
