@@ -38,6 +38,38 @@ Run `t3 --help` for the full reference.
 To try T3 Code once without installing it, run `npx t3@latest` instead (needs
 Node.js for `npx`).
 
+### Install the Fryuni fork
+
+The `Fryuni/t3code` fork publishes its own Linux x64 builds as
+[GitHub releases](https://github.com/Fryuni/t3code/releases), a few hours after
+each change to the fork. To install one, look up the fork's latest release and
+point the installer at it:
+
+```bash
+version="$(curl -fsSL https://api.github.com/repos/Fryuni/t3code/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')"
+curl -fsSL https://raw.githubusercontent.com/Fryuni/t3code/main/scripts/install.sh |
+  T3CODE_VERSION="$version" T3CODE_RELEASE_BASE_URL=https://github.com/Fryuni/t3code/releases/download sh
+```
+
+The variables are only needed for this first install. The `t3` it installs
+always updates from the fork: `t3 update`, `t3 service install`, and updates
+started from a connected app all move to the fork's latest release, never an
+upstream one.
+
+T3 Code does not update itself on a schedule. To receive each fork release
+unattended, run `t3 update --yes` regularly; it does nothing when you are
+already current. For example, this `crontab -e` line checks every night at
+4 AM:
+
+```text
+0 4 * * * XDG_RUNTIME_DIR=/run/user/$(id -u) $HOME/.local/bin/t3 update --yes
+```
+
+`XDG_RUNTIME_DIR` lets cron reach the
+[background service](./background-service.md) to restart it on the new version. The restart interrupts running agent turns,
+so pick an hour when none are running. The fork publishes no builds for macOS
+or Windows; use the standard installer there.
+
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To
