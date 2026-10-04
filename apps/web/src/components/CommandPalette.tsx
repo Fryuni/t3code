@@ -154,6 +154,7 @@ import {
   browseInputEndPaddingClass,
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
+  buildNewThreadOnBranchActionItem,
   buildProjectActionItems,
   buildRootGroups,
   buildThreadActionItems,
@@ -1907,6 +1908,18 @@ function OpenCommandPaletteDialog(props: {
         },
       });
     }
+
+    const newThreadOnBranchItem = buildNewThreadOnBranchActionItem({
+      thread: activeThread,
+      icon: <SquarePenIcon className={ITEM_ICON_CLASS} />,
+      renderTitle: (branch) => (
+        <>
+          New thread on <span className="font-semibold">{branch}</span>
+        </>
+      ),
+      startNewThread: handleNewThread,
+    });
+    if (newThreadOnBranchItem) actionItems.push(newThreadOnBranchItem);
 
     actionItems.push({
       kind: "submenu",

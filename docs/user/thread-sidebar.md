@@ -7,8 +7,10 @@ need a separate working directory.
 
 On web and desktop, a new thread keeps the current project and carries your model
 and mode selections, unless the destination project has its own model default.
-Its branch and workspace mode come from your configured defaults. To continue in
-an existing worktree, use **New thread in this worktree** from the branch toolbar.
+Its branch and workspace mode come from your configured defaults. To continue on
+the same branch or worktree, use **New thread on _branch_** from the command
+palette or from the thread's menu: right-click the thread in the sidebar, or click
+its title in the chat header. On mobile, long-press the thread.
 
 To work on an existing branch in a new directory, choose **New worktree**, open
 the branch selector, and turn off **Create new branch**. Select a local branch

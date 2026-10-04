@@ -4,8 +4,10 @@ import {
   type EnvironmentId,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
+  type ScopedProjectRef,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
+import { scopeProjectRef } from "@t3tools/client-runtime/environment";
 import { filterFilesystemBrowseEntries } from "@t3tools/client-runtime/state/filesystem";
 import type { SidebarThreadSortOrder } from "@t3tools/contracts/settings";
 import * as Arr from "effect/Array";
@@ -293,6 +295,44 @@ export function buildProjectActionItems(input: {
       await input.runProject(project);
     },
   }));
+}
+
+/**
+ * "New thread on <branch>" for the active server thread, with the thread menu's
+ * carry-over: the new draft reuses the thread's worktree when it has one,
+ * otherwise its branch on the local checkout. Null when the thread has no branch.
+ */
+export function buildNewThreadOnBranchActionItem(input: {
+  thread: Pick<Thread, "environmentId" | "projectId" | "branch" | "worktreePath"> | null;
+  icon: ReactNode;
+  renderTitle: (branch: string) => ReactNode;
+  startNewThread: (
+    projectRef: ScopedProjectRef,
+    options: {
+      branch: string;
+      worktreePath: string | null;
+      envMode: "local" | "worktree";
+      startFromRemote: null;
+    },
+  ) => Promise<unknown>;
+}): CommandPaletteActionItem | null {
+  if (!input.thread?.branch) return null;
+  const { environmentId, projectId, branch, worktreePath } = input.thread;
+  return {
+    kind: "action",
+    value: "action:new-thread-on-branch",
+    searchTerms: ["new thread", "chat", "create", "branch", "worktree", branch],
+    title: input.renderTitle(branch),
+    icon: input.icon,
+    run: async () => {
+      await input.startNewThread(scopeProjectRef(environmentId, projectId), {
+        branch,
+        worktreePath,
+        envMode: worktreePath ? "worktree" : "local",
+        startFromRemote: null,
+      });
+    },
+  };
 }
 
 export type BuildThreadActionItemsThread = Pick<

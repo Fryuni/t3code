@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-04
-- Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8)
+- Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
 - Compared with upstream: `pingdotgg/t3code` at `dab26f582` (2026-10-03), after Orchestrator V2
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
@@ -41,5 +41,27 @@ branch and only one worktree can hold an existing one. After a background
 the same reason. Scheduled tasks do not offer the toggle: a recurring run would
 find its branch still checked out by the previous run.
 
-Drop this divergence when upstream can start a worktree thread on an existing
-local branch.
+## Continue on the current branch from the command palette
+
+Upstream deliberately made every generic new-thread entry point ignore the viewed
+thread's branch and worktree (upstream #4411, see
+[`chatThreadActions.ts`](../../apps/web/src/lib/chatThreadActions.ts)), and keeps
+**New thread on _branch_** only in the thread menu: a sidebar right-click, the chat
+header title menu, or a long-press on mobile. `composer.sendAndNewThread` does not
+carry the branch, and **Previous worktree** (`mod+shift+l`) only re-points a draft to
+the most recent worktree, never to a local branch. A keyboard-first user had no way
+to continue where they are.
+
+The fork adds the same action to the
+[command palette](../../apps/web/src/components/CommandPalette.tsx), reusing
+upstream's new-thread handler and the thread menu's option mapping. It appears only
+for a server thread with a branch, because for an empty open draft it would just
+re-apply the draft's own branch. It is web and desktop only. Mobile's iPad keyboard
+palette does not offer it, so keyboard users there still have to long-press the
+thread for the thread-menu action. It has no keybinding. Like upstream's menu
+item, a local-branch carry-over draft that is automatically load-balanced to another
+environment drops the branch.
+
+Drop the **Create new branch** toggle when upstream can start a worktree thread on an
+existing local branch, and the palette action when upstream offers it in the command
+palette.
