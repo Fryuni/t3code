@@ -63,7 +63,9 @@ updates from the fork instead: run plain `t3 update` to move to the fork's
 latest release. The fork does not publish the versions an app shows, so
 `t3 update <client-version>` cannot download one, and `--channel` is rejected.
 **Update server** also moves a fork server to the fork's latest release,
-whichever version the notice names.
+whichever version the notice names. For a fork server you started by hand, an
+app may offer **Copy update command** instead; that command runs an upstream
+build, so run `t3 update` and restart the server with your usual options.
 
 If you run the server with `npx` rather than an installed `t3`, there is
 nothing to update on the host: stop the server and relaunch it as

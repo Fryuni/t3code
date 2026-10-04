@@ -70,8 +70,8 @@ Rejected alternatives:
 Re-targeting `server.updateServer` is a deliberate reinterpretation of the contract.
 Clients already adopt the result's `targetVersion` and correlate the launcher's update
 ID ([client acknowledgement](../internals/server-updates.md#client-acknowledgement)),
-so the result and the reconnect check are right. Only the **downloading** stage label
-shows the client's version. The client's "server is behind" check no longer bounds the
+so the result and the reconnect check are right. Progress labels show no version. The
+client's "server is behind" check no longer bounds the
 target, so the server refuses a release that is not newer than the one it runs, with
 "This server already runs the latest release, _version_." That is also what a user
 sees after clicking an upstream offer while the fork is current. `t3 update` keeps its

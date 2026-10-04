@@ -1,8 +1,9 @@
 # T3 Code
 
 A GUI that drives coding agents through provider CLIs. This glossary holds product and
-provider-integration terms; orchestration vocabulary (command, decider, event, projector,
-adapter, reactor, receipt, checkpoint) stays in `docs/internals/glossary.md`.
+provider-integration terms; orchestration vocabulary (command, event, orchestrator,
+projection, command receipt, outbox effect, effect worker, adapter, checkpoint) stays in
+`docs/internals/glossary.md`.
 
 ## Language
 

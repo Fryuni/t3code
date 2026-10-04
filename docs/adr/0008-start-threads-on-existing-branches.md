@@ -21,7 +21,8 @@ using `t3_thread_launch`, on upstream behavior.
 
 [`ThreadLaunchService`](../../apps/server/src/orchestration-v2/ThreadLaunchService.ts)
 rejects requests it cannot honor before the thread exists: `createBranch: false`
-combined with `branch` or `startFromOrigin`, a ref that is not a local branch, and
+combined with `branch` or a start remote (see
+[ADR 0009](0009-choose-where-new-worktrees-start.md)), a ref that is not a local branch, and
 a branch another worktree or the project checkout already has. The guard does not
 live in the git driver. `ProviderTurnStartService` recreates a deleted worktree
 through the same driver call without a new branch name and relies on git's DWIM
