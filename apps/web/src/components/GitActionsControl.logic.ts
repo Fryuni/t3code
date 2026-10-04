@@ -1,12 +1,9 @@
 import type {
   GitRunStackedActionResult,
   GitStackedAction,
-  SourceControlProviderDiscoveryItem,
-  SourceControlProviderKind,
   VcsStatusResult,
 } from "@t3tools/contracts";
 import { isTemporaryWorktreeBranch } from "@t3tools/shared/git";
-import * as Option from "effect/Option";
 import {
   DEFAULT_CHANGE_REQUEST_TERMINOLOGY,
   getChangeRequestTerminology,
@@ -22,14 +19,14 @@ export interface GitActionMenuItem {
   label: string;
   disabled: boolean;
   icon: GitActionIconName;
-  kind: "open_dialog" | "open_pr";
+  kind: "open_dialog";
   dialogAction?: GitDialogAction;
 }
 
 export interface GitQuickAction {
   label: string;
   disabled: boolean;
-  kind: "run_action" | "run_pull" | "open_pr" | "open_publish" | "show_hint";
+  kind: "run_action" | "run_pull" | "open_publish" | "show_hint";
   action?: GitStackedAction;
   hint?: string;
 }
@@ -40,121 +37,32 @@ export interface DefaultBranchActionDialogCopy {
   continueLabel: string;
 }
 
+export interface GitActionProgressPresentation {
+  readonly status: string;
+  readonly output: string | null;
+  readonly startedAtMs: number | null;
+}
+
+export interface GitActionResultToastTiming {
+  readonly timeout: 0;
+  readonly dismissAfterVisibleMs: number | null;
+}
+
 export type DefaultBranchConfirmableAction =
   | "push"
   | "create_pr"
   | "commit_push"
   | "commit_push_pr";
 
-export type PublishProviderKind = Extract<
-  SourceControlProviderKind,
-  "github" | "gitlab" | "forgejo" | "bitbucket" | "azure-devops"
->;
+export const GIT_ACTION_SUCCESS_VISIBLE_MS = 10_000;
 
-/**
- * Providers a repository can be published to, one entry per kind. Hosted providers carry their
- * fixed host; Forgejo / Gitea resolves to the signed-in server via `resolvePublishHost`.
- */
-export const PUBLISH_PROVIDER_OPTIONS = [
-  {
-    value: "forgejo",
-    label: "Forgejo / Gitea",
-    description: "Your signed-in server",
-    host: "your server",
-    pathPlaceholder: "owner/repo",
-  },
-  {
-    value: "github",
-    label: "GitHub",
-    description: "github.com",
-    host: "github.com",
-    pathPlaceholder: "owner/repo",
-  },
-  {
-    value: "gitlab",
-    label: "GitLab",
-    description: "gitlab.com",
-    host: "gitlab.com",
-    pathPlaceholder: "group/project",
-  },
-  {
-    value: "bitbucket",
-    label: "Bitbucket",
-    description: "bitbucket.org",
-    host: "bitbucket.org",
-    pathPlaceholder: "workspace/repository",
-  },
-  {
-    value: "azure-devops",
-    label: "Azure DevOps",
-    description: "dev.azure.com",
-    host: "dev.azure.com",
-    pathPlaceholder: "project/repository",
-  },
-] as const satisfies ReadonlyArray<{
-  readonly value: PublishProviderKind;
-  readonly label: string;
-  readonly description: string;
-  readonly host: string;
-  readonly pathPlaceholder: string;
-}>;
-
-export function publishProviderOption(provider: PublishProviderKind) {
-  return (
-    PUBLISH_PROVIDER_OPTIONS.find((option) => option.value === provider) ??
-    PUBLISH_PROVIDER_OPTIONS[0]
-  );
-}
-
-export function isPublishProviderKind(
-  provider: SourceControlProviderKind,
-): provider is PublishProviderKind {
-  return PUBLISH_PROVIDER_OPTIONS.some((option) => option.value === provider);
-}
-
-export interface PublishProviderReadiness {
-  readonly ready: boolean;
-  readonly hint: string | null;
-}
-
-export function getPublishProviderReadiness(input: {
-  provider: PublishProviderKind;
-  sourceControlProviders: ReadonlyArray<SourceControlProviderDiscoveryItem>;
-}): PublishProviderReadiness {
-  const discovered = input.sourceControlProviders.find(
-    (provider) => provider.kind === input.provider,
-  );
-  if (!discovered) {
-    return {
-      ready: false,
-      hint: "Provider status unavailable. Open Settings -> Source Control and rescan.",
-    };
-  }
-  if (discovered.status !== "available") {
-    return { ready: false, hint: discovered.installHint };
-  }
-  if (discovered.auth.status === "unauthenticated") {
-    return {
-      ready: false,
-      hint:
-        Option.getOrNull(discovered.auth.detail) ??
-        `${discovered.label} is not authenticated. Open Settings -> Source Control for setup guidance.`,
-    };
-  }
-  return { ready: true, hint: null };
-}
-
-/** Host shown before the owner/repo input. Forgejo / Gitea has no fixed host, so use the signed-in one. */
-export function resolvePublishHost(input: {
-  provider: PublishProviderKind;
-  sourceControlProviders: ReadonlyArray<SourceControlProviderDiscoveryItem>;
-}): string {
-  const option = publishProviderOption(input.provider);
-  if (input.provider !== "forgejo") {
-    return option.host;
-  }
-  const discovered = input.sourceControlProviders.find((provider) => provider.kind === "forgejo");
-  return (discovered ? Option.getOrNull(discovered.auth.host) : null) ?? option.host;
+export function resolveGitActionResultToastTiming(
+  type: "error" | "success",
+): GitActionResultToastTiming {
+  return {
+    timeout: 0,
+    dismissAfterVisibleMs: type === "success" ? GIT_ACTION_SUCCESS_VISIBLE_MS : null,
+  };
 }
 
 function resolveChangeRequestTerminology(
@@ -163,6 +71,53 @@ function resolveChangeRequestTerminology(
   return gitStatus?.sourceControlProvider
     ? getChangeRequestTerminology(gitStatus.sourceControlProvider)
     : DEFAULT_CHANGE_REQUEST_TERMINOLOGY;
+}
+
+export function resolveGitActionProgressPresentation(input: {
+  readonly isRunning: boolean;
+  readonly operation: string | null;
+  readonly currentLabel: string | null;
+  readonly lastOutputLine: string | null;
+  readonly phaseStartedAtMs: number | null;
+  readonly hookStartedAtMs: number | null;
+}): GitActionProgressPresentation | null {
+  if (
+    !input.isRunning ||
+    (input.operation !== "run_change_request" && input.operation !== "pull")
+  ) {
+    return null;
+  }
+
+  const currentLabel = input.currentLabel?.trim();
+  const output = input.lastOutputLine?.trim();
+  const isPull = input.operation === "pull";
+  return {
+    status:
+      currentLabel && currentLabel !== "Running source control action"
+        ? currentLabel
+        : isPull
+          ? "Pulling latest changes..."
+          : "Starting source control action...",
+    output: !isPull && output ? output : null,
+    startedAtMs: isPull
+      ? input.phaseStartedAtMs
+      : (input.hookStartedAtMs ?? input.phaseStartedAtMs),
+  };
+}
+
+export function formatGitActionElapsed(startedAtMs: number | null, nowMs: number): string | null {
+  if (startedAtMs === null) {
+    return null;
+  }
+
+  const elapsedSeconds = Math.max(0, Math.floor((nowMs - startedAtMs) / 1_000));
+  if (elapsedSeconds < 60) {
+    return `${elapsedSeconds}s`;
+  }
+
+  const minutes = Math.floor(elapsedSeconds / 60);
+  const seconds = elapsedSeconds % 60;
+  return `${minutes}m ${seconds}s`;
 }
 
 export function buildGitActionProgressStages(input: {
@@ -234,7 +189,6 @@ export function buildMenuItems(
     hasDefaultBranchDelta &&
     !isBehind &&
     (gitStatus.hasUpstream || canPushWithoutUpstream);
-  const canOpenPr = !isBusy && hasOpenPr;
 
   const commitItem: GitActionMenuItem = {
     id: "commit",
@@ -249,32 +203,32 @@ export function buildMenuItems(
     return [commitItem];
   }
 
+  const pushItem: GitActionMenuItem = {
+    id: "push",
+    label: "Push",
+    disabled: !canPush,
+    icon: "push",
+    kind: "open_dialog",
+    dialogAction: "push",
+  };
+
+  // An open change request is surfaced by the standalone attribution row, so
+  // the menu offers no change-request entry at all while one is open.
+  if (hasOpenPr) {
+    return [commitItem, pushItem];
+  }
+
   return [
     commitItem,
+    pushItem,
     {
-      id: "push",
-      label: "Push",
-      disabled: !canPush,
-      icon: "push",
+      id: "pr",
+      label: `Create ${terminology.shortLabel}`,
+      disabled: !canCreatePr,
+      icon: "pr",
       kind: "open_dialog",
-      dialogAction: "push",
+      dialogAction: "create_pr",
     },
-    hasOpenPr
-      ? {
-          id: "pr",
-          label: `View ${terminology.shortLabel}`,
-          disabled: !canOpenPr,
-          icon: "pr",
-          kind: "open_pr",
-        }
-      : {
-          id: "pr",
-          label: `Create ${terminology.shortLabel}`,
-          disabled: !canCreatePr,
-          icon: "pr",
-          kind: "open_dialog",
-          dialogAction: "create_pr",
-        },
   ];
 }
 
@@ -332,9 +286,6 @@ export function resolveQuickAction(
 
   if (!gitStatus.hasUpstream) {
     if (!hasPrimaryRemote) {
-      if (hasOpenPr && !isAhead) {
-        return { label: `View ${terminology.shortLabel}`, disabled: false, kind: "open_pr" };
-      }
       return {
         label: "Publish repository",
         disabled: false,
@@ -343,7 +294,12 @@ export function resolveQuickAction(
     }
     if (!isAhead) {
       if (hasOpenPr) {
-        return { label: `View ${terminology.shortLabel}`, disabled: false, kind: "open_pr" };
+        return {
+          label: "Commit",
+          disabled: true,
+          kind: "show_hint",
+          hint: "Branch is up to date. No action needed.",
+        };
       }
       return {
         label: "Push",
@@ -402,8 +358,15 @@ export function resolveQuickAction(
     };
   }
 
+  // An open change request is surfaced by the standalone attribution row in the
+  // details panel, so the action button rests in its disabled up-to-date state.
   if (hasOpenPr && gitStatus.hasUpstream) {
-    return { label: `View ${terminology.shortLabel}`, disabled: false, kind: "open_pr" };
+    return {
+      label: "Commit",
+      disabled: true,
+      kind: "show_hint",
+      hint: "Branch is up to date. No action needed.",
+    };
   }
 
   if (hasDefaultBranchDelta && !isDefaultRef) {

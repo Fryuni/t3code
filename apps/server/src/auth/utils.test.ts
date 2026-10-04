@@ -4,6 +4,7 @@ import {
   deriveAuthClientMetadata,
   isRemoteReachableHost,
   isRemoteReachableServer,
+  resolveLegacySessionCookieName,
   resolveSessionCookieName,
 } from "./utils.ts";
 
@@ -214,6 +215,25 @@ describe("session cookie isolation", () => {
     expect(isRemoteReachableServer({ host: "0.0.0.0", publicUrl: undefined })).toBe(true);
   });
 
+  it("still accepts the bare legacy cookie once a wildcard-bound server moves behind a proxy", () => {
+    expect(
+      resolveLegacySessionCookieName({
+        mode: "web",
+        host: "127.0.0.1",
+        publicUrl: new URL("https://t3.example.com"),
+        development: false,
+      }),
+    ).toBe("t3_session");
+    expect(
+      resolveLegacySessionCookieName({
+        mode: "web",
+        host: "127.0.0.1",
+        publicUrl: undefined,
+        development: false,
+      }),
+    ).toBeUndefined();
+  });
+
   it("keeps a proxied desktop backend's cookie stable across its port scan", () => {
     // DesktopApp scans upward from 3773, so a restart can land on a new port
     // while the proxy origin stays put.
@@ -268,12 +288,22 @@ describe("session cookie isolation", () => {
       environmentId: "environment-one",
       development: false,
     });
+    const wildcardBoundLoopbackPublicUrl = resolveSessionCookieName({
+      mode: "desktop",
+      port: 3773,
+      host: "0.0.0.0",
+      publicUrl: new URL("http://localhost:8080"),
+      instanceKey: "/tmp/desktop",
+      environmentId: "environment-one",
+      development: false,
+    });
 
     expect(loopbackPublicUrl).toBe("t3_session_3773");
     expect(developmentPublicUrl).toBe("t3_session_3773");
     // Network-exposed desktop backends predate --public-url; renaming their
     // cookie would sign every existing client out.
     expect(wildcardBound).toBe("t3_session_3773");
+    expect(wildcardBoundLoopbackPublicUrl).toBe("t3_session_3773");
   });
 
   it("classifies loopback aliases separately from remotely reachable hosts", () => {

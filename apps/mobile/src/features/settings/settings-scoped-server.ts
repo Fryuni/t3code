@@ -9,8 +9,8 @@ import {
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import {
+  clearProjectSettingsOverrides,
   resolveProjectSettings,
-  type ResolvedProjectSettings,
 } from "@t3tools/shared/projectSettings";
 
 import type { SettingsTarget } from "./settings-environment-filter";
@@ -19,7 +19,7 @@ export interface ScopedMobileSettingsTarget {
   readonly environment: SettingsTarget;
   readonly projectId: ProjectId | null;
   readonly settings: ServerSettings;
-  readonly sources: ResolvedProjectSettings["sources"];
+  readonly sources: ReturnType<typeof resolveProjectSettings>["sources"];
   readonly overrides: ProjectSettingsOverrides;
 }
 
@@ -94,6 +94,8 @@ export function planMobileScopedSettingsPatch(
     patch: { projectSettingsOverrides } as ServerSettingsPatch,
   }));
 }
+
+/** Merge project-only override keys, which have no environment value, into each selected project. */
 export function planMobileProjectOverridePatch(
   targets: readonly ScopedMobileSettingsTarget[],
   patch: Partial<ProjectSettingsOverrides>,
@@ -117,6 +119,17 @@ export function planMobileProjectOverridePatch(
   }));
 }
 
+/** A mixed selection has no single value to display. */
+export function uniformMobileSetting<K extends keyof ServerSettings>(
+  targets: readonly Pick<ScopedMobileSettingsTarget, "settings">[],
+  key: K,
+): ServerSettings[K] | null {
+  const reference = targets[0];
+  if (!reference) return null;
+  const value = reference.settings[key];
+  return targets.every((target) => target.settings[key] === value) ? value : null;
+}
+
 export function planMobileScopedSettingsClear(
   targets: readonly ScopedMobileSettingsTarget[],
   keys: readonly (keyof ProjectSettingsOverrides)[],
@@ -128,12 +141,12 @@ export function planMobileScopedSettingsClear(
       target.environment.serverConfig.environment.capabilities.projectSettingsOverrides !== true
     )
       continue;
-    const current =
-      target.environment.serverConfig.settings.projectSettingsOverrides[target.projectId] ?? {};
-    const next = { ...current };
-    for (const key of keys) delete next[key];
     const overrides = writes.get(target.environment.environmentId) ?? {};
-    overrides[target.projectId] = Object.keys(next).length === 0 ? null : next;
+    overrides[target.projectId] = clearProjectSettingsOverrides(
+      target.environment.serverConfig.settings,
+      target.projectId,
+      keys,
+    );
     writes.set(target.environment.environmentId, overrides);
   }
   return [...writes].map(([environmentId, projectSettingsOverrides]) => ({

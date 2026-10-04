@@ -29,15 +29,33 @@ describe("resolveLatestReleaseVersion", () => {
     }),
   );
 
-  it.effect("rejects a latest release that is not a t3 version", () =>
+  it.effect("reports a repository without a latest release as unreadable", () =>
     Effect.gen(function* () {
-      for (const tagName of ["desktop-latest", "v1.2", "0.0.44"]) {
+      const notFound = HttpClient.make((request) =>
+        Effect.succeed(
+          HttpClientResponse.fromWeb(
+            request,
+            Response.json({ message: "Not Found" }, { status: 404 }),
+          ),
+        ),
+      );
+      const error = yield* resolveLatestReleaseVersion(LATEST_URL).pipe(
+        Effect.provideService(HttpClient.HttpClient, notFound),
+        Effect.flip,
+      );
+      expect(error.reason).toBe("Could not read the latest t3 release.");
+    }),
+  );
+
+  it.effect.each(["desktop-latest", "v1.2", "0.0.44", "v01.2.3"])(
+    "rejects a latest release tagged %s, which is not a t3 version",
+    (tagName) =>
+      Effect.gen(function* () {
         const error = yield* resolveLatestReleaseVersion(LATEST_URL).pipe(
           Effect.provideService(HttpClient.HttpClient, latestReleaseClient(tagName)),
           Effect.flip,
         );
         expect(error._tag).toBe("LatestReleaseError");
-      }
-    }),
+      }),
   );
 });

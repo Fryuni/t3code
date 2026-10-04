@@ -17,8 +17,8 @@ import { toastManager } from "../ui/toast";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import {
   persistScopedSettingsPatch,
-  planProjectOverridesClear,
   planProjectDefaultThreadBaseBranchPatch,
+  planProjectOverridesClear,
   planScopedSettingsClear,
   planScopedSettingsPatch,
   scopedSettingsAreMixed,
@@ -91,7 +91,7 @@ export function useUpdateScopedSettings() {
   );
 }
 
-/** Save the project-only worktree base branch, preserving every sibling override field. */
+/** Save the project-only worktree base branch; null or blank clears it. */
 export function useUpdateProjectDefaultThreadBaseBranch() {
   const { scope, environments } = useSettingsScope();
   const run = useRunScopedPlan();

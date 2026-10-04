@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `2efb8178d` (2026-09-21)
+- Compared with upstream: `pingdotgg/t3code` at `dab26f582` (2026-10-03), after Orchestrator V2
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity

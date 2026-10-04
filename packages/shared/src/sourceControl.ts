@@ -47,6 +47,17 @@ const GITLAB_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   urlExample: "https://gitlab.com/group/project/-/merge_requests/42",
 };
 
+const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
+  icon: "forgejo",
+  providerName: "Forgejo",
+  shortName: "PR",
+  longName: "pull request",
+  pluralLongName: "pull requests",
+  providerLongName: "Forgejo pull request",
+  checkoutCommandExample: "tea pr checkout 123",
+  urlExample: "https://codeberg.org/owner/repo/pulls/42",
+};
+
 const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   icon: "azure-devops",
   providerName: "Azure DevOps",
@@ -56,17 +67,6 @@ const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   providerLongName: "Azure DevOps pull request",
   checkoutCommandExample: "az repos pr checkout --id 123",
   urlExample: "https://dev.azure.com/org/project/_git/repo/pullrequest/42",
-};
-
-const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
-  icon: "forgejo",
-  providerName: "Forgejo",
-  shortName: "PR",
-  longName: "pull request",
-  pluralLongName: "pull requests",
-  providerLongName: "Forgejo pull request",
-  checkoutCommandExample: "fj pr checkout 123",
-  urlExample: "https://codeberg.org/owner/repo/pulls/42",
 };
 
 const BITBUCKET_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {

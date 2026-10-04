@@ -81,6 +81,7 @@ export interface ScopedSettingsTarget {
   readonly projectId: ProjectId | null;
   readonly settings: ServerSettings;
   readonly sources: Readonly<Record<ProjectScopedServerSettingKey, ProjectSettingSource>>;
+  /** The project's raw override entry, for project-only keys that have no effective setting. */
   readonly overrides: ProjectSettingsOverrides;
 }
 
@@ -307,18 +308,21 @@ export function planScopedSettingsPatch(
   return { clientPatch, hasClientWrite, serverWrites, unavailableReason };
 }
 
-/** Write or clear the project-only default branch without treating it as an inheritable setting. */
+/**
+ * Set the project-only default base branch on every selected member, keeping
+ * its other overrides. A null or blank branch removes it.
+ */
 export function planProjectDefaultThreadBaseBranchPatch(
   scope: ResolvedSettingsScope,
   environments: readonly ScopedSettingsEnvironment[],
   branch: string | null,
 ) {
+  const trimmed = branch?.trim() ?? "";
   const serverWrites =
     scope.kind === "project" || scope.kind === "checkout"
       ? projectOverrideWrites(scope, environments, (current) => {
-          const next = { ...current };
-          if (branch === null) delete next.defaultThreadBaseBranch;
-          else next.defaultThreadBaseBranch = branch;
+          const { defaultThreadBaseBranch: _previous, ...rest } = current;
+          const next = trimmed.length > 0 ? { ...rest, defaultThreadBaseBranch: trimmed } : rest;
           return Object.keys(next).length === 0 ? null : next;
         })
       : [];

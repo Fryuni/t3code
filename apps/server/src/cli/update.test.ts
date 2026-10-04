@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { assert, it } from "@effect/vitest";
+import { afterEach, assert, it, vi } from "@effect/vitest";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
@@ -14,22 +14,32 @@ import {
 
 import { repointLauncher, resolveLauncherPath, resolveUpdateTarget } from "./update.ts";
 
-const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
-const latestReleaseClient = (requests: string[]) =>
+const releaseClient = (requests: string[], body: unknown) =>
   HttpClient.make((request) => {
     requests.push(request.url);
-    return Effect.succeed(
-      HttpClientResponse.fromWeb(request, Response.json({ tag_name: "v0.0.44-fork.20261002.7" })),
-    );
+    return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json(body)));
   });
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 it.effect("a fork build updates to its latest release and has no channels", () =>
   Effect.gen(function* () {
+    // What a fork's release workflow bakes in; see packages/shared/src/cliRelease.ts.
+    vi.stubGlobal("__T3CODE_BUILD_RELEASE_REPOSITORY__", "someone/t3code");
+    vi.resetModules();
+    const fork = yield* Effect.promise(() => import("./update.ts"));
     const requests: string[] = [];
     const resolve = (input: Parameters<typeof resolveUpdateTarget>[0]) =>
-      resolveUpdateTarget(input, LATEST_URL).pipe(
-        Effect.provideService(HttpClient.HttpClient, latestReleaseClient(requests)),
-      );
+      fork
+        .resolveUpdateTarget(input)
+        .pipe(
+          Effect.provideService(
+            HttpClient.HttpClient,
+            releaseClient(requests, { tag_name: "v0.0.44-fork.20261002.7" }),
+          ),
+        );
 
     assert.equal(
       yield* resolve({ channel: undefined, requestedVersion: undefined }),
@@ -40,7 +50,31 @@ it.effect("a fork build updates to its latest release and has no channels", () =
       Effect.flip,
     );
     assert.include(error.reason, "--channel does not apply");
-    assert.deepStrictEqual(requests, [LATEST_URL]);
+    assert.deepStrictEqual(requests, [
+      "https://api.github.com/repos/someone/t3code/releases/latest",
+    ]);
+  }),
+);
+
+it.effect("an upstream build walks the channel it is asked for", () =>
+  Effect.gen(function* () {
+    const requests: string[] = [];
+    const version = yield* resolveUpdateTarget({
+      channel: "nightly",
+      requestedVersion: undefined,
+    }).pipe(
+      Effect.provideService(
+        HttpClient.HttpClient,
+        releaseClient(requests, [
+          { tag_name: "v0.0.46-nightly.20261003.5" },
+          { tag_name: "v0.0.45" },
+        ]),
+      ),
+    );
+    assert.equal(version, "0.0.46-nightly.20261003.5");
+    assert.deepStrictEqual(requests, [
+      "https://api.github.com/repos/pingdotgg/t3code/releases?per_page=100&page=1",
+    ]);
   }),
 );
 

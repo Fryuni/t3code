@@ -21,6 +21,21 @@ interrupted, and threads without saved provider resume state need a new message.
 If you previously enabled continuation for updates, enable this setting once
 to allow recovery without a connected client.
 
+Updates from the previous orchestration system preserve conversation transcripts but cannot carry
+every kind of runtime history forward. Read [Threads from older T3 Code versions](./thread-migration.md)
+before continuing an important older thread.
+
+## When versions don't match
+
+A client and server must speak the same orchestration protocol. If they do not, the connection is
+refused rather than running half-upgraded:
+
+- An app newer than the server is blocked before connecting, with a notice telling you to update
+  T3 Code on the machine named in the notice.
+- A server newer than your app refuses the connection with an update message.
+
+Update the side the notice names, then reconnect.
+
 ## Update a connected server
 
 The offered action depends on how the server runs:
@@ -43,6 +58,15 @@ asks before restarting the background service; if you decline, run
 stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
+A `t3` [installed from the Fryuni fork](./install.md#install-the-fryuni-fork)
+updates from the fork instead: run plain `t3 update` to move to the fork's
+latest release. The fork does not publish the versions an app shows, so
+`t3 update <client-version>` cannot download one, and `--channel` is rejected.
+**Update server** also moves a fork server to the fork's latest release,
+whichever version the notice names. For a fork server you started by hand, an
+app may offer **Copy update command** instead; that command runs an upstream
+build, so run `t3 update` and restart the server with your usual options.
+
 If you run the server with `npx` rather than an installed `t3`, there is
 nothing to update on the host: stop the server and relaunch it as
 `npx t3@<client-version>` with the same subcommand and options.
@@ -56,13 +80,22 @@ update can roll back to the previous version. If the update still fails:
 2. Check that you updated the server's machine, not only the device you are using.
 3. For a command-line server, stop it and relaunch the exact version shown in the notice.
 
+## Update providers
+
+**Settings → Providers** shows provider updates for the selected environment.
+**Update all** updates every outdated provider on every connected environment
+at once. Hover it to see which providers it will update. Providers that only
+offer a manual update command are not included.
+
 ## Mobile updates
 
 To update an environment from your phone, open **Settings → Environments** and
 select it. **Check for updates** finds the latest release on that environment's
 current release channel. Keep the app open while the environment updates and
 reconnects. Hosts that cannot update remotely show instructions for updating on
-the machine instead.
+the machine instead. For a server [installed from the Fryuni fork](./install.md#install-the-fryuni-fork),
+the app may offer an upstream version; updating installs the fork's latest
+release instead, or reports that the server already runs it.
 
 The same page lets you refresh provider status and update supported providers.
 These controls require a connected environment and permission to operate it.

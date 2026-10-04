@@ -25,7 +25,12 @@ import { parseT3ProjectFile } from "@t3tools/shared/t3ProjectFile";
 import * as Arr from "effect/Array";
 import { pipe } from "effect/Function";
 
-import { useEnvironmentServerConfig, useProjects, useThreadShells } from "../../state/entities";
+import {
+  useEnvironmentServerConfig,
+  useProjects,
+  useServerConfigs,
+  useThreadShells,
+} from "../../state/entities";
 import type { TurnCommandMetadata } from "../../lib/commandMetadata";
 import type { DraftComposerAttachment } from "../../lib/composerImages";
 import type { ModelOption, ProviderGroup } from "../../lib/modelOptions";
@@ -64,6 +69,10 @@ import {
   capturePendingTaskEditorWriteBaseline,
   flushPendingTaskEditorWrite,
 } from "../../state/pending-task-editor-writes";
+import {
+  rememberModelOptions,
+  withRememberedModelOptions,
+} from "../../state/use-model-option-memory";
 import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
 import { vcsEnvironment } from "../../state/vcs";
 import {
@@ -78,11 +87,13 @@ import {
 } from "../../state/use-thread-outbox";
 import {
   setPendingConnectionError,
+  useRemoteConnectionStatus,
   useSavedRemoteConnections,
 } from "../../state/use-remote-environment-registry";
+import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operations/projects";
 import { isScratchProject } from "@t3tools/client-runtime/state/projects";
 import { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { canStartWorktreeFromUpstream, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import {
   buildHomeProjectScopes,
   sortHomeProjectScopes,
@@ -96,12 +107,13 @@ import {
 import { useLegacyPlanModeState } from "./use-legacy-plan-mode-enabled";
 import {
   filterNewTaskBranches,
-  resolveNewTaskBranchWorktreePath,
   resolveNewTaskBranchRemoteName,
+  resolveNewTaskBranchWorktreePath,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveNewTaskWorktreeBranch,
 } from "./new-task-context-presentation";
-import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { resolveAutomaticWorktreeBaseBranch } from "./new-task-branch-default";
+import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 
 type WorkspaceMode = "local" | "worktree";
@@ -153,10 +165,13 @@ type NewTaskFlowContextValue = {
   /** False for threads without a project: their folder has no branch or worktree. */
   readonly canChooseWorkspace: boolean;
   readonly selectedBranchName: string | null;
+  /** Remote of the selected ref, or null for a local branch or while it is unknown. */
   readonly selectedBranchRemoteName: string | null;
   readonly selectedWorktreePath: string | null;
   readonly startFromRemote: WorktreeStartRemote;
-  readonly hasOriginAndUpstreamRemotes: boolean;
+  /** True when the project has remotes named origin and upstream. */
+  readonly canStartFromUpstream: boolean;
+  /** False checks out the selected local branch itself in the new worktree. */
   readonly createNewBranch: boolean;
   readonly draftKey: string | null;
   readonly editingPendingTask: QueuedThreadMessage | null;
@@ -179,6 +194,8 @@ type NewTaskFlowContextValue = {
     readonly environmentLabel: string;
   }>;
   readonly selectedProject: EnvironmentProject | null;
+  /** True when the draft is a thread without a project (its machine's Scratch project). */
+  readonly isScratchDraft: boolean;
   readonly modelOptions: ReadonlyArray<ModelOption>;
   readonly selectedModel: ModelSelection | null;
   readonly selectedModelOption: ModelOption | null;
@@ -201,7 +218,8 @@ type NewTaskFlowContextValue = {
   readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
   readonly selectBranch: (branch: VcsRef) => void;
   readonly setStartFromRemote: (value: WorktreeStartRemote) => void;
-  readonly setCreateNewBranch: (value: boolean) => void;
+  /** Null when the server cannot check out an existing branch, which hides the toggle. */
+  readonly setCreateNewBranch: ((value: boolean) => void) | null;
   readonly beginEditingPendingTask: (messageId: string) => boolean;
   readonly finishEditingPendingTask: () => void;
   readonly cancelEditingPendingTask: () => void;
@@ -242,6 +260,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const groupingSettings = useMobileProjectGroupingSettings();
   const { enabled: legacyPlanModeEnabled, loaded: planModePreferenceLoaded } =
     useLegacyPlanModeState();
+
   const projectScopes = useMemo(
     () =>
       sortHomeProjectScopes({
@@ -346,6 +365,26 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       ? editingPendingProject
       : (projectsForEnvironment[0] ?? null));
 
+  const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
+    selectedProject?.environmentId ?? null,
+  );
+  const isScratchDraft =
+    selectedProject !== null &&
+    isScratchProject(selectedProject, selectedEnvironmentServerConfig?.scratchWorkspaceRoot);
+  const serverConfigs = useServerConfigs();
+  const { connectedEnvironments } = useRemoteConnectionStatus();
+  // A thread without a project can move to any connected machine that offers
+  // one; its Scratch project there is created on the switch if it is missing.
+  const scratchEnvironments = useMemo(
+    () =>
+      connectedEnvironments.filter(
+        (environment) =>
+          canCreateProjectInEnvironment(environment.connectionState) &&
+          serverConfigs.get(environment.environmentId)?.scratchWorkspaceRoot !== undefined,
+      ),
+    [connectedEnvironments, serverConfigs],
+  );
+
   // Only offer machines that actually host the currently selected repository, so
   // switching computers moves the same repo across machines instead of jumping to
   // whatever unrelated project happens to be first on the other machine. Repository
@@ -357,6 +396,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const selectedWorkspaceBasename = selectedProject?.workspaceRoot.split("/").at(-1) || null;
   const selectedProjectTitle = selectedProject?.title ?? null;
   const environments = useMemo(() => {
+    if (isScratchDraft) {
+      return scratchEnvironments.map((environment) => ({
+        environmentId: environment.environmentId,
+        environmentLabel: environment.environmentLabel,
+      }));
+    }
     const seen = new Set<EnvironmentId>();
     const result: Array<{
       readonly environmentId: EnvironmentId;
@@ -394,16 +439,15 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     }
     return result;
   }, [
+    isScratchDraft,
     projects,
     savedConnectionsById,
+    scratchEnvironments,
     selectedRepositoryKey,
     selectedWorkspaceBasename,
     selectedProjectTitle,
   ]);
 
-  const selectedEnvironmentServerConfig = useEnvironmentServerConfig(
-    selectedProject?.environmentId ?? null,
-  );
   // While a queued pending task is being edited its draft lives under a key
   // scoped to the queued message, so new-task drafts stay intact.
   const selectedProjectDraftKey = editingPendingTask
@@ -464,10 +508,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   );
   // A thread without a project runs in a plain folder, so worktree mode
   // would leave it unsendable: it is always local and offers no choice.
-  const canChooseWorkspace = !(
-    selectedProject !== null &&
-    isScratchProject(selectedProject, selectedEnvironmentServerConfig?.scratchWorkspaceRoot)
-  );
+  const canChooseWorkspace = !isScratchDraft;
   const defaultWorkspaceMode: WorkspaceMode = canChooseWorkspace
     ? projectSettings.settings.defaultThreadEnvMode
     : "local";
@@ -484,17 +525,22 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     : "local";
   const selectedBranchName = selectedProjectDraft.workspaceSelection?.branch ?? null;
   const selectedWorktreePath = selectedProjectDraft.workspaceSelection?.worktreePath ?? null;
-  const createNewBranch = selectedProjectDraft.workspaceSelection?.createNewBranch ?? true;
   // Keep the user's explicit choice separate from the resolved display value:
-  // only the explicit selection is ever written back to the draft, so the resolved
+  // only the explicit choice is ever written back to the draft, so the resolved
   // value keeps tracking the server setting when the config loads late.
   const draftStartFromRemote = selectedProjectDraft.workspaceSelection?.startFromRemote;
-  const startFromRemote =
+  const startFromRemote: WorktreeStartRemote =
     draftStartFromRemote !== undefined
       ? draftStartFromRemote
       : projectSettings.settings.newWorktreesStartFromOrigin
         ? "origin"
         : null;
+  // Older servers drop the flag and create a branch anyway. Like the remote choice, only the
+  // explicit choice is written back, so a config that loads late cannot overwrite it.
+  const supportsExistingBranchWorktree =
+    selectedEnvironmentServerConfig?.environment.capabilities.existingBranchWorktree === true;
+  const draftCreateNewBranch = selectedProjectDraft.workspaceSelection?.createNewBranch;
+  const createNewBranch = !supportsExistingBranchWorktree || draftCreateNewBranch !== false;
   const defaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
   const defaultRuntimeMode = editingPendingTask
     ? (editingPendingTask.runtimeMode ?? DEFAULT_RUNTIME_MODE)
@@ -573,7 +619,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       if (!option) {
         return;
       }
-      const selection = options ? { ...option.selection, options } : option.selection;
+      const selection = withRememberedModelOptions(
+        options ? { ...option.selection, options } : option.selection,
+      );
       const provider = selectedEnvironmentServerConfig?.providers.find(
         (candidate) => candidate.instanceId === selection.instanceId,
       );
@@ -592,6 +640,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       if (!selectedModel || !selectedProjectDraftKey) {
         return;
       }
+      rememberModelOptions(selectedModel.instanceId, selectedModel.model, options ?? []);
       const nextSelection: ModelSelection = options
         ? { ...selectedModel, options }
         : {
@@ -676,24 +725,6 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const hasMoreBranches =
     branchState.data?.nextCursor !== null && branchState.data?.nextCursor !== undefined;
   const allBranchRefs = branchState.refs;
-  const selectedBranchRefQuery = useEnvironmentQuery(
-    branchTarget.environmentId !== null && branchTarget.cwd !== null && selectedBranchName !== null
-      ? vcsEnvironment.listRefs({
-          environmentId: branchTarget.environmentId,
-          input: {
-            cwd: branchTarget.cwd,
-            query: selectedBranchName,
-            limit: 10,
-            includeMatchingRemoteRefs: true,
-          },
-        })
-      : null,
-  );
-  const selectedBranchRemoteName = resolveNewTaskBranchRemoteName({
-    branchName: selectedBranchName,
-    branches: allBranchRefs,
-    queriedBranches: selectedBranchRefQuery.data?.refs ?? [],
-  });
   const availableBranches = useMemo(
     () =>
       pipe(
@@ -718,9 +749,27 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       : null,
   );
   const currentCheckoutBranchName = projectGitStatus.data?.refName ?? null;
-  const remoteNames = projectGitStatus.data?.remoteNames ?? [];
-  const hasOriginAndUpstreamRemotes =
-    remoteNames.includes("origin") && remoteNames.includes("upstream");
+  const canStartFromUpstream = canStartWorktreeFromUpstream(projectGitStatus.data?.remoteNames);
+  // The listed page can miss the selected ref, or list a remote ref where a local branch has the
+  // same name. The exact lookup tells the label which remote prefix to replace.
+  const selectedBranchRefQuery = useEnvironmentQuery(
+    branchTarget.environmentId !== null && branchTarget.cwd !== null && selectedBranchName !== null
+      ? vcsEnvironment.listRefs({
+          environmentId: branchTarget.environmentId,
+          input: {
+            cwd: branchTarget.cwd,
+            query: selectedBranchName,
+            limit: 10,
+            includeMatchingRemoteRefs: true,
+          },
+        })
+      : null,
+  );
+  const selectedBranchRemoteName = resolveNewTaskBranchRemoteName({
+    branchName: selectedBranchName,
+    branches: allBranchRefs,
+    queriedBranches: selectedBranchRefQuery.data?.refs ?? [],
+  });
 
   const filteredBranches = useMemo(
     () => filterNewTaskBranches(allBranchRefs, branchQuery),
@@ -814,22 +863,22 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch:
             mode === "local"
               ? localSelection.branch
-              : createNewBranch ||
-                  canCheckoutBranchInNewWorktree(
-                    availableBranches.find((branch) => branch.name === selectedBranchName),
-                  )
-                ? selectedBranchName
-                : null,
+              : resolveNewTaskWorktreeBranch({
+                  createNewBranch,
+                  selectedBranchName,
+                  branches: availableBranches,
+                }),
           worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
           ...(draftStartFromRemote !== undefined ? { startFromRemote: draftStartFromRemote } : {}),
-          createNewBranch,
+          ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
         },
       });
     },
     [
       availableBranches,
-      draftStartFromRemote,
       createNewBranch,
+      draftCreateNewBranch,
+      draftStartFromRemote,
       selectedBranchName,
       selectedProject,
       selectedProjectDraftKey,
@@ -861,13 +910,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         branch: localSelection.branch,
         worktreePath: localSelection.worktreePath,
         ...(draftStartFromRemote !== undefined ? { startFromRemote: draftStartFromRemote } : {}),
-        createNewBranch,
+        ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
       },
     });
   }, [
     availableBranches,
+    draftCreateNewBranch,
     draftStartFromRemote,
-    createNewBranch,
     selectedProject,
     selectedProjectDraftKey,
     workspaceMode,
@@ -889,13 +938,13 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             branchWorktreePath: branch.worktreePath,
           }),
           ...(draftStartFromRemote !== undefined ? { startFromRemote: draftStartFromRemote } : {}),
-          createNewBranch,
+          ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
         },
       });
     },
     [
+      draftCreateNewBranch,
       draftStartFromRemote,
-      createNewBranch,
       selectedProject,
       selectedProjectDraftKey,
       workspaceMode,
@@ -913,32 +962,32 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch: selectedBranchName,
           worktreePath: selectedWorktreePath,
           startFromRemote: value,
-          createNewBranch,
+          ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
         },
       });
     },
     [
+      draftCreateNewBranch,
       selectedBranchName,
       selectedProjectDraftKey,
       selectedWorktreePath,
       workspaceMode,
-      createNewBranch,
     ],
   );
 
-  const setCreateNewBranch = useCallback(
+  const updateCreateNewBranch = useCallback(
     (value: boolean) => {
-      if (!selectedProjectDraftKey) return;
+      if (!selectedProjectDraftKey) {
+        return;
+      }
       updateComposerDraftSettings(selectedProjectDraftKey, {
         workspaceSelection: {
           mode: workspaceMode,
-          branch:
-            value ||
-            canCheckoutBranchInNewWorktree(
-              availableBranches.find((branch) => branch.name === selectedBranchName),
-            )
-              ? selectedBranchName
-              : null,
+          branch: resolveNewTaskWorktreeBranch({
+            createNewBranch: value,
+            selectedBranchName,
+            branches: availableBranches,
+          }),
           worktreePath: selectedWorktreePath,
           ...(draftStartFromRemote !== undefined ? { startFromRemote: draftStartFromRemote } : {}),
           createNewBranch: value,
@@ -946,14 +995,15 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       });
     },
     [
-      selectedProjectDraftKey,
-      workspaceMode,
-      selectedBranchName,
-      selectedWorktreePath,
-      draftStartFromRemote,
       availableBranches,
+      draftStartFromRemote,
+      selectedBranchName,
+      selectedProjectDraftKey,
+      selectedWorktreePath,
+      workspaceMode,
     ],
   );
+  const setCreateNewBranch = supportsExistingBranchWorktree ? updateCreateNewBranch : null;
 
   const refreshBranches = branchState.refresh;
   const loadMoreBranches = branchState.loadNext;
@@ -982,21 +1032,20 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (live && (live.mode !== "worktree" || live.branch !== null)) {
       return;
     }
-    // The configured name remains authoritative even when it is absent from
-    // the current refs page: creation should surface the normal git error,
-    // never silently start work from another branch.
     const preferredBranch = resolveAutomaticWorktreeBaseBranch({
       configuredBranch: defaultThreadBaseBranch,
       refs: allBranchRefs,
       localRefs: availableBranches,
     });
-    if (preferredBranch) selectBranch(preferredBranch);
+    if (preferredBranch) {
+      selectBranch(preferredBranch);
+    }
   }, [
     allBranchRefs,
     availableBranches,
+    createNewBranch,
     defaultThreadBaseBranch,
     defaultWorkspaceModeSettled,
-    createNewBranch,
     selectBranch,
     selectedBranchName,
     selectedProjectDraftKey,
@@ -1042,7 +1091,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch: message.creation.branch,
           worktreePath: message.creation.worktreePath,
           startFromRemote: message.creation.startFromRemote ?? null,
-          createNewBranch: message.creation.createNewBranch ?? true,
+          ...(message.creation.createNewBranch !== undefined
+            ? { createNewBranch: message.creation.createNewBranch }
+            : {}),
         },
       });
     }
@@ -1128,12 +1179,18 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             currentCheckoutBranch: options?.currentCheckoutBranch ?? null,
           }),
           worktreePath: mode === "worktree" ? null : (workspaceSelection?.worktreePath ?? null),
-          createNewBranch: workspaceSelection?.createNewBranch ?? createNewBranch,
-          // Preserve explicit local choices as well as either remote when queued.
+          // The draft only carries the choice when the user touched it; fall
+          // back to the resolved default (server settings) so queued tasks
+          // drain with the same remote the composer displayed.
           startFromRemote:
             workspaceSelection?.startFromRemote !== undefined
               ? workspaceSelection.startFromRemote
               : startFromRemote,
+          ...(mode === "worktree" &&
+          supportsExistingBranchWorktree &&
+          workspaceSelection?.createNewBranch === false
+            ? { createNewBranch: false }
+            : {}),
         },
         createdAt: metadata.createdAt,
       };
@@ -1150,7 +1207,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       legacyPlanModeEnabled,
       planModePreferenceLoaded,
       startFromRemote,
-      createNewBranch,
+      supportsExistingBranchWorktree,
       workspaceMode,
     ],
   );
@@ -1269,7 +1326,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedBranchRemoteName,
       selectedWorktreePath,
       startFromRemote,
-      hasOriginAndUpstreamRemotes,
+      canStartFromUpstream,
       createNewBranch,
       draftKey: selectedProjectDraftKey,
       editingPendingTask,
@@ -1289,6 +1346,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       expandedProvider,
       environments,
       selectedProject,
+      isScratchDraft,
       modelOptions,
       selectedModel,
       selectedModelOption,
@@ -1339,6 +1397,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       filteredBranches,
       finishEditingPendingTask,
       interactionMode,
+      isScratchDraft,
       planModeEnabled,
       loadBranches,
       loadMoreBranches,
@@ -1352,7 +1411,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedBranchName,
       selectedBranchRemoteName,
       hasMoreBranches,
-      hasOriginAndUpstreamRemotes,
+      canStartFromUpstream,
       selectedEnvironmentId,
       selectedModel,
       selectedModelKey,

@@ -24,6 +24,16 @@ describe("ExecutionEnvironmentDescriptor", () => {
     ).toBe(true);
   });
 
+  it("treats a missing existing-branch worktree capability as unsupported", () => {
+    expect(decodeDescriptor(descriptor).capabilities.existingBranchWorktree).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, existingBranchWorktree: true },
+      }).capabilities.existingBranchWorktree,
+    ).toBe(true);
+  });
+
   it("treats a missing pull-request capability as unsupported under version skew", () => {
     expect(decodeDescriptor(descriptor).capabilities.pullRequests).toBeUndefined();
   });
@@ -60,5 +70,21 @@ describe("ExecutionEnvironmentDescriptor", () => {
         },
       }).capabilities.fileAttachments,
     ).toEqual({ maxUploadBytes: 50 * 1024 * 1024 });
+  });
+
+  it("treats missing server-resolved command context as unsupported", () => {
+    expect(decodeDescriptor(descriptor).capabilities.serverResolvedCommandContext).toBeUndefined();
+  });
+
+  it("preserves advertised server-resolved command context", () => {
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: {
+          ...descriptor.capabilities,
+          serverResolvedCommandContext: true,
+        },
+      }).capabilities.serverResolvedCommandContext,
+    ).toBe(true);
   });
 });

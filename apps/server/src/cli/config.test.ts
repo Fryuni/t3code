@@ -39,6 +39,8 @@ it.each([
   "not a url",
   "ftp://t3.example.com",
   "https://user:password@t3.example.com",
+  "https://user@t3.example.com",
+  "https://:password@t3.example.com",
   "https://t3.example.com/subpath",
   "https://t3.example.com/?query=value",
   "https://t3.example.com/#fragment",
@@ -181,6 +183,43 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
       expect(serialized).not.toContain(secret);
       expect(desktop.devAuthToken).toBeUndefined();
       expect(staticWeb.devAuthToken).toBeUndefined();
+    }),
+  );
+
+  it.effect("rejects a T3CODE_PUBLIC_URL that is not a bare origin", () =>
+    Effect.gen(function* () {
+      const baseDir = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "t3-cli-public-url-" })),
+      );
+      const error = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(8788),
+          host: Option.some("127.0.0.1"),
+          baseDir: Option.some(baseDir),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_PUBLIC_URL: "https://t3.example.com/t3" } }),
+            ),
+            NetService.layer,
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(String(error)).toContain("Public URL must be an HTTP(S) origin");
     }),
   );
 
@@ -328,7 +367,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         tailscaleServeEnabled: true,
         tailscaleServePort: 8443,
       });
-      assert.equal(resolved.dbPath, join(baseDir, "userdata", "state.sqlite"));
+      assert.equal(resolved.dbPath, join(baseDir, "userdata", "statev2.sqlite"));
     }),
   );
 

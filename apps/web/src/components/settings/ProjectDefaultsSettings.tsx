@@ -7,7 +7,6 @@ import {
 import { createModelSelection } from "@t3tools/shared/model";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { useNavigate } from "@tanstack/react-router";
-import { DraftInput } from "../ui/draft-input";
 
 import { getCustomModelOptionsByInstance } from "../../modelSelection";
 import {
@@ -23,6 +22,7 @@ import { ProviderModelPicker } from "../chat/ProviderModelPicker";
 import { runtimeModeConfig, runtimeModeOptions } from "../chat/runtimeModeConfig";
 import { PULL_REQUEST_MERGE_METHOD_LABELS } from "../pullRequest/pullRequestDetail.logic";
 import { TraitsPicker } from "../chat/TraitsPicker";
+import { DraftInput } from "../ui/draft-input";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "../ui/select";
 import { toastManager } from "../ui/toast";
 import { Switch } from "../ui/switch";
@@ -86,10 +86,10 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
   const modelSource = useScopedSettingSource(["defaultModelSelection"]);
   const isProjectScope = scope.kind === "project" || scope.kind === "checkout";
   const unavailable = connectedEnvironments.length === 0;
-  const defaultThreadBaseBranch = isProjectScope
-    ? (target?.overrides.defaultThreadBaseBranch ?? "")
-    : "";
-
+  const baseBranches = isProjectScope
+    ? targets.map((candidate) => candidate.overrides.defaultThreadBaseBranch)
+    : [];
+  const mixedBaseBranch = baseBranches.some((branch) => branch !== baseBranches[0]);
   // File-backed keys show their effective value; the target already carries
   // the checkout's t3.json, and a null file here only fills the built-in.
   // The reset arrow beside the title clears the tier (SettingsRow handles a
@@ -395,7 +395,7 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
               title="Default base branch"
               description="New worktree threads start from this branch. When unset, the repository default branch is used."
               resetAction={
-                defaultThreadBaseBranch ? (
+                baseBranches.some((branch) => branch !== undefined) ? (
                   <SettingResetButton
                     label="default base branch"
                     onClick={() => updateDefaultThreadBaseBranch(null)}
@@ -403,19 +403,15 @@ export function ProjectDefaultsSettings({ category }: { category: ProjectSetting
                 ) : null
               }
               control={
-                <div className="w-44">
-                  <DraftInput
-                    size="sm"
-                    font="mono"
-                    aria-label="Default base branch"
-                    placeholder="Repository default"
-                    value={defaultThreadBaseBranch}
-                    onCommit={(value) => {
-                      const branch = value.trim();
-                      updateDefaultThreadBaseBranch(branch.length > 0 ? branch : null);
-                    }}
-                  />
-                </div>
+                <DraftInput
+                  size="sm"
+                  className="w-full sm:w-56"
+                  aria-label="Default base branch"
+                  placeholder={mixedBaseBranch ? "Mixed" : "Repository default"}
+                  spellCheck={false}
+                  value={mixedBaseBranch ? "" : (baseBranches[0] ?? "")}
+                  onCommit={updateDefaultThreadBaseBranch}
+                />
               }
             />
           ) : null}

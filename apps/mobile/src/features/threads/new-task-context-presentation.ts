@@ -1,4 +1,5 @@
-import type { VcsRef, WorktreeStartRemote } from "@t3tools/contracts";
+import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
+import type { WorktreeStartRemote } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 
 type WorkspaceMode = "local" | "worktree";
@@ -60,6 +61,10 @@ export function resolveNewTaskLocalWorkspaceSelection(input: {
   };
 }
 
+/**
+ * The remote of the selected ref, or null for a local branch. A local branch wins over a remote
+ * ref with the same name, and only exact name matches count.
+ */
 export function resolveNewTaskBranchRemoteName(input: {
   readonly branchName: string | null;
   readonly branches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
@@ -77,6 +82,7 @@ export function resolveNewTaskBranchRemoteName(input: {
 
 export function resolveNewTaskBranchLabel(input: {
   readonly branchName: string | null;
+  /** Remote of the selected ref, whose prefix is replaced by the chosen remote. */
   readonly branchRemoteName?: string | null;
   readonly startFromRemote: WorktreeStartRemote;
   readonly createNewBranch?: boolean;
@@ -91,14 +97,29 @@ export function resolveNewTaskBranchLabel(input: {
   }
 
   const remotePrefix = input.branchRemoteName ? `${input.branchRemoteName}/` : null;
-  const normalizedBranchName =
+  const branchName =
     remotePrefix && input.branchName.startsWith(remotePrefix)
       ? input.branchName.slice(remotePrefix.length)
       : input.branchName;
   const baseRef = input.startFromRemote
-    ? `${input.startFromRemote}/${normalizedBranchName}`
+    ? `${input.startFromRemote}/${branchName}`
     : input.branchName;
   return `From ${baseRef}`;
+}
+
+/**
+ * The branch a draft keeps on entering New worktree or changing its create-new-branch choice.
+ * Checking out an existing branch drops one that cannot be checked out again, such as the current
+ * checkout.
+ */
+export function resolveNewTaskWorktreeBranch(input: {
+  readonly createNewBranch: boolean;
+  readonly selectedBranchName: string | null;
+  readonly branches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "current" | "worktreePath">>;
+}): string | null {
+  if (input.createNewBranch) return input.selectedBranchName;
+  const selected = input.branches.find((branch) => branch.name === input.selectedBranchName);
+  return canCheckoutBranchInNewWorktree(selected) ? input.selectedBranchName : null;
 }
 
 export function shouldCheckoutNewTaskBranch(input: {

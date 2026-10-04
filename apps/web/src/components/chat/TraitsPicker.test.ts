@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
-import { ProviderDriverKind, type ProviderOptionDescriptor } from "@t3tools/contracts";
 import {
-  buildTraitsTriggerDisplay,
-  buildUnavailableModelOptionDescriptors,
-  shouldRenderTraitsControls,
-} from "./TraitsPicker";
+  ProviderInstanceId,
+  ProviderDriverKind,
+  type ProviderOptionDescriptor,
+} from "@t3tools/contracts";
+import { buildTraitsTriggerDisplay, buildUnavailableModelOptionDescriptors } from "./TraitsPicker";
 
 function selectDescriptor(
   id: string,
@@ -204,32 +204,6 @@ describe("buildTraitsTriggerDisplay", () => {
   });
 });
 
-describe("shouldRenderTraitsControls", () => {
-  it("renders the control for a model whose only options are toggles", () => {
-    const models = [
-      {
-        slug: "oh-my-pi-default",
-        name: "OhMyPi default",
-        isCustom: false,
-        isDefault: true,
-        capabilities: {
-          optionDescriptors: [{ id: "advisor", label: "Advisor", type: "boolean" as const }],
-        },
-      },
-      { slug: "bare", name: "Bare", isCustom: false, capabilities: { optionDescriptors: [] } },
-    ];
-    const input = {
-      provider: ProviderDriverKind.make("ohMyPi"),
-      models,
-      prompt: "",
-      modelOptions: undefined,
-      planModeEnabled: true,
-    };
-    expect(shouldRenderTraitsControls({ ...input, model: "oh-my-pi-default" })).toBe(true);
-    expect(shouldRenderTraitsControls({ ...input, model: "bare" })).toBe(false);
-  });
-});
-
 describe("buildUnavailableModelOptionDescriptors", () => {
   it("shows only saved values without inventing alternatives", () => {
     expect(
@@ -261,4 +235,35 @@ describe("buildUnavailableModelOptionDescriptors", () => {
       },
     ]);
   });
+});
+
+it("shows Unknown until a matching provider report provides Default", () => {
+  const selection = {
+    instanceId: ProviderInstanceId.make("opencode"),
+    model: "ling",
+    options: [],
+  };
+  const input = {
+    provider: ProviderDriverKind.make("opencode"),
+    descriptors: [
+      selectDescriptor(
+        "variant",
+        [
+          { id: "none", label: "None" },
+          { id: "thinking", label: "Thinking" },
+        ],
+        "",
+      ),
+    ],
+    primarySelectDescriptorId: "variant",
+    ultrathinkPromptControlled: false,
+    modelSelection: selection,
+  };
+  expect(buildTraitsTriggerDisplay(input).label).toBe("Unknown");
+  expect(
+    buildTraitsTriggerDisplay({
+      ...input,
+      reportedModelSelection: { ...selection, options: [{ id: "variant", value: "default" }] },
+    }).label,
+  ).toBe("Default");
 });

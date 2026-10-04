@@ -21,6 +21,7 @@ import * as Path from "effect/Path";
 import { HttpClient } from "effect/unstable/http";
 
 import { CLI_RELEASE_BASE_URL_ENV, CLI_RELEASE_LATEST_URL } from "@t3tools/shared/cliRelease";
+import { compareSemverVersions } from "@t3tools/shared/semver";
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
@@ -218,7 +219,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* (
     }
 
     // Clients ask for upstream versions, which a fork never publishes, so a
-    // fork build moves to its own repository's latest release instead.
+    // fork build moves to its own repository's latest release instead, and
+    // never backwards: the client's "server is behind" check no longer bounds
+    // the target.
     const targetVersion =
       latestReleaseUrl === undefined
         ? input.targetVersion.trim()
@@ -229,8 +232,13 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* (
     if (!isExactServiceVersion(targetVersion)) {
       return yield* failWith(`'${targetVersion}' is not an exact t3 version.`);
     }
-    if (latestReleaseUrl !== undefined && targetVersion === packageJson.version) {
-      return yield* failWith(`This server already runs the latest release, ${targetVersion}.`);
+    if (
+      latestReleaseUrl !== undefined &&
+      compareSemverVersions(targetVersion, packageJson.version) <= 0
+    ) {
+      return yield* failWith(
+        `This server already runs the latest release, ${packageJson.version}.`,
+      );
     }
     if (yield* Ref.getAndSet(inFlight, true)) {
       return yield* failWith("A server update is already in progress.");

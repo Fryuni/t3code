@@ -5,7 +5,6 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
-  resolveAutomaticWorktreeBaseBranch,
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
@@ -15,6 +14,8 @@ import {
   resolveBranchToolbarValue,
   resolveSelectedBranchRef,
   resolveLockedWorkspaceLabel,
+  resolveWorkspaceDisplayName,
+  resolveWorktreeBaseBranchCandidate,
   resolveLocalCheckoutBranchMismatch,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
@@ -203,6 +204,70 @@ describe("resolveBranchToolbarValue", () => {
   });
 });
 
+describe("resolveWorktreeBaseBranchCandidate", () => {
+  it.each([
+    { case: "the repo default", createNewBranch: true, pending: false, expected: "main" },
+    { case: "nothing while branches load", createNewBranch: true, pending: true, expected: null },
+    {
+      case: "nothing when checking out an existing branch",
+      createNewBranch: false,
+      pending: false,
+      expected: null,
+    },
+  ])("defaults the base to $case", ({ createNewBranch, pending, expected }) => {
+    expect(
+      resolveWorktreeBaseBranchCandidate({
+        createNewBranch,
+        isInitialBranchesLoadPending: pending,
+        projectDefaultBranch: undefined,
+        defaultBranchName: "main",
+        currentGitBranch: "feature/current",
+      }),
+    ).toBe(expected);
+  });
+
+  it("falls back to the checked-out branch without a known default", () => {
+    expect(
+      resolveWorktreeBaseBranchCandidate({
+        createNewBranch: true,
+        isInitialBranchesLoadPending: false,
+        projectDefaultBranch: undefined,
+        defaultBranchName: null,
+        currentGitBranch: "feature/current",
+      }),
+    ).toBe("feature/current");
+  });
+
+  it.each([
+    {
+      case: "the project default ahead of the repo default",
+      createNewBranch: true,
+      pending: false,
+      expected: "dev",
+    },
+    { case: "nothing while branches load", createNewBranch: true, pending: true, expected: null },
+    {
+      case: "nothing when checking out an existing branch",
+      createNewBranch: false,
+      pending: false,
+      expected: null,
+    },
+  ])(
+    "with a project default base branch, picks $case",
+    ({ createNewBranch, pending, expected }) => {
+      expect(
+        resolveWorktreeBaseBranchCandidate({
+          createNewBranch,
+          isInitialBranchesLoadPending: pending,
+          projectDefaultBranch: "dev",
+          defaultBranchName: "main",
+          currentGitBranch: "feature/current",
+        }),
+      ).toBe(expected);
+    },
+  );
+});
+
 describe("resolveSelectedBranchRef", () => {
   const localRef: VcsRef = {
     name: "origin/topic",
@@ -222,10 +287,9 @@ describe("resolveSelectedBranchRef", () => {
     { caseName: "both listed", listedRefs: [localRef, remoteRef], queriedRefs: [] },
     { caseName: "local queried", listedRefs: [remoteRef], queriedRefs: [localRef] },
     { caseName: "local listed", listedRefs: [localRef], queriedRefs: [remoteRef] },
-  ])("keeps a local branch's full upstream source and checkout ($caseName)", (refs) => {
+  ])("keeps a local branch named like a remote ref ($caseName)", (refs) => {
     const selected = resolveSelectedBranchRef({ branchName: "origin/topic", ...refs });
     expect(selected).toBe(localRef);
-    expect(selected?.worktreePath).toBe("/repo/topic");
     expect(
       resolveBranchTriggerLabel({
         activeWorktreePath: null,
@@ -238,7 +302,7 @@ describe("resolveSelectedBranchRef", () => {
     ).toBe("From upstream/origin/topic");
   });
 
-  it("uses an explicit remote when the matching local branch is absent", () => {
+  it("uses the remote ref when no local branch has the name", () => {
     const selected = resolveSelectedBranchRef({
       branchName: "origin/topic",
       listedRefs: [],
@@ -311,6 +375,19 @@ describe("resolveBranchTriggerLabel", () => {
     ).toBe("From upstream/feature/demo");
   });
 
+  it("labels an existing branch without a base or origin prefix", () => {
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: "feature/existing",
+        resolvedActiveBranchIsRemote: false,
+        startFromRemote: "origin",
+        createNewBranch: false,
+      }),
+    ).toBe("feature/existing");
+  });
+
   it("shows the origin ref when a new worktree will start from origin", () => {
     expect(
       resolveBranchTriggerLabel({
@@ -359,7 +436,7 @@ describe("resolveBranchTriggerLabel", () => {
     ).toBe("From origin/feature/demo");
   });
 
-  it("uses the selected remote for an explicit ref from another remote", () => {
+  it("uses the chosen remote for an explicit ref from another remote", () => {
     expect(
       resolveBranchTriggerLabel({
         activeWorktreePath: null,
@@ -557,9 +634,28 @@ describe("shouldShowEnvironmentIndicator", () => {
 });
 
 describe("shouldShowComposerContextStrip", () => {
+  it.each([false, true])(
+    "honors the active-thread preference with resting controls %s",
+    (hostsRestingComposerControls) => {
+      const input = {
+        isDraftHeroState: false,
+        hasActiveProject: true,
+        isGitRepo: true,
+        showEnvironmentIndicator: true,
+        hostsRestingComposerControls,
+      };
+      expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: false })).toBe(
+        false,
+      );
+      expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: true })).toBe(true);
+    },
+  );
+
   it("keeps the environment indicator visible for a non-Git project", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: true,
@@ -571,6 +667,8 @@ describe("shouldShowComposerContextStrip", () => {
   it("hides the strip when a non-Git project has nothing to show", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: false,
@@ -582,6 +680,8 @@ describe("shouldShowComposerContextStrip", () => {
   it("keeps the strip for visible resting composer controls in a non-Git thread", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: false,
@@ -593,6 +693,8 @@ describe("shouldShowComposerContextStrip", () => {
   it("shows Git controls without requiring an environment indicator", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: true,
         showEnvironmentIndicator: false,
@@ -675,39 +777,15 @@ describe("resolveLockedWorkspaceLabel", () => {
   });
 });
 
-describe("resolveAutomaticWorktreeBaseBranch", () => {
-  it("prefers the project override, then Git default, then current branch", () => {
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: "dev",
-        gitDefault: "main",
-        currentBranch: "feature/current",
-      }),
-    ).toBe("dev");
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: undefined,
-        gitDefault: "main",
-        currentBranch: "feature/current",
-      }),
-    ).toBe("main");
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: undefined,
-        gitDefault: null,
-        currentBranch: "feature/current",
-      }),
-    ).toBe("feature/current");
+describe("resolveWorkspaceDisplayName", () => {
+  it("returns the final folder for POSIX and Windows paths", () => {
+    expect(resolveWorkspaceDisplayName("/repo/.t3/worktrees/feature-a")).toBe("feature-a");
+    expect(resolveWorkspaceDisplayName("C:\\code\\project\\feature-b\\")).toBe("feature-b");
   });
 
-  it("retains an explicitly configured name even when Git refs do not list it", () => {
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: "release/next",
-        gitDefault: "main",
-        currentBranch: "main",
-      }),
-    ).toBe("release/next");
+  it("handles missing and root paths", () => {
+    expect(resolveWorkspaceDisplayName(null)).toBeNull();
+    expect(resolveWorkspaceDisplayName("/")).toBe("/");
   });
 });
 
@@ -1026,17 +1104,4 @@ describe("sanitizeNewRefName", () => {
     expect(sanitizeNewRefName("new - branch")).toBe("new---branch");
     expect(sanitizeNewRefName("foo--bar")).toBe("foo--bar");
   });
-});
-
-it("labels an existing branch without a base or origin prefix", () => {
-  expect(
-    resolveBranchTriggerLabel({
-      activeWorktreePath: null,
-      effectiveEnvMode: "worktree",
-      resolvedActiveBranch: "feature/existing",
-      resolvedActiveBranchIsRemote: false,
-      startFromRemote: "origin",
-      createNewBranch: false,
-    }),
-  ).toBe("feature/existing");
 });

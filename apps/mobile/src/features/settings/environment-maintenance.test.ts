@@ -166,5 +166,11 @@ describe("environment release checks", () => {
     await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow("No stable release");
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ error: "invalid" })));
     await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow();
+    // GitHub's answer for a fork that has not published a release yet.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(Response.json({ message: "Not Found" }, { status: 404 })),
+    );
+    await expect(findEnvironmentUpdate("1.0.0", signal, "someone/t3code")).rejects.toThrow("404");
   });
 });

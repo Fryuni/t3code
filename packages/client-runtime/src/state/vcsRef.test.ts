@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { canCheckoutBranchInNewWorktree } from "./vcsRef.ts";
+import { canCheckoutBranchInNewWorktree, canStartWorktreeFromUpstream } from "./vcsRef.ts";
 
 describe("canCheckoutBranchInNewWorktree", () => {
   it("allows an unused local branch", () => {
@@ -20,5 +20,18 @@ describe("canCheckoutBranchInNewWorktree", () => {
     { name: "empty selection", ref: null },
   ])("requires another branch for $name", ({ ref }) => {
     expect(canCheckoutBranchInNewWorktree(ref)).toBe(false);
+  });
+});
+
+describe("canStartWorktreeFromUpstream", () => {
+  it.each([
+    { remoteNames: ["origin", "upstream"], expected: true },
+    { remoteNames: ["upstream", "mirror", "origin"], expected: true },
+    { remoteNames: ["origin"], expected: false },
+    { remoteNames: ["upstream"], expected: false },
+    { remoteNames: [], expected: false },
+    { remoteNames: undefined, expected: false },
+  ])("is $expected for remotes $remoteNames", ({ remoteNames, expected }) => {
+    expect(canStartWorktreeFromUpstream(remoteNames)).toBe(expected);
   });
 });

@@ -160,7 +160,6 @@ export class ForgejoCli extends Context.Service<
 >()("t3/sourceControl/ForgejoCli") {}
 
 export function parseForgejoRemote(value: string) {
-  value = value.trim();
   if (/^(?:https?|ssh):\/\//i.test(value)) {
     try {
       const url = new URL(value);

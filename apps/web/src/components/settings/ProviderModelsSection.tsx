@@ -28,6 +28,7 @@ const CUSTOM_MODEL_PLACEHOLDER_BY_KIND: Partial<Record<ProviderDriverKind, strin
   [ProviderDriverKind.make("claudeAgent")]: "claude-sonnet-5",
   [ProviderDriverKind.make("cursor")]: "claude-sonnet-4-6",
   [ProviderDriverKind.make("opencode")]: "openai/gpt-5",
+  [ProviderDriverKind.make("pi")]: "anthropic/claude-sonnet-5",
 };
 
 /** Above this many models the list gets a filter input. */
@@ -171,7 +172,6 @@ export function ProviderModelsSection({
   onFavoriteModelsChange,
   onModelOrderChange,
 }: ProviderModelsSectionProps) {
-  const supportsCustomModels = driverKind !== "antigravity" && driverKind !== "ohMyPi";
   const [input, setInput] = useState("");
   const [isAdding, setIsAdding] = useState(false);
   const [filter, setFilter] = useState("");
@@ -224,7 +224,7 @@ export function ProviderModelsSection({
   }, [displayModels]);
 
   const handleAdd = () => {
-    if (!supportsCustomModels) return;
+    if (driverKind === "antigravity") return;
     const normalized = normalizeCustomModelSlug(input);
     if (!normalized) {
       setError("Enter a model slug.");
@@ -593,7 +593,7 @@ export function ProviderModelsSection({
         })}
       </div>
 
-      {!supportsCustomModels ? null : isAdding ? (
+      {driverKind === "antigravity" ? null : isAdding ? (
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
           <Input
             id={`provider-instance-${instanceId}-custom-model`}
@@ -628,7 +628,7 @@ export function ProviderModelsSection({
         </div>
       ) : null}
 
-      {supportsCustomModels && error ? (
+      {driverKind !== "antigravity" && error ? (
         <p className="mt-2 text-xs text-destructive">{error}</p>
       ) : null}
     </div>

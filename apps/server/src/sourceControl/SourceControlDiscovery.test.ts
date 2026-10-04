@@ -157,6 +157,48 @@ it.effect("submits a Forgejo review without sending its summary in the prelimina
   );
 });
 
+it.effect("reads Forgejo checks without repository or viewer requests", () => {
+  const paths: string[] = [];
+  return Effect.gen(function* () {
+    const provider = yield* ForgejoPullRequestProvider.make;
+    const read = provider.getChangeRequestChecks;
+    if (read === undefined) return yield* Effect.die("checks read missing");
+    const result = yield* read({
+      cwd: "/repo",
+      repository: "acme/web",
+      host: "forgejo.test",
+      number: 1,
+    });
+    assert.strictEqual(result.state, "open");
+    assert.strictEqual(result.checks[0]?.status, "failure");
+    assert.deepStrictEqual(paths, [
+      "repos/acme/web/pulls/1",
+      "repos/acme/web/statuses/head?sort=recentupdate&limit=50&page=1",
+      "repos/acme/web/statuses/head?sort=recentupdate&limit=50&page=2",
+    ]);
+  }).pipe(
+    Effect.provide(
+      Layer.mock(ForgejoCli.ForgejoCli)({
+        api: (input) => {
+          paths.push(input.path);
+          assert.match(input.path, /^repos\/acme\/web\/(pulls\/1|statuses\/head)/);
+          return Effect.succeed(
+            processOutput(
+              input.path.endsWith("pulls/1")
+                ? `{"number":1,"title":"Checks","body":"","html_url":"https://forgejo.test/acme/web/pulls/1", "user":null,"state":"open","merged":false,
+            "head":{"ref":"feature","sha":"head","repo":null},"base":{"ref":"main","sha":"base","repo":null},
+            "created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:00Z","closed_at":null,"merged_at":null,"labels":[]}`
+                : input.path.endsWith("page=1")
+                  ? `[{"context":"build","status":"failure","description":null,"target_url":null,"updated_at":"2026-09-16T00:00:00Z"}]`
+                  : "[]",
+            ),
+          );
+        },
+      }),
+    ),
+  );
+});
+
 it.effect("loads Forgejo pull request references from files and commits views", () =>
   Effect.gen(function* () {
     const provider = yield* ForgejoSourceControlProvider.make;
@@ -1627,26 +1669,6 @@ it.effect(
     ),
 );
 
-it("parses Forgejo remotes padded by whitespace", () => {
-  // Pasted references arrive padded, and the surrounding space must not reach the URL parser
-  // or the scp-form pattern, which would otherwise read it as part of the host.
-  assert.deepStrictEqual(
-    ForgejoCli.parseForgejoRemote("  HTTPS://forge.example:3000/Forge/Owner/Repo.git  "),
-    {
-      host: "forge.example:3000",
-      hostname: "forge.example",
-      ssh: false,
-      path: "Forge/Owner/Repo",
-    },
-  );
-  assert.deepStrictEqual(ForgejoCli.parseForgejoRemote("\tgit@ssh.example:Owner/Repo.git\n"), {
-    host: "ssh.example",
-    hostname: "ssh.example",
-    ssh: true,
-    path: "Owner/Repo",
-  });
-});
-
 it("keeps case-distinct mounted Forgejo instances separate when selecting a login", () => {
   // Instance mount paths are case-sensitive, so `/Forge` and `/forge` are different servers
   // and must never fold together when a login is selected.
@@ -1665,14 +1687,9 @@ it("keeps case-distinct mounted Forgejo instances separate when selecting a logi
   assert.isUndefined(select("https://forge.example:4000/Forge/Owner/Repo.git"));
 });
 
-for (const scenario of [
-  "matching",
-  "wrong-path",
-  "wrong-port",
-  "ambiguous",
-  "unavailable",
-] as const) {
-  it.effect(`discovers advertised Forgejo SSH remotes: ${scenario}`, () => {
+it.effect.each(["matching", "wrong-path", "wrong-port", "ambiguous", "unavailable"] as const)(
+  "discovers advertised Forgejo SSH remotes: %s",
+  (scenario) => {
     let repositoryLookups = 0;
     return Effect.gen(function* () {
       const cli = yield* ForgejoCli.make;
@@ -1781,5 +1798,5 @@ for (const scenario of [
         }),
       ),
     );
-  });
-}
+  },
+);

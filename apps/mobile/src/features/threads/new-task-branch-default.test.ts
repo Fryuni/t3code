@@ -12,11 +12,11 @@ const ref = (name: string, options: Partial<VcsRef> = {}): VcsRef => ({
 });
 
 describe("automatic new-task worktree base branch", () => {
-  it("prefers the project override over git defaults and current checkout", () => {
+  it("prefers the project's default base branch over the git default and current checkout", () => {
     const branches = [
       ref("main", { isDefault: true }),
       ref("current", { current: true }),
-      ref("dev"),
+      ref("dev", { worktreePath: "/repo/dev" }),
     ];
 
     expect(
@@ -25,10 +25,10 @@ describe("automatic new-task worktree base branch", () => {
         refs: branches,
         localRefs: branches,
       }),
-    ).toEqual(branches[2]);
+    ).toBe(branches[2]);
   });
 
-  it("retains a configured branch missing from refs instead of silently falling back", () => {
+  it("keeps a configured branch missing from refs instead of silently falling back", () => {
     expect(
       resolveAutomaticWorktreeBaseBranch({
         configuredBranch: "release/next",
@@ -38,23 +38,24 @@ describe("automatic new-task worktree base branch", () => {
     ).toEqual(ref("release/next"));
   });
 
-  it("keeps existing git-default then current-checkout fallback when unset", () => {
-    const current = ref("dev", { current: true });
-    const defaultBranch = ref("main", { isDefault: true });
-
+  it.each([
+    {
+      case: "the git default, even when only remote",
+      refs: [
+        ref("dev", { current: true }),
+        ref("origin/main", { isDefault: true, isRemote: true }),
+      ],
+      expected: "origin/main",
+    },
+    { case: "the current checkout", refs: [ref("dev", { current: true })], expected: "dev" },
+    { case: "nothing", refs: [ref("dev")], expected: undefined },
+  ])("without a project default, falls back to $case", ({ refs, expected }) => {
     expect(
       resolveAutomaticWorktreeBaseBranch({
         configuredBranch: undefined,
-        refs: [current, defaultBranch],
-        localRefs: [current, defaultBranch],
-      }),
-    ).toEqual(defaultBranch);
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        configuredBranch: undefined,
-        refs: [current],
-        localRefs: [current],
-      }),
-    ).toEqual(current);
+        refs,
+        localRefs: refs.filter((branch) => !branch.isRemote),
+      })?.name,
+    ).toBe(expected);
   });
 });

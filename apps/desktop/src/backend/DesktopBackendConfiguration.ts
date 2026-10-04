@@ -645,7 +645,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     // The packaged sidecar is a Windows executable and cannot run inside the
     // Linux WSL backend. Keep the field absent instead of passing an unusable
     // `/mnt/.../*.exe` path; WSL resource telemetry is reported unavailable.
-    // See docs/architecture/resource-telemetry.md.
+    // See docs/internals/resource-telemetry.md.
     ...buildObservabilityFragment(input.observabilitySettings),
   };
 
@@ -772,8 +772,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   });
   // Pass the advertised origin explicitly across the Windows/WSL boundary,
   // just like the dev URL, without relying on WSLENV URL translation.
-  const publicUrl = input.publicUrl;
-  const publicUrlArgs = publicUrl ? ["--public-url", publicUrl] : [];
+  const publicUrlArgs = input.publicUrl ? ["--public-url", input.publicUrl] : [];
 
   if (preflight._tag === "Failed") {
     const retryLimit =

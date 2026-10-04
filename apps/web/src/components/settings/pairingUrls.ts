@@ -1,6 +1,10 @@
 import type { AdvertisedEndpoint } from "@t3tools/contracts";
-import { isPrivateNetworkHost, normalizeHostname } from "@t3tools/shared/hostClassification";
-import { isLoopbackHostname } from "../../environments/primary/target";
+import { createAdvertisedEndpoint } from "@t3tools/shared/advertisedEndpoint";
+import {
+  isLocalLoopbackHost,
+  isPrivateNetworkHost,
+  normalizeHostname,
+} from "@t3tools/shared/hostClassification";
 import { buildHostedPairingUrl } from "../../hostedPairing";
 import { setPairingTokenOnUrl } from "../../pairingUrl";
 
@@ -14,8 +18,10 @@ const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
  * "Reachable from anywhere" for an endpoint that never leaves the network.
  */
 function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["reachability"] {
-  const host = normalizeHostname(hostname.trim());
-  if (isLoopbackHostname(host) || host.startsWith("127.")) {
+  const host = normalizeHostname(hostname);
+  // The `127.` prefix mirrors the server's isRemoteReachableHost, so a URL the
+  // server treats as loopback for auth is never advertised as reachable here.
+  if (isLocalLoopbackHost(host) || host.startsWith("127.")) {
     return "loopback";
   }
   if (TAILSCALE_IPV4_PATTERN.test(host) || host.endsWith(".ts.net")) {
@@ -24,30 +30,27 @@ function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["re
   return isPrivateNetworkHost(host) ? "lan" : "public";
 }
 
+/**
+ * Puts the server's `--public-url` ahead of the other endpoints as the default
+ * pairing target, since the operator declared it as the address clients use.
+ */
 export function withPublicUrlEndpoint(
   endpoints: ReadonlyArray<AdvertisedEndpoint>,
   publicUrl: string | undefined,
 ): ReadonlyArray<AdvertisedEndpoint> {
   if (!publicUrl) return endpoints;
   const url = new URL(publicUrl);
-  const wsUrl = new URL(url);
-  wsUrl.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   return [
-    {
+    createAdvertisedEndpoint({
       id: `server-public:${url.origin}`,
       label: "Public URL",
       provider: { id: "server-public", label: "Public URL", kind: "manual", isAddon: false },
-      httpBaseUrl: url.toString(),
-      wsBaseUrl: wsUrl.toString(),
+      httpBaseUrl: publicUrl,
       reachability: classifyPublicUrlReachability(url.hostname),
-      compatibility: {
-        hostedHttpsApp: url.protocol === "https:" ? "compatible" : "mixed-content-blocked",
-        desktopApp: "compatible",
-      },
+      ...(url.protocol === "https:" ? ({ hostedHttpsCompatibility: "compatible" } as const) : {}),
       source: "server",
-      status: "available",
       isDefault: true,
-    },
+    }),
     ...endpoints.map((endpoint) => ({ ...endpoint, isDefault: false })),
   ];
 }

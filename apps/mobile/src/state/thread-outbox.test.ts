@@ -141,6 +141,15 @@ describe("thread outbox", () => {
       decodeQueuedThreadMessage(JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message)))),
     ).toEqual(message);
   });
+  it("retains queue mode when a queued provider switch reloads from storage", () => {
+    const message: QueuedThreadMessage = {
+      ...queuedMessage({ messageId: "queued-switch", createdAt: "2026-09-17T09:00:00.000Z" }),
+      dispatchMode: "queue",
+    };
+    expect(
+      decodeQueuedThreadMessage(JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message)))),
+    ).toEqual(message);
+  });
   it.each(["read", "json", "schema"] as const)(
     "recovers usable messages without permitting cleanup after a record %s failure",
     async (failure) => {
@@ -1401,7 +1410,7 @@ describe("thread outbox", () => {
           branch: "main",
           worktreePath: null,
           startFromRemote,
-          createNewBranch: false,
+          createNewBranch: true,
         },
       } satisfies QueuedThreadMessage;
 
@@ -1434,7 +1443,7 @@ describe("thread outbox", () => {
     { stored: { startFromOrigin: true, startFromRemote: null }, expected: null },
     { stored: { startFromOrigin: true, startFromRemote: "upstream" }, expected: "upstream" },
     { stored: {}, expected: undefined },
-  ])("migrates persisted remote choice $stored", ({ stored, expected }) => {
+  ])("reads the queued remote choice stored as $stored", ({ stored, expected }) => {
     const restored = decodeQueuedThreadMessage({
       schemaVersion: 3,
       ...queuedMessage({ messageId: "message-1", createdAt: "2026-06-08T10:00:01.000Z" }),

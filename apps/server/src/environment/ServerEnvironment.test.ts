@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
-import { expect, it } from "@effect/vitest";
+import { afterEach, expect, it, vi } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -30,6 +30,10 @@ const makeServerEnvironmentLayer = (baseDir: string) =>
     Layer.provide(ServerSecretStore.layer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const emptySecretStoreLayer = Layer.succeed(
   ServerSecretStore.ServerSecretStore,
@@ -174,12 +178,42 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.fileAttachments).toEqual({ maxUploadBytes: 50 * 1024 * 1024 });
       expect(second.capabilities.pullRequests).toBe(true);
       expect(second.capabilities.requiredWorktreeBootstrap).toBe(true);
+      expect(second.capabilities.existingBranchWorktree).toBe(true);
       expect(second.capabilities.usagePriceOverrides).toBe(true);
       expect(second.capabilities.threadActiveReorder).toBe(true);
       expect(second.capabilities.threadTitleRegeneration).toBe(true);
       expect(second.capabilities.threadPullRequests).toBe(true);
       expect(second.capabilities.threadPullRequestLinking).toBe(true);
+      expect(second.capabilities.serverResolvedCommandContext).toBe(true);
       expect(second.capabilities.agentActivityPublishing).toBe(false);
+    }),
+  );
+
+  it.effect("only a fork build advertises the repository it updates from", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-server-environment-release-test-",
+      });
+      const descriptorOf = (build: typeof ServerEnvironment) =>
+        Effect.gen(function* () {
+          const serverEnvironment = yield* build.ServerEnvironment;
+          return yield* serverEnvironment.getDescriptor;
+        }).pipe(
+          Effect.provide(
+            build.layer.pipe(
+              Layer.provide(ServerSecretStore.layer),
+              Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+            ),
+          ),
+        );
+
+      expect(yield* descriptorOf(ServerEnvironment)).not.toHaveProperty("releaseRepository");
+      // What a fork's release workflow bakes in; see packages/shared/src/cliRelease.ts.
+      vi.stubGlobal("__T3CODE_BUILD_RELEASE_REPOSITORY__", "someone/t3code");
+      vi.resetModules();
+      const fork = yield* Effect.promise(() => import("./ServerEnvironment.ts"));
+      expect((yield* descriptorOf(fork)).releaseRepository).toBe("someone/t3code");
     }),
   );
 
@@ -255,7 +289,9 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(withFd.capabilities.serverSelfUpdate).toBe("desktop-managed");
       expect(withFd.capabilities.desktopAppUpdate).toBe(true);
       expect(withFd.capabilities.serverSelfUpdateProgress).toBe(true);
-      expect(withFd.capabilities.serverUpdateThreadContinuation).toBe(true);
+      // v2 recovery terminalizes running runs on restart, so continuation
+      // stays unadvertised until the v2 runtime carries the markers.
+      expect(withFd.capabilities.serverUpdateThreadContinuation).toBeUndefined();
 
       const withoutFd = yield* describeWith({ mode: "desktop" });
       expect(withoutFd.capabilities.serverSelfUpdate).toBe("desktop-managed");
