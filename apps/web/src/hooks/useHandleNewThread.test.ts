@@ -9,12 +9,14 @@ const testState = vi.hoisted(() => {
     newWorktreesStartFromOrigin: false,
     defaultModelSelection: null,
     defaultRuntimeMode: "full-access" as RuntimeMode,
+    projectSettingsOverrides: {} as Record<string, { defaultThreadBaseBranch?: string }>,
   };
   let storedDraft: {
     readonly draftId: string;
     readonly environmentId: string;
     readonly promotedTo: null;
     readonly threadId: string;
+    readonly environmentSelection?: "auto" | "manual";
   } | null = null;
   const router = {
     state: {
@@ -58,6 +60,7 @@ const testState = vi.hoisted(() => {
         newWorktreesStartFromOrigin: workspaceDefaults.startFromOrigin,
         defaultModelSelection: null,
         defaultRuntimeMode: "full-access",
+        projectSettingsOverrides: {},
       };
       router.state.location.href = "/";
       router.navigate.mockClear();
@@ -103,7 +106,7 @@ vi.mock("@t3tools/shared/projectSettings", () => ({
   // With a file argument the env mode resolves like the real chain.
   resolveProjectSettings: (
     settings: Record<string, unknown>,
-    _projectId: unknown,
+    projectId: string | null,
     _project: unknown,
     projectFile?: { defaultThreadEnvMode?: "local" | "worktree" } | null,
   ) => ({
@@ -116,7 +119,8 @@ vi.mock("@t3tools/shared/projectSettings", () => ({
               settings.defaultThreadEnvMode ?? projectFile?.defaultThreadEnvMode ?? "local",
           },
     sources: { defaultModelSelection: "environment", defaultThreadEnvMode: "environment" },
-    overrides: {},
+    overrides:
+      (settings as typeof testState.targetSettings).projectSettingsOverrides[projectId ?? ""] ?? {},
   }),
 }));
 vi.mock("@tanstack/react-router", () => ({
@@ -321,5 +325,118 @@ describe.each([
         );
       }
     },
+  );
+
+  it.each([
+    {
+      case: "starts a worktree draft from",
+      envMode: "worktree",
+      options: undefined,
+      branch: "dev",
+    },
+    { case: "leaves a local draft without", envMode: "local", options: undefined, branch: null },
+    {
+      case: "lets an explicit branch win over",
+      envMode: "worktree",
+      options: { envMode: "worktree", branch: "release" },
+      branch: "release",
+    },
+  ] as const)("$case the project's default base branch", async ({ envMode, options, branch }) => {
+    testState.reset(draft, { envMode, startFromOrigin: false });
+    testState.targetSettings.projectSettingsOverrides = {
+      "project-remote": { defaultThreadBaseBranch: "dev" },
+    };
+    const projectRef = {
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never;
+    const pendingOpen = useNewThreadHandler()(projectRef, options);
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      expect.objectContaining({ envMode, branch }),
+    );
+  });
+
+  // The draft store reads a bare branch as a manual pick, which turns off load balancing.
+  it("keeps a draft seeded with the project's default base branch automatically placed", async () => {
+    testState.reset(draft, { envMode: "worktree", startFromOrigin: false });
+    testState.targetSettings.projectSettingsOverrides = {
+      "project-remote": { defaultThreadBaseBranch: "dev" },
+    };
+    const projectRef = {
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never;
+    const pendingOpen = useNewThreadHandler()(projectRef);
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    const seeded = expect.objectContaining({ branch: "dev", environmentSelection: "auto" });
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      seeded,
+    );
+    if (draft) {
+      expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
+        draft.draftId,
+        seeded,
+      );
+    }
+  });
+
+  it("does not offer the project's default base branch as an existing branch to check out", async () => {
+    testState.reset(draft, { envMode: "worktree", startFromOrigin: false });
+    testState.targetSettings.projectSettingsOverrides = {
+      "project-remote": { defaultThreadBaseBranch: "dev" },
+    };
+    const projectRef = {
+      environmentId: "environment-ssh",
+      projectId: "project-remote",
+    } as never;
+    const pendingOpen = useNewThreadHandler()(projectRef, { createNewBranch: false });
+    testState.completeProjectFileRead(null);
+    const opened = await pendingOpen;
+
+    expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+      "remote-project",
+      projectRef,
+      opened!.draftId,
+      expect.not.objectContaining({ branch: "dev" }),
+    );
+  });
+});
+
+// Seeding fills in the branch only; a machine the user pinned for the draft stays pinned.
+it("keeps a reused draft's manual environment when seeding the project's default base branch", async () => {
+  testState.reset(
+    {
+      draftId: "draft-existing",
+      environmentId: "environment-ssh",
+      promotedTo: null,
+      threadId: "thread-existing",
+      environmentSelection: "manual",
+    },
+    { envMode: "worktree", startFromOrigin: false },
+  );
+  testState.targetSettings.projectSettingsOverrides = {
+    "project-remote": { defaultThreadBaseBranch: "dev" },
+  };
+  const pendingOpen = useNewThreadHandler()({
+    environmentId: "environment-ssh",
+    projectId: "project-remote",
+  } as never);
+  testState.completeProjectFileRead(null);
+  await pendingOpen;
+
+  expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
+    "draft-existing",
+    expect.objectContaining({ branch: "dev", environmentSelection: "manual" }),
   );
 });

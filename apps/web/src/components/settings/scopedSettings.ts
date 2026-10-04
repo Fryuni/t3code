@@ -81,6 +81,8 @@ export interface ScopedSettingsTarget {
   readonly projectId: ProjectId | null;
   readonly settings: ServerSettings;
   readonly sources: Readonly<Record<ProjectScopedServerSettingKey, ProjectSettingSource>>;
+  /** The project's raw override entry, for project-only keys that have no effective setting. */
+  readonly overrides: ProjectSettingsOverrides;
 }
 
 /** Effective settings per connected target: members at project scope, environments otherwise. */
@@ -110,6 +112,7 @@ export function resolveScopedSettingsTargets(
           projectId: member.id,
           settings: resolved.settings,
           sources: resolved.sources,
+          overrides: resolved.overrides,
         },
       ];
     });
@@ -123,6 +126,7 @@ export function resolveScopedSettingsTargets(
             projectId: null,
             settings: environment.serverConfig.settings,
             sources: resolveProjectSettings(environment.serverConfig.settings, null).sources,
+            overrides: {},
           },
         ]
       : [],
@@ -302,6 +306,35 @@ export function planScopedSettingsPatch(
             ? "Connect the selected checkouts, or update their environments, to save a project override."
             : `Connect ${scope.kind === "environment" ? scope.label : "an environment"} to save this setting.`;
   return { clientPatch, hasClientWrite, serverWrites, unavailableReason };
+}
+
+/**
+ * Set the project-only default base branch on every selected member, keeping
+ * its other overrides. A null or blank branch removes it.
+ */
+export function planProjectDefaultThreadBaseBranchPatch(
+  scope: ResolvedSettingsScope,
+  environments: readonly ScopedSettingsEnvironment[],
+  branch: string | null,
+) {
+  const trimmed = branch?.trim() ?? "";
+  const serverWrites =
+    scope.kind === "project" || scope.kind === "checkout"
+      ? projectOverrideWrites(scope, environments, (current) => {
+          const { defaultThreadBaseBranch: _previous, ...rest } = current;
+          const next = trimmed.length > 0 ? { ...rest, defaultThreadBaseBranch: trimmed } : rest;
+          return Object.keys(next).length === 0 ? null : next;
+        })
+      : [];
+  return {
+    clientPatch: {} as ClientSettingsPatch,
+    hasClientWrite: false,
+    serverWrites,
+    unavailableReason:
+      serverWrites.length > 0
+        ? null
+        : "Connect the selected checkouts, or update their environments, to save this project setting.",
+  };
 }
 
 /** Remove the keys' project overrides so each member inherits its environment value again. */

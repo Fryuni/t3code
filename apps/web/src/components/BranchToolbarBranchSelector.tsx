@@ -9,7 +9,14 @@ import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
 } from "@t3tools/client-runtime/state/runtime";
-import type { ContextMenuItem, EnvironmentId, VcsRef, ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  type ContextMenuItem,
+  type EnvironmentId,
+  type ThreadId,
+  type VcsRef,
+} from "@t3tools/contracts";
+import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import {
   useCallback,
@@ -29,7 +36,7 @@ import { writeTextToClipboard } from "../hooks/useCopyToClipboard";
 import { readLocalApi } from "../localApi";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
 import { usePaginatedBranches } from "../state/queries";
-import { useProject, useThreadShell } from "../state/entities";
+import { useProject, useServerConfigs, useThreadShell } from "../state/entities";
 import { useEnvironmentQuery } from "../state/query";
 import { threadEnvironment } from "../state/threads";
 import { useAtomCommand } from "../state/use-atom-command";
@@ -151,6 +158,18 @@ export function BranchToolbarBranchSelector({
       ? scopeProjectRef(draftThread.environmentId, draftThread.projectId)
       : null;
   const activeProject = useProject(activeProjectRef);
+  const serverConfigs = useServerConfigs();
+  const projectDefaultThreadBaseBranch = useMemo(
+    () =>
+      activeProject
+        ? resolveProjectSettings(
+            serverConfigs.get(activeProject.environmentId)?.settings ?? DEFAULT_SERVER_SETTINGS,
+            activeProject.id,
+            activeProject,
+          ).overrides.defaultThreadBaseBranch
+        : undefined,
+    [activeProject, serverConfigs],
+  );
 
   const activeThreadId = serverThread?.id ?? (draftThread ? threadId : undefined);
   const activeThreadBranch =
@@ -510,8 +529,6 @@ export function BranchToolbarBranchSelector({
     });
   };
 
-  // Default the worktree base to the repo default branch (origin/HEAD), only
-  // falling back to the checked-out branch when no default is known.
   const defaultBranchName = useMemo(
     () => refs.find((refName) => refName.isDefault)?.name ?? null,
     [refs],
@@ -519,6 +536,7 @@ export function BranchToolbarBranchSelector({
   const worktreeBaseBranchCandidate = resolveWorktreeBaseBranchCandidate({
     createNewBranch,
     isInitialBranchesLoadPending,
+    projectDefaultBranch: projectDefaultThreadBaseBranch,
     defaultBranchName,
     currentGitBranch,
   });

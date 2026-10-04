@@ -218,6 +218,7 @@ describe("resolveWorktreeBaseBranchCandidate", () => {
       resolveWorktreeBaseBranchCandidate({
         createNewBranch,
         isInitialBranchesLoadPending: pending,
+        projectDefaultBranch: undefined,
         defaultBranchName: "main",
         currentGitBranch: "feature/current",
       }),
@@ -229,11 +230,41 @@ describe("resolveWorktreeBaseBranchCandidate", () => {
       resolveWorktreeBaseBranchCandidate({
         createNewBranch: true,
         isInitialBranchesLoadPending: false,
+        projectDefaultBranch: undefined,
         defaultBranchName: null,
         currentGitBranch: "feature/current",
       }),
     ).toBe("feature/current");
   });
+
+  it.each([
+    {
+      case: "the project default ahead of the repo default",
+      createNewBranch: true,
+      pending: false,
+      expected: "dev",
+    },
+    { case: "nothing while branches load", createNewBranch: true, pending: true, expected: null },
+    {
+      case: "nothing when checking out an existing branch",
+      createNewBranch: false,
+      pending: false,
+      expected: null,
+    },
+  ])(
+    "with a project default base branch, picks $case",
+    ({ createNewBranch, pending, expected }) => {
+      expect(
+        resolveWorktreeBaseBranchCandidate({
+          createNewBranch,
+          isInitialBranchesLoadPending: pending,
+          projectDefaultBranch: "dev",
+          defaultBranchName: "main",
+          currentGitBranch: "feature/current",
+        }),
+      ).toBe(expected);
+    },
+  );
 });
 
 describe("resolveBranchTriggerLabel", () => {

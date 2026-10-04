@@ -110,6 +110,7 @@ import {
   resolveNewTaskLocalWorkspaceSelection,
   resolveNewTaskWorktreeBranch,
 } from "./new-task-context-presentation";
+import { resolveAutomaticWorktreeBaseBranch } from "./new-task-branch-default";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
 
@@ -530,6 +531,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     selectedEnvironmentServerConfig?.environment.capabilities.existingBranchWorktree === true;
   const draftCreateNewBranch = selectedProjectDraft.workspaceSelection?.createNewBranch;
   const createNewBranch = !supportsExistingBranchWorktree || draftCreateNewBranch !== false;
+  const defaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
   const defaultRuntimeMode = editingPendingTask
     ? (editingPendingTask.runtimeMode ?? DEFAULT_RUNTIME_MODE)
     : projectSettings.settings.defaultRuntimeMode;
@@ -999,12 +1001,11 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     if (live && (live.mode !== "worktree" || live.branch !== null)) {
       return;
     }
-    // The default may only exist as origin/<default> (isRemote), which
-    // availableBranches filters out — search the unfiltered refs for it.
-    const preferredBranch =
-      allBranchRefs.find((branch) => branch.isDefault) ??
-      availableBranches.find((branch) => branch.current) ??
-      null;
+    const preferredBranch = resolveAutomaticWorktreeBaseBranch({
+      configuredBranch: defaultThreadBaseBranch,
+      refs: allBranchRefs,
+      localRefs: availableBranches,
+    });
     if (preferredBranch) {
       selectBranch(preferredBranch);
     }
@@ -1012,6 +1013,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
     allBranchRefs,
     availableBranches,
     createNewBranch,
+    defaultThreadBaseBranch,
     defaultWorkspaceModeSettled,
     selectBranch,
     selectedBranchName,

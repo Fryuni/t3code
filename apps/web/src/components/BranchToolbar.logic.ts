@@ -222,18 +222,21 @@ export function resolveBranchToolbarValue(input: {
 }
 
 /**
- * The branch a new worktree's base defaults to: the repo default, else the checked-out branch.
- * Null while checking out an existing branch, since both defaults are usually checked out already
+ * The branch a new worktree's base defaults to: the project's default base branch, else the repo
+ * default, else the checked-out branch. The project's branch is kept even when the loaded refs do
+ * not list it, so a missing branch fails visibly instead of silently starting elsewhere.
+ * Null while checking out an existing branch, since these defaults are usually checked out already
  * and the user has to pick a free one.
  */
 export function resolveWorktreeBaseBranchCandidate(input: {
   createNewBranch: boolean;
   isInitialBranchesLoadPending: boolean;
+  projectDefaultBranch: string | undefined;
   defaultBranchName: string | null;
   currentGitBranch: string | null;
 }): string | null {
   if (!input.createNewBranch || input.isInitialBranchesLoadPending) return null;
-  return input.defaultBranchName ?? input.currentGitBranch;
+  return input.projectDefaultBranch ?? input.defaultBranchName ?? input.currentGitBranch;
 }
 
 export function resolveBranchTriggerLabel(input: {

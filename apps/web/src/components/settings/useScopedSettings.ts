@@ -17,6 +17,7 @@ import { toastManager } from "../ui/toast";
 import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeContext";
 import {
   persistScopedSettingsPatch,
+  planProjectDefaultThreadBaseBranchPatch,
   planProjectOverridesClear,
   planScopedSettingsClear,
   planScopedSettingsPatch,
@@ -86,6 +87,17 @@ export function useUpdateScopedSettings() {
   const run = useRunScopedPlan();
   return useCallback(
     (patch: ScopedSettingsPatch) => run(planScopedSettingsPatch(scope, environments, patch)),
+    [environments, run, scope],
+  );
+}
+
+/** Save the project-only worktree base branch; null or blank clears it. */
+export function useUpdateProjectDefaultThreadBaseBranch() {
+  const { scope, environments } = useSettingsScope();
+  const run = useRunScopedPlan();
+  return useCallback(
+    (branch: string | null) =>
+      run(planProjectDefaultThreadBaseBranchPatch(scope, environments, branch)),
     [environments, run, scope],
   );
 }

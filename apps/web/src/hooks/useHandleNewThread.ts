@@ -41,6 +41,7 @@ interface NewThreadWorkspaceOptions {
   envMode?: DraftThreadEnvMode;
   startFromOrigin?: boolean;
   createNewBranch?: boolean;
+  environmentSelection?: "auto" | "manual";
 }
 
 // The workspace options the caller passed explicitly, shaped for the draft
@@ -140,6 +141,10 @@ export function useNewThreadHandler() {
       );
       const projectDefaultModelSelection = projectSettings.settings.defaultModelSelection;
       const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
+      // Project-only: it seeds the base of a new worktree branch, never a local checkout.
+      // A seeded draft is marked automatic, like the toolbar's own pick, because a
+      // branch alone reads as a manual choice and would pin the draft's environment.
+      const projectDefaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
       const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
         resolveNewThreadModelSelectionOverride({
           projectDefaultSelection: projectDefaultModelSelection ?? null,
@@ -254,8 +259,13 @@ export function useNewThreadHandler() {
             if (openedMeanwhile || promotedMeanwhile || remappedMeanwhile || investedMeanwhile) {
               return null;
             }
+            const seededBranch =
+              defaultEnvMode === "worktree" ? (projectDefaultThreadBaseBranch ?? null) : null;
             workspaceContext = {
-              branch: null,
+              branch: seededBranch,
+              ...(seededBranch
+                ? { environmentSelection: emptyStoredDraftThread.environmentSelection ?? "auto" }
+                : {}),
               worktreePath: null,
               envMode: defaultEnvMode,
               createNewBranch: true,
@@ -407,13 +417,19 @@ export function useNewThreadHandler() {
           });
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
         }
+        const createNewBranch = options?.createNewBranch ?? true;
+        const seededBranch =
+          !hasBranchOption && initialEnvMode === "worktree" && createNewBranch
+            ? (projectDefaultThreadBaseBranch ?? null)
+            : null;
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
           createdAt,
-          branch: options?.branch ?? null,
+          branch: hasBranchOption ? (options?.branch ?? null) : seededBranch,
+          ...(seededBranch ? { environmentSelection: "auto" } : {}),
           worktreePath: options?.worktreePath ?? null,
           envMode: initialEnvMode,
-          createNewBranch: options?.createNewBranch ?? true,
+          createNewBranch,
           startFromOrigin:
             options?.startFromOrigin ??
             resolveNewDraftStartFromOrigin({

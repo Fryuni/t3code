@@ -12,6 +12,7 @@ import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import {
   listProjectOverrides,
   persistScopedSettingsPatch,
+  planProjectDefaultThreadBaseBranchPatch,
   planProjectOverridesClear,
   planScopedSettingsClear,
   planScopedSettingsPatch,
@@ -145,6 +146,20 @@ describe("scoped settings targets", () => {
     expect(scopedSettingsSource(targets, ["enableProviderUpdateChecks"])).toBe("environment");
     expect(scopedSettingsAreMixed(targets, ["defaultAutoPull"])).toBe(true);
   });
+
+  // The default base branch has no effective setting, so its row reads each member's raw entry.
+  it("carries each member's project-only default base branch at project scope", () => {
+    const configured = environment("Server", {
+      settings: { projectSettingsOverrides: { [projectId]: { defaultThreadBaseBranch: "dev" } } },
+    });
+    const targets = resolveScopedSettingsTargets(project, [laptop, configured]);
+    expect(
+      targets.map((target) => [target.projectId, target.overrides.defaultThreadBaseBranch]),
+    ).toEqual([
+      [projectId, "dev"],
+      [laptopProjectId, undefined],
+    ]);
+  });
 });
 
 describe("scoped settings writes", () => {
@@ -272,6 +287,55 @@ describe("scoped settings writes", () => {
       planScopedSettingsPatch(checkout, [laptop, server], { defaultAutoPull: true }),
     ).toMatchObject({
       serverWrites: [{ environmentId: server.environmentId }],
+    });
+  });
+
+  it("writes and clears the project-only default base branch without losing sibling overrides", () => {
+    const withExisting = environment("Server", {
+      settings: {
+        projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
+      },
+    });
+    expect(
+      planProjectDefaultThreadBaseBranchPatch(checkout, [withExisting], "  dev  ").serverWrites[0]
+        ?.patch,
+    ).toEqual({
+      projectSettingsOverrides: {
+        [projectId]: { enableAgentBrowserAccess: false, defaultThreadBaseBranch: "dev" },
+      },
+    });
+
+    const configured = environment("Server", {
+      settings: {
+        projectSettingsOverrides: {
+          [projectId]: { enableAgentBrowserAccess: false, defaultThreadBaseBranch: "dev" },
+        },
+      },
+    });
+    expect(
+      planProjectDefaultThreadBaseBranchPatch(checkout, [configured], null).serverWrites[0]?.patch,
+    ).toEqual({
+      projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
+    });
+
+    const onlyBranch = environment("Server", {
+      settings: { projectSettingsOverrides: { [projectId]: { defaultThreadBaseBranch: "dev" } } },
+    });
+    expect(
+      planProjectDefaultThreadBaseBranchPatch(checkout, [onlyBranch], "   ").serverWrites[0]?.patch,
+    ).toEqual({ projectSettingsOverrides: { [projectId]: null } });
+  });
+
+  it("explains why the default base branch cannot be saved", () => {
+    const legacy = environment("Server", { projectOverrides: false });
+    expect(planProjectDefaultThreadBaseBranchPatch(checkout, [legacy], "dev")).toMatchObject({
+      serverWrites: [],
+      unavailableReason:
+        "Connect the selected checkouts, or update their environments, to save this project setting.",
+    });
+    expect(planProjectDefaultThreadBaseBranchPatch(named, environments, "dev")).toMatchObject({
+      serverWrites: [],
+      unavailableReason: expect.stringContaining("project setting"),
     });
   });
 
