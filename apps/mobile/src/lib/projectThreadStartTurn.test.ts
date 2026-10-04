@@ -135,3 +135,51 @@ describe("new thread on an existing branch", () => {
     },
   );
 });
+
+describe("new worktree branch choice", () => {
+  it.each([
+    {
+      createNewBranch: undefined,
+      prepareWorktree: {
+        projectCwd: "/workspace",
+        baseBranch: "feature/existing",
+        branch: "t3code/new-branch",
+        startFromOrigin: true,
+      },
+    },
+    {
+      createNewBranch: false,
+      prepareWorktree: {
+        projectCwd: "/workspace",
+        baseBranch: "feature/existing",
+        createBranch: false,
+      },
+    },
+  ])(
+    "prepares the worktree for createNewBranch=$createNewBranch",
+    ({ createNewBranch, prepareWorktree }) => {
+      const input = buildProjectThreadStartTurnInput({
+        projectId: ProjectId.make("project"),
+        projectCwd: "/workspace",
+        threadId: "new-thread",
+        commandId: "command",
+        messageId: "message",
+        createdAt: "2026-09-06T00:00:00Z",
+        text: "Continue working",
+        uploadedAttachments: [],
+        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        workspaceMode: "worktree",
+        branch: "feature/existing",
+        worktreePath: null,
+        startFromOrigin: true,
+        ...(createNewBranch === undefined ? {} : { createNewBranch }),
+        worktreeBranchName: "t3code/new-branch",
+      });
+
+      expect(input.bootstrap.prepareWorktree).toEqual(prepareWorktree);
+      expect(input.bootstrap.createThread.branch).toBe("feature/existing");
+    },
+  );
+});

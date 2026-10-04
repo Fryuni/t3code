@@ -5,6 +5,7 @@ import {
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskBranchLabel,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveNewTaskWorktreeBranch,
 } from "./new-task-context-presentation";
 
 describe("resolveNewTaskLocalWorkspaceSelection", () => {
@@ -117,6 +118,17 @@ describe("resolveNewTaskBranchLabel", () => {
     ).toBe("From origin/main");
   });
 
+  it("labels an existing branch without a base or origin prefix", () => {
+    expect(
+      resolveNewTaskBranchLabel({
+        branchName: "feature/existing",
+        startFromOrigin: true,
+        createNewBranch: false,
+        workspaceMode: "worktree",
+      }),
+    ).toBe("feature/existing");
+  });
+
   it("prompts when no branch is available", () => {
     expect(
       resolveNewTaskBranchLabel({
@@ -125,6 +137,42 @@ describe("resolveNewTaskBranchLabel", () => {
         workspaceMode: "worktree",
       }),
     ).toBe("Choose branch");
+  });
+});
+
+describe("resolveNewTaskWorktreeBranch", () => {
+  const branches = [
+    { name: "main", isRemote: false, current: true, worktreePath: "/repo" },
+    { name: "feature/elsewhere", isRemote: false, current: false, worktreePath: "/worktrees/a" },
+    { name: "feature/free", isRemote: false, current: false, worktreePath: null },
+  ];
+
+  it.each([
+    { case: "the current checkout", selected: "main", expected: null },
+    { case: "another worktree's branch", selected: "feature/elsewhere", expected: null },
+    { case: "a branch that is not listed", selected: "feature/unknown", expected: null },
+    { case: "a free local branch", selected: "feature/free", expected: "feature/free" },
+  ])(
+    "with $case selected, checking out an existing branch keeps $expected",
+    ({ selected, expected }) => {
+      expect(
+        resolveNewTaskWorktreeBranch({
+          createNewBranch: false,
+          selectedBranchName: selected,
+          branches,
+        }),
+      ).toBe(expected);
+    },
+  );
+
+  it("keeps any base branch when creating a new branch", () => {
+    expect(
+      resolveNewTaskWorktreeBranch({
+        createNewBranch: true,
+        selectedBranchName: "main",
+        branches,
+      }),
+    ).toBe("main");
   });
 });
 

@@ -1,5 +1,6 @@
 import type { VcsRef } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { GitBranchIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -43,6 +44,7 @@ export function BranchPicker({
   isFetchingNextPage,
   onLoadNext,
   statusText,
+  createBranchControl,
   originControl,
   popupProps,
   renderItem,
@@ -62,6 +64,14 @@ export function BranchPicker({
   isFetchingNextPage: boolean;
   onLoadNext: () => void;
   statusText: string | null;
+  createBranchControl?:
+    | {
+        checked: boolean;
+        disabled: boolean;
+        tooltip: string;
+        onCheckedChange: (checked: boolean) => void;
+      }
+    | undefined;
   originControl?: { checked: boolean; onCheckedChange: (checked: boolean) => void } | undefined;
   popupProps: Omit<ComponentProps<typeof ComboboxPopup>, "children">;
   renderItem: (value: string, index: number) => ReactNode;
@@ -70,6 +80,7 @@ export function BranchPicker({
 }) {
   const highlightedValueRef = useRef<string | null>(null);
   const startFromOriginSwitchId = useId();
+  const createBranchSwitchId = useId();
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
   const previousBranchListScrollTopRef = useRef<number | null>(null);
   const handleOpenChange = useCallback(
@@ -224,6 +235,36 @@ export function BranchPicker({
               />
             </ComboboxListVirtualized>
           </div>
+          {createBranchControl ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <label
+                    htmlFor={createBranchSwitchId}
+                    className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
+                      <GitBranchIcon aria-hidden="true" className="size-3 shrink-0" />
+                      <span className="truncate">Create new branch</span>
+                    </span>
+                    <Switch
+                      id={createBranchSwitchId}
+                      checked={createBranchControl.checked}
+                      disabled={createBranchControl.disabled}
+                      size="sm"
+                      aria-label="Create new branch for worktree"
+                      onCheckedChange={(checked) =>
+                        createBranchControl.onCheckedChange(Boolean(checked))
+                      }
+                    />
+                  </label>
+                }
+              />
+              <TooltipPopup side="top" className="max-w-72 whitespace-normal">
+                {createBranchControl.tooltip}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
           {originControl ? (
             <Tooltip>
               <TooltipTrigger
@@ -264,6 +305,7 @@ export function BranchPickerRefItem({
   projectCwd: activeProjectCwd,
   index,
   value,
+  disabled,
   onClick,
   onContextMenu,
 }: {
@@ -271,6 +313,7 @@ export function BranchPickerRefItem({
   projectCwd: string | null;
   index: number;
   value?: string;
+  disabled?: boolean;
   onClick: ComponentProps<typeof ComboboxItem>["onClick"];
   onContextMenu?: ComponentProps<typeof ComboboxItem>["onContextMenu"];
 }) {
@@ -292,6 +335,7 @@ export function BranchPickerRefItem({
       key={itemValue}
       index={index}
       value={value ?? itemValue}
+      disabled={disabled ?? false}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >

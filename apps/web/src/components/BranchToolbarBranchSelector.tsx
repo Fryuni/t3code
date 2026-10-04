@@ -4,6 +4,7 @@ import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePull
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useRightPanelStore } from "../rightPanelStore";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { canCheckoutBranchInNewWorktree } from "@t3tools/client-runtime/state/vcs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -50,6 +51,7 @@ import {
   resolveBranchToolbarValue,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  resolveWorktreeBaseBranchCandidate,
   sanitizeNewRefName,
   shouldIncludeBranchPickerItem,
 } from "./BranchToolbar.logic";
@@ -82,6 +84,9 @@ interface BranchToolbarBranchSelectorProps {
   effectiveEnvModeOverride?: "local" | "worktree";
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
+  createNewBranch: boolean;
+  /** Omitted when the server cannot check out an existing branch, which hides the toggle. */
+  onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -104,12 +109,17 @@ export function BranchToolbarBranchSelector({
   effectiveEnvModeOverride,
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
+  createNewBranch: createNewBranchProp,
+  onCreateNewBranchChange,
   startFromOrigin,
   onStartFromOriginChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
   const composerFloatingLayerProps = useComposerMenuProps();
+  // Fan-out starts every model on its own generated branch, so it cannot check out one existing
+  // branch.
+  const createNewBranch = forceNewWorktree || createNewBranchProp;
   const stopThreadSession = useAtomCommand(threadEnvironment.stopSession, "thread session stop");
   const updateThreadMetadata = useAtomCommand(
     threadEnvironment.updateMetadata,
@@ -262,6 +272,7 @@ export function BranchToolbarBranchSelector({
     activeWorktreePath,
     activeThreadBranch,
     currentGitBranch,
+    createNewBranch,
   });
   const branchNames = useMemo(() => refs.map((refName) => refName.name), [refs]);
   const branchByName = useMemo(
@@ -333,6 +344,7 @@ export function BranchToolbarBranchSelector({
   const queriedActiveBranch = activeBranchRefQuery.data?.refs.find(
     (refName) => refName.name === resolvedActiveBranch,
   );
+  const selectedBranchRef = listedActiveBranch ?? queriedActiveBranch;
   const resolvedActiveBranchIsRemote =
     listedActiveBranch !== null
       ? listedActiveBranch.isRemote === true
@@ -403,6 +415,8 @@ export function BranchToolbarBranchSelector({
     if (!branchCwd || !activeProjectCwd || isBranchActionPending) return;
 
     if (isSelectingWorktreeBase) {
+      // Keyboard highlight can land on a disabled row.
+      if (!createNewBranch && !canCheckoutBranchInNewWorktree(refName)) return;
       setThreadBranch(refName.name, null);
       setIsBranchMenuOpen(false);
       onComposerFocusRequest?.();
@@ -502,9 +516,23 @@ export function BranchToolbarBranchSelector({
     () => refs.find((refName) => refName.isDefault)?.name ?? null,
     [refs],
   );
-  const worktreeBaseBranchCandidate = isInitialBranchesLoadPending
-    ? null
-    : (defaultBranchName ?? currentGitBranch);
+  const worktreeBaseBranchCandidate = resolveWorktreeBaseBranchCandidate({
+    createNewBranch,
+    isInitialBranchesLoadPending,
+    defaultBranchName,
+    currentGitBranch,
+  });
+
+  useEffect(() => {
+    if (
+      isSelectingWorktreeBase &&
+      !createNewBranch &&
+      selectedBranchRef &&
+      !canCheckoutBranchInNewWorktree(selectedBranchRef)
+    ) {
+      setThreadBranch(null, null, true);
+    }
+  }, [createNewBranch, isSelectingWorktreeBase, selectedBranchRef, setThreadBranch]);
 
   useEffect(() => {
     if (
@@ -551,6 +579,7 @@ export function BranchToolbarBranchSelector({
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
     startFromOrigin,
+    createNewBranch,
   });
 
   // Branch status is the fallback when this thread has no linked pull requests.
@@ -647,6 +676,9 @@ export function BranchToolbarBranchSelector({
         projectCwd={activeProjectCwd}
         index={index}
         value={itemValue}
+        disabled={
+          isSelectingWorktreeBase && !createNewBranch && !canCheckoutBranchInNewWorktree(refName)
+        }
         onClick={() => selectPickerItem(itemValue)}
         onContextMenu={(event) => handleBranchContextMenu(event, itemValue)}
       />
@@ -676,8 +708,20 @@ export function BranchToolbarBranchSelector({
             ? "create-branch"
             : "branch"
       }
+      createBranchControl={
+        isSelectingWorktreeBase && onCreateNewBranchChange
+          ? {
+              checked: createNewBranch,
+              disabled: forceNewWorktree,
+              tooltip: forceNewWorktree
+                ? "Each model starts in its own worktree, so each one needs its own new branch."
+                : "Turn off to check out the selected local branch in a new worktree. The branch must not already be checked out.",
+              onCheckedChange: onCreateNewBranchChange,
+            }
+          : undefined
+      }
       originControl={
-        isSelectingWorktreeBase
+        isSelectingWorktreeBase && createNewBranch
           ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
           : undefined
       }

@@ -108,6 +108,7 @@ import {
   filterNewTaskBranches,
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskLocalWorkspaceSelection,
+  resolveNewTaskWorktreeBranch,
 } from "./new-task-context-presentation";
 import { resolveEnvironmentProjectMatch } from "./new-task-project-selection";
 import { resolveProjectThreadCreationBranch } from "./projectThreadCreationValidation";
@@ -163,6 +164,8 @@ type NewTaskFlowContextValue = {
   readonly selectedBranchName: string | null;
   readonly selectedWorktreePath: string | null;
   readonly startFromOrigin: boolean;
+  /** False checks out the selected local branch itself in the new worktree. */
+  readonly createNewBranch: boolean;
   readonly draftKey: string | null;
   readonly editingPendingTask: QueuedThreadMessage | null;
   readonly prompt: string;
@@ -208,6 +211,8 @@ type NewTaskFlowContextValue = {
   readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
   readonly selectBranch: (branch: VcsRef) => void;
   readonly setStartFromOrigin: (value: boolean) => void;
+  /** Null when the server cannot check out an existing branch, which hides the toggle. */
+  readonly setCreateNewBranch: ((value: boolean) => void) | null;
   readonly beginEditingPendingTask: (messageId: string) => boolean;
   readonly finishEditingPendingTask: () => void;
   readonly cancelEditingPendingTask: () => void;
@@ -519,6 +524,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   const draftStartFromOrigin = selectedProjectDraft.workspaceSelection?.startFromOrigin;
   const startFromOrigin =
     draftStartFromOrigin ?? projectSettings.settings.newWorktreesStartFromOrigin;
+  // Older servers drop the flag and create a branch anyway. Like the origin flag, only the
+  // explicit choice is written back, so a config that loads late cannot overwrite it.
+  const supportsExistingBranchWorktree =
+    selectedEnvironmentServerConfig?.environment.capabilities.existingBranchWorktree === true;
+  const draftCreateNewBranch = selectedProjectDraft.workspaceSelection?.createNewBranch;
+  const createNewBranch = !supportsExistingBranchWorktree || draftCreateNewBranch !== false;
   const defaultRuntimeMode = editingPendingTask
     ? (editingPendingTask.runtimeMode ?? DEFAULT_RUNTIME_MODE)
     : projectSettings.settings.defaultRuntimeMode;
@@ -816,14 +827,24 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       updateComposerDraftSettings(selectedProjectDraftKey, {
         workspaceSelection: {
           mode,
-          branch: mode === "local" ? localSelection.branch : selectedBranchName,
+          branch:
+            mode === "local"
+              ? localSelection.branch
+              : resolveNewTaskWorktreeBranch({
+                  createNewBranch,
+                  selectedBranchName,
+                  branches: availableBranches,
+                }),
           worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+          ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
         },
       });
     },
     [
       availableBranches,
+      createNewBranch,
+      draftCreateNewBranch,
       draftStartFromOrigin,
       selectedBranchName,
       selectedProject,
@@ -856,10 +877,12 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
         branch: localSelection.branch,
         worktreePath: localSelection.worktreePath,
         ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+        ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
       },
     });
   }, [
     availableBranches,
+    draftCreateNewBranch,
     draftStartFromOrigin,
     selectedProject,
     selectedProjectDraftKey,
@@ -882,10 +905,17 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
             branchWorktreePath: branch.worktreePath,
           }),
           ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+          ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
         },
       });
     },
-    [draftStartFromOrigin, selectedProject, selectedProjectDraftKey, workspaceMode],
+    [
+      draftCreateNewBranch,
+      draftStartFromOrigin,
+      selectedProject,
+      selectedProjectDraftKey,
+      workspaceMode,
+    ],
   );
 
   const setStartFromOrigin = useCallback(
@@ -899,11 +929,48 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch: selectedBranchName,
           worktreePath: selectedWorktreePath,
           startFromOrigin: value,
+          ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
         },
       });
     },
-    [selectedBranchName, selectedProjectDraftKey, selectedWorktreePath, workspaceMode],
+    [
+      draftCreateNewBranch,
+      selectedBranchName,
+      selectedProjectDraftKey,
+      selectedWorktreePath,
+      workspaceMode,
+    ],
   );
+
+  const updateCreateNewBranch = useCallback(
+    (value: boolean) => {
+      if (!selectedProjectDraftKey) {
+        return;
+      }
+      updateComposerDraftSettings(selectedProjectDraftKey, {
+        workspaceSelection: {
+          mode: workspaceMode,
+          branch: resolveNewTaskWorktreeBranch({
+            createNewBranch: value,
+            selectedBranchName,
+            branches: availableBranches,
+          }),
+          worktreePath: selectedWorktreePath,
+          ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
+          createNewBranch: value,
+        },
+      });
+    },
+    [
+      availableBranches,
+      draftStartFromOrigin,
+      selectedBranchName,
+      selectedProjectDraftKey,
+      selectedWorktreePath,
+      workspaceMode,
+    ],
+  );
+  const setCreateNewBranch = supportsExistingBranchWorktree ? updateCreateNewBranch : null;
 
   const refreshBranches = branchState.refresh;
   const loadMoreBranches = branchState.loadNext;
@@ -920,6 +987,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       !selectedProjectDraftKey ||
       !defaultWorkspaceModeSettled ||
       workspaceMode !== "worktree" ||
+      !createNewBranch ||
       selectedBranchName !== null
     ) {
       return;
@@ -943,6 +1011,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
   }, [
     allBranchRefs,
     availableBranches,
+    createNewBranch,
     defaultWorkspaceModeSettled,
     selectBranch,
     selectedBranchName,
@@ -989,6 +1058,9 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           branch: message.creation.branch,
           worktreePath: message.creation.worktreePath,
           startFromOrigin: message.creation.startFromOrigin ?? false,
+          ...(message.creation.createNewBranch !== undefined
+            ? { createNewBranch: message.creation.createNewBranch }
+            : {}),
         },
       });
     }
@@ -1080,6 +1152,11 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
           ...((workspaceSelection?.startFromOrigin ?? startFromOrigin)
             ? { startFromOrigin: true }
             : {}),
+          ...(mode === "worktree" &&
+          supportsExistingBranchWorktree &&
+          workspaceSelection?.createNewBranch === false
+            ? { createNewBranch: false }
+            : {}),
         },
         createdAt: metadata.createdAt,
       };
@@ -1096,6 +1173,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       legacyPlanModeEnabled,
       planModePreferenceLoaded,
       startFromOrigin,
+      supportsExistingBranchWorktree,
       workspaceMode,
     ],
   );
@@ -1213,6 +1291,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       selectedBranchName,
       selectedWorktreePath,
       startFromOrigin,
+      createNewBranch,
       draftKey: selectedProjectDraftKey,
       editingPendingTask,
       prompt,
@@ -1246,6 +1325,7 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setWorkspaceMode,
       selectBranch,
       setStartFromOrigin,
+      setCreateNewBranch,
       beginEditingPendingTask,
       finishEditingPendingTask,
       cancelEditingPendingTask,
@@ -1313,8 +1393,10 @@ export function NewTaskFlowProvider(props: React.PropsWithChildren) {
       setRuntimeMode,
       setSelectedModelKey,
       setStartFromOrigin,
+      setCreateNewBranch,
       setWorkspaceMode,
       startFromOrigin,
+      createNewBranch,
       submitting,
       workspaceMode,
       canChooseWorkspace,

@@ -14,6 +14,7 @@ import {
   resolveBranchToolbarValue,
   resolveLockedWorkspaceLabel,
   resolveWorkspaceDisplayName,
+  resolveWorktreeBaseBranchCandidate,
   resolveLocalCheckoutBranchMismatch,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
@@ -144,6 +145,30 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
 });
 
 describe("resolveBranchToolbarValue", () => {
+  it("keeps an existing-branch selection empty until the user chooses a branch", () => {
+    expect(
+      resolveBranchToolbarValue({
+        envMode: "worktree",
+        activeWorktreePath: null,
+        activeThreadBranch: null,
+        currentGitBranch: "main",
+        createNewBranch: false,
+      }),
+    ).toBeNull();
+  });
+
+  it("preserves a selected existing branch", () => {
+    expect(
+      resolveBranchToolbarValue({
+        envMode: "worktree",
+        activeWorktreePath: null,
+        activeThreadBranch: "feature/existing",
+        currentGitBranch: "main",
+        createNewBranch: false,
+      }),
+    ).toBe("feature/existing");
+  });
+
   it("defaults new-worktree mode to current git ref when no explicit base ref is set", () => {
     expect(
       resolveBranchToolbarValue({
@@ -178,7 +203,53 @@ describe("resolveBranchToolbarValue", () => {
   });
 });
 
+describe("resolveWorktreeBaseBranchCandidate", () => {
+  it.each([
+    { case: "the repo default", createNewBranch: true, pending: false, expected: "main" },
+    { case: "nothing while branches load", createNewBranch: true, pending: true, expected: null },
+    {
+      case: "nothing when checking out an existing branch",
+      createNewBranch: false,
+      pending: false,
+      expected: null,
+    },
+  ])("defaults the base to $case", ({ createNewBranch, pending, expected }) => {
+    expect(
+      resolveWorktreeBaseBranchCandidate({
+        createNewBranch,
+        isInitialBranchesLoadPending: pending,
+        defaultBranchName: "main",
+        currentGitBranch: "feature/current",
+      }),
+    ).toBe(expected);
+  });
+
+  it("falls back to the checked-out branch without a known default", () => {
+    expect(
+      resolveWorktreeBaseBranchCandidate({
+        createNewBranch: true,
+        isInitialBranchesLoadPending: false,
+        defaultBranchName: null,
+        currentGitBranch: "feature/current",
+      }),
+    ).toBe("feature/current");
+  });
+});
+
 describe("resolveBranchTriggerLabel", () => {
+  it("labels an existing branch without a base or origin prefix", () => {
+    expect(
+      resolveBranchTriggerLabel({
+        activeWorktreePath: null,
+        effectiveEnvMode: "worktree",
+        resolvedActiveBranch: "feature/existing",
+        resolvedActiveBranchIsRemote: false,
+        startFromOrigin: true,
+        createNewBranch: false,
+      }),
+    ).toBe("feature/existing");
+  });
+
   it("shows the origin ref when a new worktree will start from origin", () => {
     expect(
       resolveBranchTriggerLabel({

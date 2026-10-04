@@ -102,7 +102,9 @@ export const ProjectHandlersLive = ProjectToolkit.toLayer({
         Effect.mapError((error) =>
           error._tag === "AttachmentClaimError"
             ? new OrchestratorMcpFailure({ code: "orchestration_error", message: error.message })
-            : unavailable(),
+            : error._tag === "ThreadLaunchWorkspaceError"
+              ? new OrchestratorMcpFailure({ code: "invalid_request", message: error.message })
+              : unavailable(),
         ),
       );
       const thread = result.projection.thread;

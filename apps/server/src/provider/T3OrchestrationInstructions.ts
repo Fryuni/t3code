@@ -16,6 +16,7 @@ The \`t3-code\` MCP server provides app-owned orchestration. Treat these concept
 For independent implementation or a PR stack in its own worktree, use \`t3_thread_launch\` with an explicit \`workspaceStrategy\`. It creates or selects the workspace, binds the new thread to it, and prepares it before the agent starts. Put the task in \`message\`, not \`prompt\`:
 
 - New worktree: \`{"title":"UI cleanup","workspaceStrategy":{"type":"worktree","baseRef":"feature/base","branch":"feature/ui-cleanup","startFromOrigin":false},"message":"Implement the cleanup and open a PR against feature/base."}\`
+- Existing local branch in a new worktree: \`{"title":"Continue cleanup","workspaceStrategy":{"type":"worktree","baseRef":"feature/ui-cleanup","createBranch":false},"message":"Continue the cleanup."}\`. The branch must exist locally and must not be checked out anywhere else; omit \`branch\` and \`startFromOrigin\`.
 - Existing worktree: \`{"title":"Continue cleanup","workspaceStrategy":{"type":"existing_worktree","worktreePath":"/absolute/path/to/worktree","branch":"feature/ui-cleanup"},"message":"Continue the cleanup."}\`
 - Project's main checkout: \`workspaceStrategy:{"type":"root"}\`. Omitting workspaceStrategy also selects root; it does not inherit the caller's worktree.
 

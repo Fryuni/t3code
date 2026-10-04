@@ -24,6 +24,16 @@ describe("ExecutionEnvironmentDescriptor", () => {
     ).toBe(true);
   });
 
+  it("treats a missing existing-branch worktree capability as unsupported", () => {
+    expect(decodeDescriptor(descriptor).capabilities.existingBranchWorktree).toBeUndefined();
+    expect(
+      decodeDescriptor({
+        ...descriptor,
+        capabilities: { ...descriptor.capabilities, existingBranchWorktree: true },
+      }).capabilities.existingBranchWorktree,
+    ).toBe(true);
+  });
+
   it("treats a missing pull-request capability as unsupported under version skew", () => {
     expect(decodeDescriptor(descriptor).capabilities.pullRequests).toBeUndefined();
   });

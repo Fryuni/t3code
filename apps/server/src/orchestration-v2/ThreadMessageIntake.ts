@@ -220,9 +220,11 @@ export const launchThread = Effect.fn("ThreadMessageIntake.launchThread")(functi
         ),
       ),
       Effect.tapError((error) => {
-        // Project/receipt reads precede message dispatch. The create-thread error
-        // also wraps post-message projection reads, so its tag alone is not proof.
+        // Project/receipt reads and workspace checks precede message dispatch. The
+        // create-thread error also wraps post-message projection reads, so its tag
+        // alone is not proof.
         const notAccepted =
+          error._tag === "ThreadLaunchWorkspaceError" ||
           error.operation === "resolve-project" ||
           error.operation === "read-receipt" ||
           ((error.operation === "create-thread" || error.operation === "dispatch-message") &&

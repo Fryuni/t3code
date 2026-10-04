@@ -18,6 +18,7 @@ import {
   type RuntimeMode,
   type ScheduledTaskId,
   ThreadId,
+  type VcsListRefsResult,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -55,6 +56,8 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
+      /** False checks out `baseRef` as an existing local branch instead of creating one. */
+      readonly createBranch?: boolean | undefined;
     };
 
 export interface ThreadLaunchInitialMessage {
@@ -122,12 +125,22 @@ export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
   }
 }
 
+/** A workspace request that cannot be honored as asked. The message is written for the requester. */
+export class ThreadLaunchWorkspaceError extends Schema.TaggedError<ThreadLaunchWorkspaceError>()(
+  "ThreadLaunchWorkspaceError",
+  {
+    commandId: CommandId,
+    projectId: ProjectId,
+    message: Schema.String,
+  },
+) {}
+
 export class ThreadLaunchService extends Context.Service<
   ThreadLaunchService,
   {
     readonly launch: (
       input: ThreadLaunchInput,
-    ) => Effect.Effect<ThreadLaunchResult, ThreadLaunchError>;
+    ) => Effect.Effect<ThreadLaunchResult, ThreadLaunchError | ThreadLaunchWorkspaceError>;
   }
 >()("t3/orchestration-v2/ThreadLaunchService") {}
 
@@ -176,6 +189,62 @@ const make = Effect.gen(function* () {
       .getByCommandId(commandId)
       .pipe(Effect.mapError(mapError(input, "read-receipt", input.threadId)));
 
+  const findLocalBranch = Effect.fn("ThreadLaunchService.findLocalBranch")(function* (
+    cwd: string,
+    name: string,
+  ) {
+    let cursor: number | null = 0;
+    while (cursor !== null) {
+      const page: VcsListRefsResult = yield* git.listRefs({
+        cwd,
+        query: name,
+        refKind: "local",
+        refresh: cursor === 0,
+        cursor,
+      });
+      const match = page.refs.find((ref) => ref.name === name);
+      if (match !== undefined) return match;
+      cursor = page.nextCursor;
+    }
+    return null;
+  });
+
+  // Checking out an existing branch skips branch creation, so the branch must
+  // already exist locally and be free: git refuses a branch another worktree
+  // (or the project checkout) has checked out. listRefs ignores worktrees whose
+  // directory is gone, but git still holds their branches until a prune.
+  const validateExistingBranchCheckout = Effect.fn(
+    "ThreadLaunchService.validateExistingBranchCheckout",
+  )(function* (input: ThreadLaunchInput, cwd: string) {
+    const strategy = input.workspaceStrategy;
+    if (strategy.type !== "worktree" || strategy.createBranch !== false) return;
+    const reject = (message: string) =>
+      new ThreadLaunchWorkspaceError({
+        commandId: input.commandId,
+        projectId: input.projectId,
+        message,
+      });
+    if (strategy.branch !== undefined || strategy.startFromOrigin === true) {
+      return yield* reject(
+        "Checking out an existing branch cannot also name a new branch or start from origin.",
+      );
+    }
+    yield* git.pruneWorktrees({ cwd }).pipe(Effect.ignore({ log: true }));
+    const ref = yield* findLocalBranch(cwd, strategy.baseRef).pipe(
+      Effect.mapError(mapError(input, "provision-worktree")),
+    );
+    if (ref === null) {
+      return yield* reject(
+        `"${strategy.baseRef}" is not a local branch. Select an existing local branch, or enable Create new branch to start from a remote ref.`,
+      );
+    }
+    if (ref.worktreePath !== null) {
+      return yield* reject(
+        `Branch "${strategy.baseRef}" is already checked out at ${ref.worktreePath}. Select another branch, or enable Create new branch.`,
+      );
+    }
+  });
+
   const validateReusableThread = Effect.fn("ThreadLaunchService.validateReusableThread")(function* (
     input: ThreadLaunchInput,
     threadId: ThreadId,
@@ -217,12 +286,16 @@ const make = Effect.gen(function* () {
     );
 
     const tracked = input.workspaceStrategy.type === "worktree";
+    const existingBranch =
+      input.workspaceStrategy.type === "worktree" && input.workspaceStrategy.createBranch === false
+        ? input.workspaceStrategy.baseRef
+        : null;
     let createdWorktreePath: string | null = null;
     let setupTerminalId: string | null = null;
     if (tracked) {
       yield* setupTracker.begin({
         threadId,
-        branch: input.workspaceStrategy.branch ?? null,
+        branch: existingBranch ?? input.workspaceStrategy.branch ?? null,
         baseRef: input.workspaceStrategy.baseRef,
         stages: ["fetch", "checkout", "setup-script", "agent"],
         fiber: yield* Effect.fiber,
@@ -269,7 +342,9 @@ const make = Effect.gen(function* () {
       // name generation, then rename in the background below.
       const requestedBranch = input.workspaceStrategy.branch;
       let branch: string | null;
-      if (input.workspaceStrategy.type === "worktree" && requestedBranch === undefined) {
+      if (existingBranch !== null) {
+        branch = existingBranch;
+      } else if (input.workspaceStrategy.type === "worktree" && requestedBranch === undefined) {
         const uuid = yield* randomUuidV4;
         branch = buildTemporaryWorktreeBranchName(() => uuid.replaceAll("-", ""));
       } else {
@@ -295,6 +370,7 @@ const make = Effect.gen(function* () {
         // "Start from origin" is a stored default; repos without the requested
         // remote branch fall back to the local base branch.
         const startFromOrigin =
+          existingBranch === null &&
           input.workspaceStrategy.startFromOrigin === true &&
           (yield* git
             .remoteExists({ cwd: project.workspaceRoot, remoteName: "origin" })
@@ -332,13 +408,15 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const worktree = yield* git
           .createWorktree(
-            {
-              cwd: project.workspaceRoot,
-              refName: startRef,
-              newRefName: branch!,
-              baseRefName: input.workspaceStrategy.baseRef,
-              path: null,
-            },
+            existingBranch === null
+              ? {
+                  cwd: project.workspaceRoot,
+                  refName: startRef,
+                  newRefName: branch!,
+                  baseRefName: input.workspaceStrategy.baseRef,
+                  path: null,
+                }
+              : { cwd: project.workspaceRoot, refName: existingBranch, path: null },
             {
               progress: {
                 onWorktreeClaimed: (path) =>
@@ -371,8 +449,10 @@ const make = Effect.gen(function* () {
       // Rename temporary branches (server-invented above, or sent by clients
       // that name worktrees themselves) in the background so generation latency
       // never delays provisioning or the provider turn. The temporary name
-      // simply sticks if generation or the rename fails.
+      // simply sticks if generation or the rename fails. A checked-out existing
+      // branch keeps its name even when it looks temporary.
       if (
+        existingBranch === null &&
         worktreePath !== null &&
         branch !== null &&
         initialMessage !== undefined &&
@@ -634,6 +714,10 @@ const make = Effect.gen(function* () {
       }
 
       const launchReceipt = yield* readReceipt(input, input.commandId);
+      // A retry would find the branch occupied by its own first attempt.
+      if (Option.isNone(launchReceipt)) {
+        yield* validateExistingBranchCheckout(input, project.workspaceRoot);
+      }
       return yield* Effect.gen(function* () {
         // A retried launch has no client-supplied id to replay against, so
         // recover the thread id its accepted create was recorded under before
@@ -691,7 +775,10 @@ const make = Effect.gen(function* () {
                 },
               )
             : input.workspaceStrategy;
-        const initialBranch = workspaceStrategy.branch ?? null;
+        const initialBranch =
+          workspaceStrategy.type === "worktree" && workspaceStrategy.createBranch === false
+            ? workspaceStrategy.baseRef
+            : (workspaceStrategy.branch ?? null);
         const initialWorktreePath =
           workspaceStrategy.type === "existing_worktree" ? workspaceStrategy.worktreePath : null;
         const claimDispatch =

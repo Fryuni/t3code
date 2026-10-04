@@ -286,4 +286,40 @@ describe.each([
       );
     },
   );
+
+  // A reused draft may still hold an earlier existing-branch choice.
+  it.each([
+    { option: undefined, createNewBranch: true },
+    { option: false, createNewBranch: false },
+  ])(
+    "opens with createNewBranch $createNewBranch when the option is $option",
+    async ({ option, createNewBranch }) => {
+      testState.reset(draft, { envMode: "worktree", startFromOrigin: false });
+      const openThread = useNewThreadHandler();
+      const projectRef = {
+        environmentId: "environment-ssh",
+        projectId: "project-remote",
+      } as never;
+      const pendingOpen = openThread(
+        projectRef,
+        option === undefined ? undefined : { createNewBranch: option },
+      );
+
+      testState.completeProjectFileRead(null);
+      const opened = await pendingOpen;
+
+      expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
+        "remote-project",
+        projectRef,
+        opened!.draftId,
+        expect.objectContaining({ createNewBranch }),
+      );
+      if (draft) {
+        expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
+          draft.draftId,
+          expect.objectContaining({ createNewBranch }),
+        );
+      }
+    },
+  );
 });

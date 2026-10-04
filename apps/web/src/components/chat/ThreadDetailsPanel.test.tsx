@@ -73,6 +73,7 @@ describe("ThreadDetailsPanel", () => {
       envMode: "local",
       startFromOrigin: false,
       onStartFromOriginChange: vi.fn(),
+      createNewBranch: true,
       onComposerFocusRequest: vi.fn(),
       versionMismatch: null,
       onDismissVersionMismatch: vi.fn(),

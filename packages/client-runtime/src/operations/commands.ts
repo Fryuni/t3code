@@ -158,6 +158,8 @@ interface StartThreadBootstrap {
     readonly baseBranch: string;
     readonly branch?: string;
     readonly startFromOrigin?: boolean;
+    /** False checks out `baseBranch` itself instead of creating a branch from it. */
+    readonly createBranch?: boolean;
   };
   readonly runSetupScript?: boolean;
 }
@@ -647,6 +649,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
             ...(prepareWorktree.startFromOrigin === undefined
               ? {}
               : { startFromOrigin: prepareWorktree.startFromOrigin }),
+            ...(prepareWorktree.createBranch === undefined
+              ? {}
+              : { createBranch: prepareWorktree.createBranch }),
           }
         : bootstrap?.worktreePath
           ? {

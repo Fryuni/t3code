@@ -1706,6 +1706,74 @@ describe("composerDraftStore project draft thread mapping", () => {
     });
   });
 
+  it("preserves the existing-branch choice through edits and rehydration", async () => {
+    vi.useFakeTimers();
+    try {
+      const store = useComposerDraftStore.getState();
+      store.setProjectDraftThreadId(projectRef, draftId, { threadId, envMode: "worktree" });
+      expect(store.getDraftThread(draftId)?.createNewBranch).toBe(true);
+      store.setDraftThreadContext(draftId, { createNewBranch: false });
+      store.setDraftThreadContext(draftId, { branch: "feature/existing" });
+      await vi.advanceTimersByTimeAsync(300);
+      resetComposerDraftStore();
+      await useComposerDraftStore.persist.rehydrate();
+      expect(useComposerDraftStore.getState().getDraftThread(draftId)).toMatchObject({
+        createNewBranch: false,
+        branch: "feature/existing",
+        envMode: "worktree",
+      });
+      store.setDraftThreadContext(draftId, { createNewBranch: true });
+      expect(store.getDraftThread(draftId)?.createNewBranch).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("creates a branch for worktree drafts saved without the existing-branch choice", async () => {
+    vi.useFakeTimers();
+    try {
+      const storage = useComposerDraftStore.persist.getOptions().storage;
+      expect(storage).toBeDefined();
+      storage?.setItem(COMPOSER_DRAFT_STORAGE_KEY, {
+        version: 9,
+        state: {
+          draftsByThreadKey: {},
+          draftThreadsByThreadKey: {
+            [draftId]: {
+              threadId,
+              environmentId: TEST_ENVIRONMENT_ID,
+              projectId,
+              logicalProjectKey: `${TEST_ENVIRONMENT_ID}:${projectId}`,
+              createdAt: "2026-08-01T00:00:00.000Z",
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: "main",
+              worktreePath: null,
+              envMode: "worktree",
+              startFromOrigin: false,
+              promotedTo: null,
+            },
+          },
+          logicalProjectDraftThreadKeyByLogicalProjectKey: {},
+          stickyModelSelectionByProvider: {},
+          stickyActiveProvider: null,
+        },
+      } as never);
+      await vi.advanceTimersByTimeAsync(300);
+
+      await useComposerDraftStore.persist.rehydrate();
+
+      expect(useComposerDraftStore.getState().getDraftThread(draftId)).toMatchObject({
+        branch: "main",
+        envMode: "worktree",
+        createNewBranch: true,
+      });
+    } finally {
+      await useComposerDraftStore.persist.clearStorage();
+      vi.useRealTimers();
+    }
+  });
+
   it("stores the start-from-origin choice with the draft thread", () => {
     const store = useComposerDraftStore.getState();
     store.setProjectDraftThreadId(projectRef, draftId, {

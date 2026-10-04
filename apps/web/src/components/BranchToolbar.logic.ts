@@ -212,12 +212,28 @@ export function resolveBranchToolbarValue(input: {
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
+  createNewBranch?: boolean;
 }): string | null {
   const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
   if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
+    return activeThreadBranch ?? (input.createNewBranch === false ? null : currentGitBranch);
   }
   return currentGitBranch ?? activeThreadBranch;
+}
+
+/**
+ * The branch a new worktree's base defaults to: the repo default, else the checked-out branch.
+ * Null while checking out an existing branch, since both defaults are usually checked out already
+ * and the user has to pick a free one.
+ */
+export function resolveWorktreeBaseBranchCandidate(input: {
+  createNewBranch: boolean;
+  isInitialBranchesLoadPending: boolean;
+  defaultBranchName: string | null;
+  currentGitBranch: string | null;
+}): string | null {
+  if (!input.createNewBranch || input.isInitialBranchesLoadPending) return null;
+  return input.defaultBranchName ?? input.currentGitBranch;
 }
 
 export function resolveBranchTriggerLabel(input: {
@@ -226,6 +242,7 @@ export function resolveBranchTriggerLabel(input: {
   resolvedActiveBranch: string | null;
   resolvedActiveBranchIsRemote: boolean | null;
   startFromOrigin: boolean;
+  createNewBranch?: boolean;
 }): string {
   const {
     activeWorktreePath,
@@ -233,11 +250,12 @@ export function resolveBranchTriggerLabel(input: {
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
     startFromOrigin,
+    createNewBranch = true,
   } = input;
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
-  if (effectiveEnvMode === "worktree" && !activeWorktreePath) {
+  if (effectiveEnvMode === "worktree" && !activeWorktreePath && createNewBranch) {
     const baseRef =
       startFromOrigin && resolvedActiveBranchIsRemote === false
         ? `origin/${resolvedActiveBranch}`

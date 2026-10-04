@@ -839,17 +839,21 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
   envMode: DraftThreadEnvMode;
   branch: string | null;
   startFromOrigin: boolean;
+  createNewBranch?: boolean;
 }): {
   envMode: DraftThreadEnvMode;
   branch: string | null;
   worktreePath: null;
   startFromOrigin: boolean;
+  createNewBranch?: boolean;
 } {
   return {
     envMode: input.envMode,
-    branch: input.branch,
+    // The preceding send has already checked this branch out in its worktree.
+    branch: input.envMode === "worktree" && input.createNewBranch === false ? null : input.branch,
     worktreePath: null,
     startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+    ...(input.createNewBranch !== undefined ? { createNewBranch: input.createNewBranch } : {}),
   };
 }
 

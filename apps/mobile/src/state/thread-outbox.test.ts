@@ -1407,6 +1407,7 @@ describe("thread outbox", () => {
         branch: "main",
         worktreePath: null,
         startFromOrigin: true,
+        createNewBranch: false,
       },
     } satisfies QueuedThreadMessage;
 

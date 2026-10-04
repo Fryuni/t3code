@@ -80,6 +80,8 @@ interface BranchToolbarProps {
   envMode: EnvMode;
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
+  createNewBranch: boolean;
+  onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   autoEnvironmentLabel?: string | undefined;
@@ -511,6 +513,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   envMode,
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
+  createNewBranch,
+  onCreateNewBranchChange,
   startFromOrigin,
   onStartFromOriginChange,
   autoEnvironmentLabel,
@@ -630,6 +634,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         {panelSection !== "workspace" ? (
           <BranchToolbarBranchSelector
             displayMode="panel"
+            forceNewWorktree={forceNewWorktree}
             className="w-full"
             environmentId={environmentId}
             threadId={threadId}
@@ -638,6 +643,8 @@ export const BranchToolbar = memo(function BranchToolbar({
             effectiveEnvModeOverride={effectiveEnvMode}
             {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
             {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+            createNewBranch={createNewBranch}
+            onCreateNewBranchChange={onCreateNewBranchChange}
             startFromOrigin={startFromOrigin}
             onStartFromOriginChange={onStartFromOriginChange}
             {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
@@ -748,6 +755,8 @@ export const BranchToolbar = memo(function BranchToolbar({
           effectiveEnvModeOverride={effectiveEnvMode}
           {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
           {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
+          createNewBranch={createNewBranch}
+          onCreateNewBranchChange={onCreateNewBranchChange}
           startFromOrigin={startFromOrigin}
           onStartFromOriginChange={onStartFromOriginChange}
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}

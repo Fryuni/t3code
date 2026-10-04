@@ -1,3 +1,4 @@
+import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 
 type WorkspaceMode = "local" | "worktree";
@@ -62,18 +63,34 @@ export function resolveNewTaskLocalWorkspaceSelection(input: {
 export function resolveNewTaskBranchLabel(input: {
   readonly branchName: string | null;
   readonly startFromOrigin: boolean;
+  readonly createNewBranch?: boolean;
   readonly workspaceMode: WorkspaceMode;
 }): string {
   if (!input.branchName) {
     return "Choose branch";
   }
 
-  if (input.workspaceMode === "local") {
+  if (input.workspaceMode === "local" || input.createNewBranch === false) {
     return input.branchName;
   }
 
   const baseRef = input.startFromOrigin ? `origin/${input.branchName}` : input.branchName;
   return `From ${baseRef}`;
+}
+
+/**
+ * The branch a draft keeps on entering New worktree or changing its create-new-branch choice.
+ * Checking out an existing branch drops one that cannot be checked out again, such as the current
+ * checkout.
+ */
+export function resolveNewTaskWorktreeBranch(input: {
+  readonly createNewBranch: boolean;
+  readonly selectedBranchName: string | null;
+  readonly branches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "current" | "worktreePath">>;
+}): string | null {
+  if (input.createNewBranch) return input.selectedBranchName;
+  const selected = input.branches.find((branch) => branch.name === input.selectedBranchName);
+  return canCheckoutBranchInNewWorktree(selected) ? input.selectedBranchName : null;
 }
 
 export function shouldCheckoutNewTaskBranch(input: {

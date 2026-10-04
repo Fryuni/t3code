@@ -1,6 +1,6 @@
 import { MaterialListRow } from "../../components/MaterialListRow";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import type { VcsRef } from "@t3tools/client-runtime/state/vcs";
+import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import { type EnvironmentId, resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
@@ -389,14 +389,16 @@ export function NewTaskBranchPickerRouteScreen() {
 
   return (
     <BranchPickerScreen
-      title={flow.workspaceMode === "worktree" ? "Base branch" : "Branch"}
+      title={flow.workspaceMode === "worktree" && flow.createNewBranch ? "Base branch" : "Branch"}
       project={flow.selectedProject}
       branches={flow.filteredBranches}
       selectedBranchName={
         flow.selectedBranchName ??
-        flow.availableBranches.find((branch) => branch.current)?.name ??
-        flow.availableBranches.find((branch) => branch.isDefault)?.name ??
-        null
+        (flow.createNewBranch
+          ? (flow.availableBranches.find((branch) => branch.current)?.name ??
+            flow.availableBranches.find((branch) => branch.isDefault)?.name ??
+            null)
+          : null)
       }
       query={flow.branchQuery}
       onQueryChange={flow.setBranchQuery}
@@ -413,6 +415,8 @@ export function NewTaskBranchPickerRouteScreen() {
           ? {
               startFromOrigin: flow.startFromOrigin,
               onChangeStartFromOrigin: flow.setStartFromOrigin,
+              createNewBranch: flow.createNewBranch,
+              onChangeCreateNewBranch: flow.setCreateNewBranch,
             }
           : undefined
       }
@@ -439,16 +443,22 @@ export function BranchPickerScreen(props: {
   readonly worktree?: {
     readonly startFromOrigin: boolean;
     readonly onChangeStartFromOrigin: (value: boolean) => void;
+    /** Scheduled tasks omit these: a recurring run would find its branch still checked out. */
+    readonly createNewBranch?: boolean;
+    readonly onChangeCreateNewBranch?: ((value: boolean) => void) | null;
   };
 }) {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
   const usesNativeMailSearchToolbar = Platform.OS === "ios" && NATIVE_MAIL_SEARCH_TOOLBAR_SUPPORTED;
+  const checksOutExistingBranch = props.worktree?.createNewBranch === false;
   const selectedBranchName =
     props.selectedBranchName ??
-    props.branches.find((branch) => branch.current)?.name ??
-    props.branches.find((branch) => branch.isDefault)?.name ??
-    null;
+    (checksOutExistingBranch
+      ? null
+      : (props.branches.find((branch) => branch.current)?.name ??
+        props.branches.find((branch) => branch.isDefault)?.name ??
+        null));
   const branchListContentStyle = useMemo(
     () => ({
       paddingBottom: usesNativeMailSearchToolbar
@@ -467,7 +477,10 @@ export function BranchPickerScreen(props: {
       <BranchSelectionRow
         badge={branchBadgeLabel({ branch: item, project: props.project })}
         branch={item}
-        disabled={props.selectionDisabled ?? false}
+        disabled={
+          (props.selectionDisabled ?? false) ||
+          (checksOutExistingBranch && !canCheckoutBranchInNewWorktree(item))
+        }
         isFirst={index === 0}
         isLast={index === props.branches.length - 1}
         onSelect={props.onSelect}
@@ -475,6 +488,7 @@ export function BranchPickerScreen(props: {
       />
     ),
     [
+      checksOutExistingBranch,
       props.branches.length,
       props.project,
       props.onSelect,
@@ -490,11 +504,24 @@ export function BranchPickerScreen(props: {
         Platform.OS === "android" ? "rounded-[28px]" : "rounded-2xl",
       )}
     >
-      <ToggleRow
-        onValueChange={props.worktree.onChangeStartFromOrigin}
-        title="Start from origin"
-        value={props.worktree.startFromOrigin}
-      />
+      {props.worktree.onChangeCreateNewBranch ? (
+        <ToggleRow
+          onValueChange={props.worktree.onChangeCreateNewBranch}
+          title="Create new branch"
+          value={!checksOutExistingBranch}
+        />
+      ) : null}
+      {checksOutExistingBranch ? (
+        <Text className="bg-grouped-card px-4 pb-3 text-sm text-foreground-muted">
+          Select a local branch that is not already checked out.
+        </Text>
+      ) : (
+        <ToggleRow
+          onValueChange={props.worktree.onChangeStartFromOrigin}
+          title="Start from origin"
+          value={props.worktree.startFromOrigin}
+        />
+      )}
     </View>
   ) : null;
 
