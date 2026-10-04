@@ -17,6 +17,20 @@ it.effect(
       const archivedAt = "2026-09-03T00:00:00.000Z";
       const fixtures = [
         {
+          id: "upper-instance",
+          host: "git.example.test",
+          repository: "Forge/acme/web",
+          number: 7,
+          source: "manual",
+        },
+        {
+          id: "lower-instance",
+          host: "git.example.test",
+          repository: "forge/acme/web",
+          number: 7,
+          source: "manual",
+        },
+        {
           id: "forgejo-old",
           host: "forge.example",
           repository: "acme/web",
@@ -160,6 +174,18 @@ it.effect(
           number: 7,
         })).threads.map((thread) => thread.id),
       ).toEqual(["azure"]);
+      for (const [path, id] of [
+        ["Forge", "upper-instance"],
+        ["forge", "lower-instance"],
+      ]) {
+        expect(
+          (yield* listLinkedPullRequestThreads({
+            host: "git.example.test",
+            repository: `${path}/ACME/WEB`,
+            number: 7,
+          })).threads.map((thread) => thread.id),
+        ).toEqual([id]);
+      }
       const result = yield* listLinkedPullRequestThreads({
         host: "GitHub.Com",
         repository: "ACME/WEB",

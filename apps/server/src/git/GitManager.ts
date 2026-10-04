@@ -53,6 +53,7 @@ import {
   isSshRemoteUrl,
   type ChangeRequestTerminology,
 } from "@t3tools/shared/sourceControl";
+import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 
 import { GitManagerError, GitPullRequestMaterializationError } from "@t3tools/contracts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
@@ -231,6 +232,10 @@ interface BranchHeadContext {
 }
 
 export function pullRequestRepositoryKey(value: string): string | null {
+  // A Forgejo link names its instance by web authority and mount path, neither of which a git
+  // remote spelling keeps; the shared parser reads both, already folded the way the host does.
+  const link = parseChangeRequestUrl(value);
+  if (link?.authority !== undefined) return `${link.authority}/${link.repository}`;
   try {
     const url = new URL(value);
     const match =

@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import * as Option from "effect/Option";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
@@ -154,13 +155,13 @@ export function shouldRetargetThreadPullRequestPanel(
   surface: RightPanelSurface | null,
 ): boolean {
   if (previous === null || current === null || surface?.kind !== "pull-request") return false;
-  const previousRepository = previous.repository.toLowerCase();
+  const previousRepository = normalizeSourceControlRepository(previous.repository);
   return (
     (previous.projectId !== current.projectId ||
-      previousRepository !== current.repository.toLowerCase() ||
+      previousRepository !== normalizeSourceControlRepository(current.repository) ||
       previous.number !== current.number) &&
     surface.projectId === previous.projectId &&
-    surface.repository.toLowerCase() === previousRepository &&
+    normalizeSourceControlRepository(surface.repository) === previousRepository &&
     surface.number === previous.number
   );
 }

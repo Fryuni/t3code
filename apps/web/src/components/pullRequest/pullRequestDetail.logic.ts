@@ -1,4 +1,5 @@
 import * as Schema from "effect/Schema";
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 
 import {
   PullRequestDetail,
@@ -215,7 +216,7 @@ export function pullRequestPanelContext(
   if (thread.projectId !== surface.projectId) return "page";
   const links = visibleThreadPullRequests(thread.pullRequests ?? []);
   if (links.length > 0) {
-    const repository = surface.repository.toLowerCase();
+    const repository = normalizeSourceControlRepository(surface.repository);
     return links.some((link) =>
       surface.host !== undefined
         ? threadPullRequestKeysEqual(link, {
@@ -223,7 +224,8 @@ export function pullRequestPanelContext(
             repository: surface.repository,
             number: surface.number,
           })
-        : link.number === surface.number && link.repository.toLowerCase() === repository,
+        : link.number === surface.number &&
+          normalizeSourceControlRepository(link.repository) === repository,
     )
       ? "thread"
       : "page";
@@ -1281,7 +1283,7 @@ const pullRequestDetailSnapshotKey = (
   reference: PullRequestDetailSnapshotRef,
 ) =>
   reference.host
-    ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), reference.repository.toLowerCase(), reference.number])}`
+    ? `t3.pullRequests.detail:${JSON.stringify([environmentId, reference.projectId, reference.host.toLowerCase(), normalizeSourceControlRepository(reference.repository), reference.number])}`
     : `t3.pullRequests.detail:${environmentId}:${reference.projectId}:${reference.repository}#${reference.number}`;
 
 const decodeDetailSnapshot = Schema.decodeUnknownOption(PullRequestDetail);
@@ -1342,7 +1344,8 @@ export function resolveDisplayedPullRequestDetail(input: {
   if (
     input.cached === null ||
     input.cached.projectId !== input.reference.projectId ||
-    input.cached.repository.toLowerCase() !== input.reference.repository.toLowerCase() ||
+    normalizeSourceControlRepository(input.cached.repository) !==
+      normalizeSourceControlRepository(input.reference.repository) ||
     input.cached.number !== input.reference.number
   ) {
     return null;

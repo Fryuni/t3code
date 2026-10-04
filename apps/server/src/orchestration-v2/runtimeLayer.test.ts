@@ -2153,6 +2153,106 @@ it.layer(TestLayer)("OrchestrationV2LayerLive lifecycle", (it) => {
     }),
   );
 
+  it.effect("keeps case-distinct Forgejo instance paths apart when linking and unlinking", () =>
+    Effect.gen(function* () {
+      const orchestrator = yield* Orchestrator.OrchestratorV2;
+      const threadId = ThreadId.make("runtime-forgejo-instance-paths");
+      yield* orchestrator.dispatch({
+        type: "thread.create",
+        createdBy: "user",
+        creationSource: "web",
+        commandId: CommandId.make("forgejo-paths-create"),
+        threadId,
+        projectId: ProjectId.make("forgejo-paths-project"),
+        title: "Forgejo paths",
+        modelSelection,
+        runtimeMode: "full-access",
+        interactionMode: "default",
+        branch: null,
+        worktreePath: null,
+      });
+      const host = "git.example.test";
+      const link = (path: string, number: number) =>
+        orchestrator.dispatch({
+          type: "thread.pull-request.link",
+          commandId: CommandId.make(`forgejo-paths-link-${path}-${number}`),
+          threadId,
+          host,
+          repository: `${path}/ACME/WEB`,
+          number,
+          url: `https://${host}/${path}/acme/web/pulls/${number}`,
+          source: "manual",
+        });
+      const unlink = (path: string, number: number) =>
+        orchestrator.dispatch({
+          type: "thread.pull-request.unlink",
+          commandId: CommandId.make(`forgejo-paths-unlink-${path}-${number}`),
+          threadId,
+          host,
+          repository: `${path}/ACME/WEB`,
+          number,
+        });
+      const links = Effect.map(orchestrator.getThreadShell(threadId), (thread) =>
+        (thread?.pullRequests ?? []).map(({ repository, number, source }) => ({
+          repository,
+          number,
+          source,
+        })),
+      );
+      for (const [path, number] of [
+        ["Forge", 1],
+        ["Forge", 2],
+        ["forge", 1],
+        ["forge", 2],
+      ] as const) {
+        yield* link(path, number);
+      }
+      assert.deepEqual(yield* links, [
+        { repository: "Forge/acme/web", number: 1, source: "manual" },
+        { repository: "Forge/acme/web", number: 2, source: "manual" },
+        { repository: "forge/acme/web", number: 1, source: "manual" },
+        { repository: "forge/acme/web", number: 2, source: "manual" },
+      ]);
+      yield* orchestrator.dispatch({
+        type: "thread.pull-request-link.sync",
+        commandId: CommandId.make("forgejo-paths-stack"),
+        threadId,
+        host,
+        repository: "Forge/acme/web",
+        number: 1,
+        snapshot: {
+          state: "open",
+          title: "Stack base",
+          headBranch: "stack-1",
+          baseBranch: "main",
+          isDraft: false,
+          updatedAt: null,
+          syncedAt: "2026-09-01T00:00:00.000Z",
+        },
+        stack: {
+          kind: "native",
+          id: "stack",
+          number: 1,
+          url: `https://${host}/Forge/acme/web/pulls/1`,
+          base: "main",
+          layers: [1, 2].map((number) => ({
+            number,
+            headBranch: `stack-${number}`,
+            state: "open" as const,
+          })),
+        },
+      });
+      // Only the stack's own instance path tombstones its member.
+      yield* unlink("Forge", 2);
+      yield* unlink("forge", 2);
+      assert.deepEqual(yield* links, [
+        { repository: "Forge/acme/web", number: 1, source: "manual" },
+        { repository: "Forge/acme/web", number: 2, source: "stack-dismissed" },
+        { repository: "forge/acme/web", number: 1, source: "manual" },
+      ]);
+    }),
+  );
+
   it.effect("starts, records, and stops a pull request watch", () =>
     Effect.gen(function* () {
       const orchestrator = yield* Orchestrator.OrchestratorV2;

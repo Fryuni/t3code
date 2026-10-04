@@ -1926,6 +1926,35 @@ it("follows a changed server PR link without replacing an unrelated open panel",
   ).toBe(false);
 });
 
+it("treats case-distinct Forgejo instance paths as different PR links", () => {
+  const previous = {
+    projectId: ProjectId.make("project-1"),
+    repository: "Forge/acme/web",
+    number: 42,
+    url: "https://git.example.test/Forge/acme/web/pulls/42",
+  };
+  const current = {
+    ...previous,
+    repository: "forge/acme/web",
+    url: "https://git.example.test/forge/acme/web/pulls/42",
+  };
+  const surface = {
+    id: "pull-request:previous",
+    kind: "pull-request",
+    projectId: previous.projectId,
+    repository: "Forge/ACME/WEB",
+    number: previous.number,
+  } satisfies RightPanelSurface;
+
+  expect(shouldRetargetThreadPullRequestPanel(previous, current, surface)).toBe(true);
+  expect(
+    shouldRetargetThreadPullRequestPanel(previous, current, {
+      ...surface,
+      repository: "forge/acme/web",
+    }),
+  ).toBe(false);
+});
+
 describe("worktree setup visibility", () => {
   const stage = (
     id: "fetch" | "checkout" | "submodules" | "setup-script" | "agent",

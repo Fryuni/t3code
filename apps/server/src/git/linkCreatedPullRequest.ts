@@ -1,4 +1,7 @@
-import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
+import {
+  normalizeSourceControlRepository,
+  sourceControlRepositorySelector,
+} from "@t3tools/shared/sourceControl";
 import {
   type CommandId,
   pullRequestHostOf,
@@ -45,7 +48,7 @@ export function createdPullRequestKey(
   if (!identity || kind === undefined || repository === null) return null;
   return {
     host: pullRequestHostOf(identity, kind),
-    repository: repository.toLowerCase(),
+    repository: normalizeSourceControlRepository(repository, kind),
     number,
     url,
   };

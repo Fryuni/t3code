@@ -2903,8 +2903,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
               existing.stack !== null ||
               links.some(
                 (link) =>
-                  link.host.toLowerCase() === key.host &&
-                  link.repository.toLowerCase() === key.repository &&
+                  threadPullRequestKeysEqual({ ...link, number: key.number }, key) &&
                   link.stack?.layers.some((layer) => layer.number === key.number),
               );
             pullRequests = belongsToStack

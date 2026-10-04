@@ -1,4 +1,5 @@
 import type { EnvironmentId, EnvironmentMachineKind, ProjectId } from "@t3tools/contracts";
+import { canonicalRepositoryKey } from "@t3tools/shared/sourceControl";
 
 /** The little of a project this needs: who holds it, and which repository it is a copy of. */
 export interface AssignableProject {
@@ -11,11 +12,11 @@ export interface AssignableProject {
  * The remote's normalized URL is what says "same repository" across machines — it comes from the
  * remote, not from a local path. Empty where the project has no identity to compare with.
  *
- * `normalizeGitRemoteUrl` already lower-cases the whole remote, so the key arrives cased one way
- * whatever the remote said; the fold here only guards a key assembled some other way.
+ * Preserve the case of instance paths while normalizing the authority and repository names.
  */
 function repositoryKey(project: AssignableProject): string | undefined {
-  return project.repositoryIdentity?.canonicalKey?.toLowerCase();
+  const key = project.repositoryIdentity?.canonicalKey;
+  return key === undefined ? undefined : canonicalRepositoryKey(key);
 }
 
 /**

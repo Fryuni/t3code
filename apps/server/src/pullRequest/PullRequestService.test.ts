@@ -444,6 +444,101 @@ function makeService(input: {
   );
 }
 
+it.effect("routes and caches Forgejo summaries separately for case-distinct instance paths", () =>
+  Effect.gen(function* () {
+    const requests: string[] = [];
+    const service = yield* makeService({
+      projects: ["Forge", "forge"].map((path) =>
+        project({
+          id: path,
+          title: path,
+          workspaceRoot: `/${path}`,
+          provider: "forgejo",
+          host: "git.example.test",
+          repository: `${path}/acme/web`,
+        }),
+      ),
+      providers: [
+        fakeProvider("forgejo", {
+          getChangeRequestSummary: (input) =>
+            Effect.sync(() => {
+              requests.push(input.repository);
+              return {
+                number: 7,
+                title: input.repository.startsWith("Forge/") ? "Upper" : "Lower",
+                url: `https://git.example.test/${input.repository}/pulls/7`,
+                state: "open",
+                headBranch: "feature",
+                baseBranch: "main",
+                updatedAt: "2026-09-11T00:00:00Z",
+              };
+            }),
+        }),
+      ],
+    });
+    const ref = {
+      projectId: "Forge" as ProjectId,
+      host: "git.example.test",
+      repository: "Forge/ACME/WEB",
+      number: 7,
+    };
+    assert.strictEqual((yield* service.summary(ref)).title, "Upper");
+    const lower = yield* service.summary({ ...ref, repository: "forge/acme/web" });
+    assert.strictEqual(lower.title, "Lower");
+    // The reference names the other instance, so that instance's checkout serves it.
+    assert.strictEqual(lower.projectId, "forge");
+    assert.strictEqual((yield* service.summary(ref)).title, "Upper");
+    assert.deepStrictEqual(requests, ["Forge/acme/web", "forge/acme/web"]);
+  }),
+);
+
+it.effect("caches case-distinct Forgejo instance paths apart when one checkout serves both", () =>
+  Effect.gen(function* () {
+    const requests: string[] = [];
+    const service = yield* makeService({
+      projects: [
+        project({
+          id: "Forge",
+          title: "Forge",
+          workspaceRoot: "/Forge",
+          provider: "forgejo",
+          host: "git.example.test",
+          repository: "Forge/acme/web",
+        }),
+      ],
+      providers: [
+        fakeProvider("forgejo", {
+          getChangeRequestSummary: (input) =>
+            Effect.sync(() => {
+              requests.push(input.repository);
+              return {
+                number: 7,
+                title: input.repository.startsWith("Forge/") ? "Upper" : "Lower",
+                url: `https://git.example.test/${input.repository}/pulls/7`,
+                state: "open",
+                headBranch: "feature",
+                baseBranch: "main",
+                updatedAt: "2026-09-11T00:00:00Z",
+              };
+            }),
+        }),
+      ],
+    });
+    const ref = {
+      projectId: "Forge" as ProjectId,
+      host: "git.example.test",
+      repository: "Forge/acme/web",
+      number: 7,
+    };
+    assert.strictEqual((yield* service.summary(ref)).title, "Upper");
+    assert.strictEqual(
+      (yield* service.summary({ ...ref, repository: "forge/acme/web" })).title,
+      "Lower",
+    );
+    assert.deepStrictEqual(requests, ["Forge/acme/web", "forge/acme/web"]);
+  }),
+);
+
 it.effect("refines unknown self-hosted GitLab projects before listing merge requests", () =>
   Effect.gen(function* () {
     let refinementCalls = 0;

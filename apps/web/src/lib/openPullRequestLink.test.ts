@@ -401,6 +401,24 @@ describe("findProjectOnChangeRequestHost", () => {
     expect(findProjectOnChangeRequestHost([projects[0]!], reference)).toBeUndefined();
   });
 
+  it("borrows credentials only from the exact Forgejo mount", () => {
+    const projects = ["", "git", "git/other"].map((mount) => {
+      const path = [mount, "team/repo"].filter(Boolean).join("/");
+      return project(`forgejo-${mount}`, {
+        canonicalKey: `forge.example/${path}`,
+        provider: "forgejo",
+        displayName: path,
+        webUrl: `https://forge.example/${path}`,
+        locator: { remoteUrl: "git@ssh.forge.example:team/repo.git" },
+      });
+    });
+    const reference = parseChangeRequestUrl(
+      "https://forge.example/git/other/team/another/pulls/42",
+    )!;
+    expect(findProjectOnChangeRequestHost(projects, reference)).toBe(projects[2]);
+    expect(findProjectOnChangeRequestHost(projects.slice(0, 2), reference)).toBeUndefined();
+  });
+
   it("lets tea resolve the web port for Forgejo SSH remotes", () => {
     const checkout = project("forgejo-ssh", {
       canonicalKey: "forge.example/git/team/repo",
@@ -459,6 +477,30 @@ describe("findProjectOnChangeRequestHost", () => {
 describe("findProjectForChangeRequest", () => {
   const project = (identity: Record<string, unknown>) =>
     ({ id: "p1", repositoryIdentity: identity }) as never;
+
+  it("matches Forgejo instance paths by case", () => {
+    const projects = ["Forge", "forge"].map((path) =>
+      project({
+        canonicalKey: `git.example.test/${path}/owner/repo`,
+        provider: "forgejo",
+        displayName: `${path}/owner/repo`,
+      }),
+    );
+    expect(
+      findProjectForChangeRequest(projects, {
+        host: "git.example.test",
+        repository: "Forge/Owner/Repo",
+        number: 7,
+      }),
+    ).toBe(projects[0]);
+    expect(
+      findProjectForChangeRequest(projects, {
+        host: "git.example.test",
+        repository: "forge/Owner/Repo",
+        number: 7,
+      }),
+    ).toBe(projects[1]);
+  });
 
   it("matches a nested GitLab group by the whole path below the host", () => {
     // The server identifies a repository by `displayName`, which keeps every group segment; the
