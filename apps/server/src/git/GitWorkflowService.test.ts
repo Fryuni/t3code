@@ -3,7 +3,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import { ChildProcessSpawner } from "effect/unstable/process";
 
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
@@ -27,80 +26,6 @@ function makeLayer(input: {
 }
 
 describe("GitWorkflowService", () => {
-  it.effect.each([
-    { remoteName: null, hasRemote: true, hasBranch: true, fetchStatus: "skipped" },
-    { remoteName: "origin", hasRemote: false, hasBranch: true, fetchStatus: "skipped" },
-    { remoteName: "origin", hasRemote: true, hasBranch: false, fetchStatus: "warning" },
-    { remoteName: "upstream", hasRemote: false, hasBranch: true, fetchStatus: "failed" },
-    { remoteName: "upstream", hasRemote: true, hasBranch: false, fetchStatus: "failed" },
-  ] as const)(
-    "resolves worktree base from $remoteName with remote $hasRemote and branch $hasBranch",
-    ({ remoteName, hasRemote, hasBranch, fetchStatus }) => {
-      const fetchRemote = vi.fn(() => Effect.void);
-      const resolveRemoteTrackingCommit = vi.fn(() =>
-        Effect.succeed({ commitSha: "remote-commit", remoteRefName: "upstream/feature/work" }),
-      );
-      const remoteExists = vi.fn(() => Effect.succeed(hasRemote));
-      const remoteBranchExists = vi.fn(() => Effect.succeed(hasBranch));
-      const testLayer = GitWorkflowService.layer.pipe(
-        Layer.provide(
-          Layer.mock(VcsDriverRegistry.VcsDriverRegistry)({
-            resolve: () =>
-              Effect.succeed({
-                kind: "git",
-                repository: {
-                  kind: "git",
-                  rootPath: "/repo",
-                  metadataPath: null,
-                  freshness: {
-                    source: "live-local",
-                    observedAt: DateTime.makeUnsafe("2026-01-01T00:00:00.000Z"),
-                    expiresAt: Option.none(),
-                  },
-                },
-                driver: {} as VcsDriverRegistry.VcsDriverHandle["driver"],
-              }),
-          }),
-        ),
-        Layer.provide(
-          Layer.mock(GitVcsDriver.GitVcsDriver)({
-            execute: () =>
-              Effect.succeed({
-                exitCode: ChildProcessSpawner.ExitCode(0),
-                stdout: "origin\nupstream\n",
-                stderr: "",
-                stdoutTruncated: false,
-                stderrTruncated: false,
-              }),
-            remoteExists,
-            remoteBranchExists,
-            fetchRemote,
-            resolveRemoteTrackingCommit,
-          }),
-        ),
-        Layer.provide(Layer.mock(GitManager.GitManager)({})),
-      );
-      return Effect.gen(function* () {
-        const workflow = yield* GitWorkflowService.GitWorkflowService;
-        const resolving = workflow.resolveWorktreeBase({
-          cwd: "/repo",
-          baseBranch: "feature/work",
-          startFromRemote: remoteName,
-        });
-        if (fetchStatus === "failed") {
-          const error = yield* resolving.pipe(Effect.flip);
-          assert.include(error.message, "Cannot start from upstream");
-        } else {
-          const result = yield* resolving;
-          assert.equal(result.baseRef, "feature/work");
-          assert.equal(result.fetchStatus, fetchStatus);
-        }
-        assert.equal(fetchRemote.mock.calls.length, remoteName !== null && hasRemote ? 1 : 0);
-        assert.equal(resolveRemoteTrackingCommit.mock.calls.length, 0);
-      }).pipe(Effect.provide(testLayer));
-    },
-  );
-
   it.effect("reports a non-Git VCS repository as not a Git repository", () =>
     Effect.gen(function* () {
       const workflow = yield* GitWorkflowService.GitWorkflowService;

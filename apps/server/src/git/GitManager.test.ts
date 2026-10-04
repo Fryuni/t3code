@@ -13,6 +13,7 @@ import * as Logger from "effect/Logger";
 import * as Option from "effect/Option";
 import * as PlatformError from "effect/PlatformError";
 import * as References from "effect/References";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Scope from "effect/Scope";
 import { TestClock } from "effect/testing";
@@ -21,26 +22,28 @@ import { expect } from "vite-plus/test";
 import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
-  SourceControlProviderInfo,
-  ThreadId,
+  ModelSelection,
 } from "@t3tools/contracts";
 
 import {
   DEFAULT_SERVER_SETTINGS,
+  EventId,
   GitCommandError,
+  ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
   TextGenerationError,
+  ThreadId,
 } from "@t3tools/contracts";
+import * as DateTime from "effect/DateTime";
 import * as GitHubCli from "../sourceControl/GitHubCli.ts";
+import { decodeGitHubPullRequestListJson } from "../sourceControl/gitHubPullRequests.ts";
 import * as GitLabCli from "../sourceControl/GitLabCli.ts";
 import * as TextGeneration from "../textGeneration/TextGeneration.ts";
 import * as GitVcsDriver from "../vcs/GitVcsDriver.ts";
 import * as VcsProcess from "../vcs/VcsProcess.ts";
 import * as GitHubSourceControlProvider from "../sourceControl/GitHubSourceControlProvider.ts";
 import * as GitLabSourceControlProvider from "../sourceControl/GitLabSourceControlProvider.ts";
-import * as ForgejoCli from "../sourceControl/ForgejoCli.ts";
-import * as ForgejoSourceControlProvider from "../sourceControl/ForgejoSourceControlProvider.ts";
 import {
   ForgejoPullRequestSchema,
   toForgejoChangeRequest,
@@ -48,6 +51,9 @@ import {
 import type { SourceControlProvider } from "../sourceControl/SourceControlProvider.ts";
 import * as SourceControlProviderRegistry from "../sourceControl/SourceControlProviderRegistry.ts";
 import * as ServerConfig from "../config.ts";
+import * as ProjectionStore from "../orchestration-v2/ProjectionStore.ts";
+import * as ProjectStore from "../orchestration-v2/ProjectStore.ts";
+import { SqlitePersistenceMemory } from "../persistence/Layers/Sqlite.ts";
 import * as ProjectSetupScriptRunner from "../project/ProjectSetupScriptRunner.ts";
 import * as ProviderRegistry from "../provider/Services/ProviderRegistry.ts";
 import * as ServerSettings from "../serverSettings.ts";
@@ -513,6 +519,30 @@ function createGitHubCliWithFakeGh(scenario: FakeGhScenario = {}): {
   return {
     service: {
       execute,
+      // The fake answers the CLI shape, so batched lookups read it the way the fallback does.
+      listPullRequestsByHead: (input) =>
+        execute({
+          cwd: input.cwd,
+          args: [
+            "pr",
+            "list",
+            "--head",
+            input.headSelector,
+            "--state",
+            input.state,
+            "--limit",
+            String(input.limit),
+            "--json",
+            "number,title,url,baseRefName,headRefName,state,isDraft,mergedAt,closedAt,updatedAt,isCrossRepository,headRepository,headRepositoryOwner",
+          ],
+        }).pipe(
+          Effect.map((result) => {
+            const raw = result.stdout.trim();
+            if (raw.length === 0) return [];
+            const decoded = decodeGitHubPullRequestListJson(raw);
+            return Result.isSuccess(decoded) ? decoded.success : [];
+          }),
+        ),
       listOpenPullRequests: (input) =>
         execute({
           cwd: input.cwd,
@@ -636,11 +666,16 @@ function preparePullRequestThread(
 function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   sourceControlProvider?: SourceControlProvider["Service"];
-  hostingProvider?: SourceControlProviderInfo;
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
   gitConfigReads?: string[];
+  /** Seeds the V2 stores the per-project settings lookup reads. */
+  seed?: Effect.Effect<
+    void,
+    ProjectionStore.ProjectionStoreV2Error | ProjectStore.ProjectStoreV2Error,
+    ProjectionStore.ProjectionStoreV2 | ProjectStore.ProjectStoreV2
+  >;
 }) {
   const { service: gitHubCli, ghCalls } = createGitHubCliWithFakeGh(input?.ghScenario);
   const textGeneration = createTextGeneration(input?.textGeneration);
@@ -684,14 +719,7 @@ function makeManager(input?: {
         SourceControlProviderRegistry.SourceControlProviderRegistry.of({
           resolveLink: (input) => provider.resolveLink?.(input),
           get: () => Effect.succeed(provider),
-          resolveHandle: ({ context }) =>
-            Effect.succeed({
-              provider,
-              context:
-                context && input?.hostingProvider
-                  ? { ...context, provider: input.hostingProvider }
-                  : null,
-            }),
+          resolveHandle: () => Effect.succeed({ provider, context: null }),
           resolve: () => Effect.succeed(provider),
           discover: Effect.succeed([]),
         }),
@@ -714,11 +742,22 @@ function makeManager(input?: {
     vcsDriverLayer,
     serverSettingsLayer,
   ).pipe(Layer.provideMerge(sourceControlRegistryLayer), Layer.provideMerge(NodeServices.layer));
-
-  return GitManager.make.pipe(
-    Effect.provide(managerLayer),
-    Effect.map((manager) => ({ manager, ghCalls })),
+  // Built into the test's scope: the manager reads these stores after this returns.
+  const storesLayer = Layer.merge(ProjectionStore.layer, ProjectStore.layer).pipe(
+    Layer.provideMerge(SqlitePersistenceMemory),
   );
+
+  return Effect.gen(function* () {
+    const stores = yield* Layer.build(storesLayer);
+    if (input?.seed !== undefined) {
+      yield* input.seed.pipe(Effect.provideContext(stores), Effect.orDie);
+    }
+    const manager = yield* GitManager.make.pipe(
+      Effect.provide(managerLayer),
+      Effect.provideContext(stores),
+    );
+    return { manager, ghCalls };
+  });
 }
 
 const asThreadId = (threadId: string) => threadId as ThreadId;
@@ -730,46 +769,6 @@ const GitManagerTestLayer = GitVcsDriver.layer.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
-  it.effect("local status reports configured remotes before their branches have been fetched", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      for (const remoteName of ["origin", "upstream", "mirror"]) {
-        const remote = yield* createBareRemote();
-        yield* runGit(repoDir, ["remote", "add", remoteName, remote]);
-      }
-      const { manager } = yield* makeManager();
-
-      const local = yield* manager.localStatus({ cwd: repoDir });
-      const status = yield* manager.status({ cwd: repoDir });
-
-      expect(local.remoteNames).toEqual(["upstream", "mirror", "origin"]);
-      expect(status.remoteNames).toEqual(local.remoteNames);
-      expect(local.hasPrimaryRemote).toBe(true);
-    }),
-  );
-
-  it.effect("status reports the discovered Forgejo web instance for a separate SSH host", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      yield* runGit(repoDir, [
-        "remote",
-        "add",
-        "origin",
-        "ssh://git@ssh.example.test:2222/Owner/Repo.git",
-      ]);
-      const hostingProvider = {
-        kind: "forgejo",
-        name: "Forgejo",
-        baseUrl: "https://git.example.test:8443",
-      } as const;
-      const { manager } = yield* makeManager({ hostingProvider });
-      const status = yield* manager.status({ cwd: repoDir });
-      expect(status.sourceControlProvider).toEqual(hostingProvider);
-    }),
-  );
-
   it.effect("status includes draft PR metadata when branch already has a draft PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -1759,9 +1758,6 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       "gitlab.example.com/group/subgroup/repository",
     ],
     ["https://bitbucket.org/team/repository/pull-requests/42", "bitbucket.org/team/repository"],
-    ["https://git.example.test/Owner/Repo/pulls/42", "git.example.test/owner/repo"],
-    ["https://git.example.test/Forge/Owner/Repo/pulls/42", "git.example.test/Forge/owner/repo"],
-    ["https://git.example.test:8443/Owner/Repo/pulls/42/files", "git.example.test:8443/owner/repo"],
     [
       "https://dev.azure.com/org/project/_git/repository/pullrequest/42",
       "dev.azure.com/org/project/_git/repository",
@@ -2977,6 +2973,101 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       });
 
       expect(generatedModelSelection).toEqual(DEFAULT_SERVER_SETTINGS.textGenerationModelSelection);
+    }),
+  );
+
+  it.effect("applies a V2-native thread's project settings to generated commit text", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      NodeFS.writeFileSync(NodePath.join(repoDir, "README.md"), "hello\nproject\n");
+      const projectId = ProjectId.make("project:git-settings");
+      const threadId = ThreadId.make("thread:git-settings");
+      const projectModel: ModelSelection = {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-project-writer",
+      };
+      const providerInstanceId = ProviderInstanceId.make("codex");
+      const createdAt = DateTime.makeUnsafe("2026-09-27T00:00:00.000Z");
+      let generatedModelSelection:
+        | TextGeneration.CommitMessageGenerationInput["modelSelection"]
+        | undefined;
+
+      const { manager } = yield* makeManager({
+        serverSettings: {
+          projectSettingsOverrides: { [projectId]: { textGenerationModelSelection: projectModel } },
+        },
+        textGeneration: {
+          generateCommitMessage: (input) => {
+            generatedModelSelection = input.modelSelection;
+            return Effect.succeed({ subject: "Use the project writer", body: "" });
+          },
+        },
+        // The thread exists only in V2; no V1 projection row names its project.
+        seed: Effect.gen(function* () {
+          yield* (yield* ProjectStore.ProjectStoreV2).apply({
+            sequence: 1,
+            eventId: EventId.make("event:git-settings:project"),
+            aggregateKind: "project",
+            aggregateId: projectId,
+            occurredAt: DateTime.formatIso(createdAt),
+            commandId: null,
+            causationEventId: null,
+            correlationId: null,
+            metadata: {},
+            type: "project.created",
+            payload: {
+              projectId,
+              title: "Git settings",
+              workspaceRoot: "/elsewhere",
+              defaultModelSelection: null,
+              scripts: [],
+              createdAt: DateTime.formatIso(createdAt),
+              updatedAt: DateTime.formatIso(createdAt),
+            },
+          });
+          yield* (yield* ProjectionStore.ProjectionStoreV2).apply({
+            id: EventId.make("event:git-settings:thread"),
+            type: "thread.created",
+            threadId,
+            providerInstanceId,
+            occurredAt: createdAt,
+            payload: {
+              createdBy: "user",
+              creationSource: "web",
+              id: threadId,
+              projectId,
+              title: "Git settings",
+              providerInstanceId,
+              modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+              runtimeMode: "full-access",
+              interactionMode: "default",
+              branch: null,
+              worktreePath: repoDir,
+              activeProviderThreadId: null,
+              lineage: { parentThreadId: null, relationshipToParent: null, rootThreadId: threadId },
+              forkedFrom: null,
+              createdAt,
+              updatedAt: createdAt,
+              archivedAt: null,
+              settledOverride: null,
+              settledAt: null,
+              lastVisitedAt: null,
+              deletedAt: null,
+            },
+          });
+        }),
+      });
+
+      // The checkout is not the project's root, so only the thread can name the project.
+      yield* manager.runStackedAction({
+        actionId: "test-action-id",
+        cwd: repoDir,
+        action: "commit",
+        threadId,
+      });
+
+      expect(generatedModelSelection).toEqual(projectModel);
     }),
   );
 
@@ -4430,56 +4521,6 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
         state: "open",
       });
       expect(ghCalls.some((call) => call.startsWith("pr view 42 "))).toBe(true);
-    }),
-  );
-
-  it.effect("hands the Forgejo provider a pasted pull request URL with its padding removed", () =>
-    Effect.gen(function* () {
-      const repoDir = yield* makeTempDir("t3code-git-manager-");
-      yield* initRepo(repoDir);
-      const url = "https://forge.example/Forge/Owner/Repo/pulls/42";
-      const references: string[] = [];
-      const provider = yield* ForgejoSourceControlProvider.make.pipe(
-        Effect.provide(
-          Layer.mergeAll(
-            Layer.mock(ForgejoCli.ForgejoCli)({
-              resolveRepository: (input) =>
-                Effect.sync(() => {
-                  references.push(input.reference ?? "");
-                  return {
-                    command: "fj" as const,
-                    login: "forge.example",
-                    repository: "Owner/Repo",
-                    baseUrl: "https://forge.example",
-                  };
-                }),
-              api: () =>
-                Effect.succeed(
-                  fakeGhOutput(
-                    JSON.stringify({
-                      number: 42,
-                      title: "Padded reference",
-                      html_url: url,
-                      state: "open",
-                      merged: false,
-                      draft: false,
-                      base: { ref: "main", sha: "base", repo: null },
-                      head: { ref: "feature", sha: "head", repo: null },
-                    }),
-                  ),
-                ),
-            }),
-            FileSystem.layerNoop({}),
-            Layer.mock(VcsProcess.VcsProcess)({}),
-          ),
-        ),
-      );
-      const { manager } = yield* makeManager({ sourceControlProvider: provider });
-
-      const result = yield* resolvePullRequest(manager, { cwd: repoDir, reference: `  ${url}  ` });
-
-      expect(result.pullRequest.number).toBe(42);
-      expect(references).toEqual([url]);
     }),
   );
 

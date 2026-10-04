@@ -1,4 +1,3 @@
-import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { RefreshIcon } from "~/components/ui/refresh-icon";
 import { Spinner } from "~/components/ui/spinner";
 import { pullRequestHostOf, resolveEnvironmentMachineKind } from "@t3tools/contracts";
@@ -272,10 +271,7 @@ const EMPTY_PENDING_SURFACES = new Set<string>();
 const MAX_SEARCH_LABEL_CANDIDATES = 100;
 
 const pullRequestListEntryId = (target: Parameters<typeof pullRequestSurfaceId>[0]) =>
-  pullRequestSurfaceId({
-    ...target,
-    repository: normalizeSourceControlRepository(target.repository),
-  });
+  pullRequestSurfaceId({ ...target, repository: target.repository.toLowerCase() });
 
 function pullRequestSearchLabels(raw: unknown): Partial<Pick<PullRequestsSearch, "labels">> {
   const values = (Array.isArray(raw) ? raw : typeof raw === "string" ? [raw] : []).slice(
@@ -431,15 +427,14 @@ function PullRequestsRouteView() {
   // resolved here; an explicit `projectId` in the URL still wins.
   const selectedHost = search.selectedHost ?? search.host;
   const projectIdForRepository = useMemo(() => {
-    if (search.repository === undefined) return undefined;
-    const repository = normalizeSourceControlRepository(search.repository);
+    const repository = search.repository?.toLowerCase();
+    if (repository === undefined) return undefined;
     const identity = projects.find(
       (project) =>
         project.repositoryIdentity?.owner &&
         project.repositoryIdentity.name &&
-        normalizeSourceControlRepository(
-          `${project.repositoryIdentity.owner}/${project.repositoryIdentity.name}`,
-        ) === repository &&
+        `${project.repositoryIdentity.owner}/${project.repositoryIdentity.name}`.toLowerCase() ===
+          repository &&
         // The same `owner/name` can exist on two hosts. Without this the first match wins, and
         // a link that named its host opens the pull request from the other one.
         (selectedHost === undefined ||
@@ -1716,14 +1711,19 @@ function PullRequestsRouteView() {
   const panelToggleControls = (
     <PanelLayoutControls
       showTerminalControl={false}
+      showThreadPanelControl={false}
       terminalAvailable={false}
       terminalOpen={false}
       terminalShortcutLabel={null}
+      threadPanelOpen={false}
+      threadPanelPresentation="inline"
+      threadPanelShortcutLabel={null}
+      threadPanelHasAttention={false}
+      onToggleThreadPanel={() => undefined}
       rightPanelAvailable={rightPanelAvailable}
       rightPanelOpen={rightPanelState.isOpen}
       rightPanelShortcutLabel={shortcutLabelForCommand(keybindings, "rightPanel.toggle")}
       rightPanelUnavailableLabel="Select a pull request first"
-      liveAgentCount={0}
       onToggleTerminal={() => undefined}
       onToggleRightPanel={toggleRightPanel}
     />
@@ -2118,7 +2118,6 @@ function PullRequestsRouteView() {
             onAddFiles={() => undefined}
             onAddPullRequest={() => undefined}
             onAddPullRequests={() => undefined}
-            onAddAgents={() => undefined}
             onAddDevice={() => undefined}
             browserAvailable={false}
             terminalAvailable={false}
@@ -2126,9 +2125,7 @@ function PullRequestsRouteView() {
             filesAvailable={false}
             pullRequestAvailable={false}
             pullRequestsAvailable={false}
-            agentsAvailable={false}
             deviceAvailable={false}
-            liveAgentCount={0}
             pullRequestStatusSeeds={listedPullRequestTabStatuses}
           >
             <PullRequestDetailPanel

@@ -1,5 +1,3 @@
-import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
-import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { useAtomValue } from "@effect/atom-react";
 import {
   createLinkedPullRequestSummaryAtomFamily,
@@ -91,19 +89,13 @@ export function pullRequestListEntryToSummary(entry: PullRequestListEntry): Pull
   };
 }
 
-// A project can lend credentials to links on several instances. Legacy references recover
-// the authority from their summary URL so they can share list status without joining hosts.
-function pullRequestSummaryKey(
-  environmentId: EnvironmentId,
-  reference: PullRequestRef,
-  summary: PullRequestSummary | null = null,
-): string {
-  const link = summary === null ? null : parseChangeRequestUrl(summary.url);
+// A project has one remote, so its id already pins the host. Leaving the host out lets a list
+// row, a hostless legacy reference and a URL-derived thread reference share one entry.
+function pullRequestSummaryKey(environmentId: EnvironmentId, reference: PullRequestRef): string {
   return JSON.stringify([
     environmentId,
     reference.projectId,
-    (reference.host ?? link?.authority ?? link?.host)?.toLowerCase() ?? null,
-    normalizeSourceControlRepository(reference.repository),
+    reference.repository.toLowerCase(),
     reference.number,
   ]);
 }
@@ -150,9 +142,7 @@ function observePullRequestSummary(
   summary: PullRequestSummary,
   observedAt: number,
 ): void {
-  const atom = observedPullRequestSummaryAtom(
-    pullRequestSummaryKey(environmentId, reference, summary),
-  );
+  const atom = observedPullRequestSummaryAtom(pullRequestSummaryKey(environmentId, reference));
   appAtomRegistry.modify(atom, (previous) => {
     const next = newestPullRequestObservation(previous, { summary, observedAt });
     return next === previous ? [false, previous] : [true, next];
@@ -168,7 +158,7 @@ export function useSharedPullRequestSummary(
   const key =
     environmentId === null || reference === null
       ? "none"
-      : pullRequestSummaryKey(environmentId, reference, current);
+      : pullRequestSummaryKey(environmentId, reference);
   const atom = observedPullRequestSummaryAtom(key);
   const observed = useAtomValue(atom);
   useLayoutEffect(() => {

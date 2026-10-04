@@ -1,15 +1,14 @@
-import type { SourceControlProviderDiscoveryItem, VcsStatusResult } from "@t3tools/contracts";
-import * as Option from "effect/Option";
+import type { VcsStatusResult } from "@t3tools/contracts";
 import { assert, describe, it } from "vite-plus/test";
 import {
-  PUBLISH_PROVIDER_OPTIONS,
   buildGitActionProgressStages,
   buildMenuItems,
-  getPublishProviderReadiness,
+  formatGitActionElapsed,
   requiresDefaultBranchConfirmation,
-  resolvePublishHost,
   resolveAutoFeatureBranchName,
   resolveDefaultBranchActionDialogCopy,
+  resolveGitActionProgressPresentation,
+  resolveGitActionResultToastTiming,
   resolveLiveThreadBranchUpdate,
   resolveQuickAction,
   resolveThreadBranchUpdate,
@@ -36,8 +35,98 @@ function status(overrides: Partial<VcsStatusResult> = {}): VcsStatusResult {
   };
 }
 
+describe("git action progress presentation", () => {
+  it("keeps the phase on the first row and hook output on the second", () => {
+    assert.deepEqual(
+      resolveGitActionProgressPresentation({
+        isRunning: true,
+        operation: "run_change_request",
+        currentLabel: "Running pre-commit...",
+        lastOutputLine: "Checking formatting and lint rules",
+        phaseStartedAtMs: 1_000,
+        hookStartedAtMs: 2_000,
+      }),
+      {
+        status: "Running pre-commit...",
+        output: "Checking formatting and lint rules",
+        startedAtMs: 2_000,
+      },
+    );
+  });
+
+  it("omits empty output and supplies a brief startup label", () => {
+    assert.deepEqual(
+      resolveGitActionProgressPresentation({
+        isRunning: true,
+        operation: "run_change_request",
+        currentLabel: "Running source control action",
+        lastOutputLine: "  ",
+        phaseStartedAtMs: 1_000,
+        hookStartedAtMs: null,
+      }),
+      {
+        status: "Starting source control action...",
+        output: null,
+        startedAtMs: 1_000,
+      },
+    );
+  });
+
+  it("presents pull progress inline without a second row", () => {
+    assert.deepEqual(
+      resolveGitActionProgressPresentation({
+        isRunning: true,
+        operation: "pull",
+        currentLabel: "Pulling latest changes...",
+        lastOutputLine: null,
+        phaseStartedAtMs: 1_000,
+        hookStartedAtMs: null,
+      }),
+      {
+        status: "Pulling latest changes...",
+        output: null,
+        startedAtMs: 1_000,
+      },
+    );
+  });
+
+  it("does not present unrelated or completed actions", () => {
+    const input = {
+      isRunning: true,
+      operation: "publish_repository",
+      currentLabel: "Publishing repository",
+      lastOutputLine: null,
+      phaseStartedAtMs: 1_000,
+      hookStartedAtMs: null,
+    };
+
+    assert.isNull(resolveGitActionProgressPresentation(input));
+    assert.isNull(resolveGitActionProgressPresentation({ ...input, isRunning: false }));
+  });
+
+  it("formats compact elapsed time without allowing negative values", () => {
+    assert.isNull(formatGitActionElapsed(null, 10_000));
+    assert.equal(formatGitActionElapsed(10_000, 9_000), "0s");
+    assert.equal(formatGitActionElapsed(10_000, 14_900), "4s");
+    assert.equal(formatGitActionElapsed(10_000, 75_000), "1m 5s");
+  });
+});
+
+describe("git action result toast timing", () => {
+  it("keeps errors sticky and dismisses successes after visible time", () => {
+    assert.deepEqual(resolveGitActionResultToastTiming("error"), {
+      timeout: 0,
+      dismissAfterVisibleMs: null,
+    });
+    assert.deepEqual(resolveGitActionResultToastTiming("success"), {
+      timeout: 0,
+      dismissAfterVisibleMs: 10_000,
+    });
+  });
+});
+
 describe("when: ref is clean and has an open PR", () => {
-  it("resolveQuickAction opens the existing PR", () => {
+  it("resolveQuickAction rests in the disabled up-to-date state", () => {
     const quick = resolveQuickAction(
       status({
         pr: {
@@ -51,10 +140,15 @@ describe("when: ref is clean and has an open PR", () => {
       }),
       false,
     );
-    assert.deepInclude(quick, { kind: "open_pr", label: "View PR", disabled: false });
+    assert.deepInclude(quick, {
+      kind: "show_hint",
+      label: "Commit",
+      disabled: true,
+      hint: "Branch is up to date. No action needed.",
+    });
   });
 
-  it("buildMenuItems disables commit/push and enables open PR", () => {
+  it("buildMenuItems disables commit/push and omits the PR entry", () => {
     const items = buildMenuItems(
       status({
         pr: {
@@ -84,13 +178,6 @@ describe("when: ref is clean and has an open PR", () => {
         icon: "push",
         kind: "open_dialog",
         dialogAction: "push",
-      },
-      {
-        id: "pr",
-        label: "View PR",
-        disabled: false,
-        icon: "pr",
-        kind: "open_pr",
       },
     ]);
   });
@@ -174,7 +261,7 @@ describe("when: ref is clean, ahead, and has an open PR", () => {
     assert.deepInclude(quick, { kind: "run_action", action: "push", label: "Push" });
   });
 
-  it("buildMenuItems enables push and keeps open PR available", () => {
+  it("buildMenuItems enables push and omits the PR entry", () => {
     const items = buildMenuItems(
       status({
         aheadCount: 2,
@@ -205,13 +292,6 @@ describe("when: ref is clean, ahead, and has an open PR", () => {
         icon: "push",
         kind: "open_dialog",
         dialogAction: "push",
-      },
-      {
-        id: "pr",
-        label: "View PR",
-        disabled: false,
-        icon: "pr",
-        kind: "open_pr",
       },
     ]);
   });
@@ -641,7 +721,7 @@ describe("when: ref has no upstream configured", () => {
     });
   });
 
-  it("resolveQuickAction opens PR when clean, no upstream, no local commits are ahead, and PR exists", () => {
+  it("resolveQuickAction rests disabled when clean, no upstream, no local commits are ahead, and PR exists", () => {
     const quick = resolveQuickAction(
       status({
         hasUpstream: false,
@@ -658,9 +738,10 @@ describe("when: ref has no upstream configured", () => {
       false,
     );
     assert.deepInclude(quick, {
-      kind: "open_pr",
-      label: "View PR",
-      disabled: false,
+      kind: "show_hint",
+      label: "Commit",
+      disabled: true,
+      hint: "Branch is up to date. No action needed.",
     });
   });
 
@@ -1155,116 +1236,5 @@ describe("resolveAutoFeatureBranchName", () => {
   it("falls back to feature/update when no preferred name is provided", () => {
     const ref = resolveAutoFeatureBranchName(["main"]);
     assert.equal(ref, "feature/update");
-  });
-});
-
-function discoveredProvider(
-  overrides: Partial<Omit<SourceControlProviderDiscoveryItem, "auth">> & {
-    auth?: Partial<SourceControlProviderDiscoveryItem["auth"]>;
-  } = {},
-): SourceControlProviderDiscoveryItem {
-  const { auth, ...rest } = overrides;
-  return {
-    kind: "forgejo",
-    label: "Forgejo / Gitea",
-    status: "available",
-    version: Option.none(),
-    installHint: "Install fj or tea.",
-    detail: Option.none(),
-    ...rest,
-    auth: {
-      status: "authenticated",
-      account: Option.some("octo"),
-      host: Option.some("git.example.com"),
-      detail: Option.none(),
-      ...auth,
-    },
-  };
-}
-
-describe("publish provider options", () => {
-  it("lists each provider once", () => {
-    const values = PUBLISH_PROVIDER_OPTIONS.map((option) => option.value);
-    assert.deepEqual([...new Set(values)], values);
-  });
-
-  it("offers a single Forgejo / Gitea choice that takes an owner/repo destination", () => {
-    const forgejoOptions = PUBLISH_PROVIDER_OPTIONS.filter((option) => option.value === "forgejo");
-    assert.equal(forgejoOptions.length, 1);
-    assert.deepInclude(forgejoOptions[0], {
-      label: "Forgejo / Gitea",
-      pathPlaceholder: "owner/repo",
-    });
-  });
-});
-
-describe("resolvePublishHost", () => {
-  it("uses the signed-in Forgejo or Gitea server host", () => {
-    const host = resolvePublishHost({
-      provider: "forgejo",
-      sourceControlProviders: [discoveredProvider()],
-    });
-    assert.equal(host, "git.example.com");
-  });
-
-  it("falls back to the option host when no Forgejo server host is known", () => {
-    const host = resolvePublishHost({
-      provider: "forgejo",
-      sourceControlProviders: [discoveredProvider({ auth: { host: Option.none() } })],
-    });
-    assert.equal(host, "your server");
-  });
-
-  it("uses the fixed host for hosted providers", () => {
-    const host = resolvePublishHost({
-      provider: "github",
-      sourceControlProviders: [
-        discoveredProvider({
-          kind: "github",
-          label: "GitHub",
-          auth: { host: Option.some("ghe.example.com") },
-        }),
-      ],
-    });
-    assert.equal(host, "github.com");
-  });
-});
-
-describe("getPublishProviderReadiness", () => {
-  it("is ready when the provider is installed and signed in", () => {
-    const readiness = getPublishProviderReadiness({
-      provider: "forgejo",
-      sourceControlProviders: [discoveredProvider()],
-    });
-    assert.deepEqual(readiness, { ready: true, hint: null });
-  });
-
-  it("asks for a rescan when discovery has no entry for the provider", () => {
-    const readiness = getPublishProviderReadiness({
-      provider: "forgejo",
-      sourceControlProviders: [],
-    });
-    assert.equal(readiness.ready, false);
-    assert.match(readiness.hint ?? "", /rescan/);
-  });
-
-  it("surfaces the install hint when the CLI is missing", () => {
-    const readiness = getPublishProviderReadiness({
-      provider: "forgejo",
-      sourceControlProviders: [discoveredProvider({ status: "missing" })],
-    });
-    assert.deepEqual(readiness, { ready: false, hint: "Install fj or tea." });
-  });
-
-  it("surfaces the auth detail when the provider is signed out", () => {
-    const readiness = getPublishProviderReadiness({
-      provider: "forgejo",
-      sourceControlProviders: [
-        discoveredProvider({
-          auth: { status: "unauthenticated", detail: Option.some("Run tea login.") },
-        }),
-      ],
-    });
-    assert.deepEqual(readiness, { ready: false, hint: "Run tea login." });
   });
 });

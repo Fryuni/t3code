@@ -4,20 +4,6 @@ import { NonNegativeInt, TrimmedNonEmptyString } from "./baseSchemas.ts";
 export const VcsDriverKind = Schema.Literals(["git", "jj", "unknown"]);
 export type VcsDriverKind = typeof VcsDriverKind.Type;
 
-export const WorktreeStartRemote = Schema.NullOr(Schema.Literals(["origin", "upstream"]));
-export type WorktreeStartRemote = typeof WorktreeStartRemote.Type;
-
-export function resolveWorktreeStartRemote(input: {
-  readonly startFromRemote?: WorktreeStartRemote | undefined;
-  readonly startFromOrigin?: boolean | undefined;
-}): WorktreeStartRemote {
-  return input.startFromRemote !== undefined
-    ? input.startFromRemote
-    : input.startFromOrigin === true
-      ? "origin"
-      : null;
-}
-
 export const VcsFreshnessSource = Schema.Literals([
   "live-local",
   "cached-local",

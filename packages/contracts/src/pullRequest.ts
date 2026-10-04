@@ -152,6 +152,8 @@ export const PullRequestCheck = Schema.Struct({
   status: PullRequestCheckStatus,
   description: Schema.NullOr(Schema.String),
   url: Schema.NullOr(Schema.String),
+  /** The base branch requires this check to merge. Absent where the host does not say. */
+  required: Schema.optional(Schema.Boolean),
 });
 export type PullRequestCheck = typeof PullRequestCheck.Type;
 
@@ -747,6 +749,8 @@ export const PullRequestSummary = Schema.Struct({
   reviewDecision: Schema.optional(Schema.NullOr(PullRequestReviewDecision)),
   checksState: Schema.optional(Schema.NullOr(PullRequestChecksState)),
   mergeability: Schema.optional(PullRequestMergeability),
+  /** Null when the host says the pull request is in no stack; absent when the read did not ask. */
+  stack: Schema.optional(Schema.NullOr(PullRequestStackMembership)),
 });
 export type PullRequestSummary = typeof PullRequestSummary.Type;
 
@@ -842,6 +846,8 @@ export const PullRequestDetail = Schema.Struct({
   changedFiles: NonNegativeInt,
   headBranch: TrimmedNonEmptyString,
   headRepositoryNameWithOwner: Schema.optional(Schema.NullOr(TrimmedNonEmptyString)),
+  /** The head commit, where the host reports it with the detail. */
+  headSha: Schema.optional(TrimmedNonEmptyString),
   baseBranch: TrimmedNonEmptyString,
   createdAt: IsoDateTime,
   updatedAt: IsoDateTime,
@@ -880,6 +886,12 @@ export const PullRequestDetail = Schema.Struct({
   workflowApprovalsRequired: Schema.optional(NonNegativeInt),
 });
 export type PullRequestDetail = typeof PullRequestDetail.Type;
+
+export const PullRequestChecks = Schema.Struct({
+  state: PullRequestState,
+  checks: Schema.Array(PullRequestCheck),
+});
+export type PullRequestChecks = typeof PullRequestChecks.Type;
 
 /**
  * The slower, conversation-shaped half of a change request. It is read independently from the
@@ -1290,16 +1302,11 @@ const PROVIDER_REQUIREMENT: Partial<
  *
  * Shared between the server and the page so both bucket a workspace the same way — the page
  * knows its hosts before the listing answers, and the two must agree on what they are called.
- *
- * A Forgejo repository is addressed below its web authority, host and port, which the
- * resolved `webUrl` knows best and an HTTP remote second; an SSH remote says nothing and
- * leaves the canonical host.
  */
 export function pullRequestHostOf(
   identity:
     | {
         readonly canonicalKey?: string | undefined;
-        readonly webUrl?: string | undefined;
         readonly locator?: { readonly remoteUrl: string } | undefined;
       }
     | null
@@ -1307,13 +1314,12 @@ export function pullRequestHostOf(
   kind: SourceControlProviderKind,
 ): string {
   if (kind === "forgejo") {
-    for (const candidate of [identity?.webUrl, identity?.locator?.remoteUrl]) {
-      try {
-        const url = new URL(candidate ?? "");
-        if (url.protocol === "http:" || url.protocol === "https:") return url.host.toLowerCase();
-      } catch {
-        // SSH remotes retain their canonical host; the CLI resolves their web endpoint.
-      }
+    try {
+      const remote = new URL(identity?.locator?.remoteUrl ?? "");
+      if (remote.protocol === "http:" || remote.protocol === "https:")
+        return remote.host.toLowerCase();
+    } catch {
+      // SSH remotes retain their canonical host; the CLI resolves their web endpoint.
     }
   }
   const host = identity?.canonicalKey?.split("/")[0]?.trim();

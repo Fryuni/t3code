@@ -9,6 +9,7 @@ vi.mock("./branding", () => branding);
 
 import { APP_VERSION } from "./branding";
 import {
+  appendVersionMismatchHint,
   buildVersionMismatchDismissalKey,
   dismissServerUpdateFailure,
   dismissVersionMismatch,
@@ -152,26 +153,6 @@ describe("versionSkew", () => {
     });
   });
 
-  it("does not offer this client's version to a fork build", () => {
-    expect(
-      resolveServerConfigVersionMismatch({
-        environment: {
-          environmentId: EnvironmentId.make("environment-1"),
-          label: "Remote",
-          platform: {
-            os: "linux",
-            arch: "x64",
-          },
-          serverVersion: "0.0.33-fork.20261002.1",
-          releaseRepository: "someone/t3code",
-          capabilities: {
-            repositoryIdentity: true,
-          },
-        },
-      }),
-    ).toBeNull();
-  });
-
   it("keys dismissals by environment, client version, and server version", () => {
     const environmentId = EnvironmentId.make("environment-dismissal");
     const key = buildVersionMismatchDismissalKey(environmentId, {
@@ -193,6 +174,14 @@ describe("versionSkew", () => {
         }),
       ),
     ).toBe(false);
+  });
+
+  it("appends a hint to connection errors when the server is behind", () => {
+    const mismatch = resolveVersionMismatch("0.0.33");
+
+    expect(appendVersionMismatchHint("Socket closed.", mismatch)).toBe(
+      `Socket closed. Hint: ${MISMATCH_HINT}`,
+    );
   });
 
   it("reads desktop-managed update capabilities from config descriptors", () => {

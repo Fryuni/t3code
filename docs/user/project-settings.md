@@ -38,6 +38,31 @@ Settings that are environment-wide stay read-only while a project is selected. W
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
 
+## Worktree branch names
+
+In **Settings → Source Control → Worktree branch naming**, choose a static prefix,
+a model-selected semantic prefix such as `feat/` or `fix/`, or custom instructions
+for the complete name. The static prefix defaults to `t3code/`; a trailing slash is
+optional, and an empty prefix adds nothing. Invalid characters in a static prefix
+are replaced with hyphens. Custom instructions are appended to
+the naming prompt and can specify issue IDs, namespaces, and casing.
+
+These settings apply to automatically named new worktree branches. Select a project
+to override its environment defaults. Worktree directories keep their original names.
+If generation fails, or a custom name is invalid or already taken, the temporary
+branch name remains.
+
+## Scheduled tasks on mobile
+
+Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
+ones across your connected environments. Use the settings filter to narrow the
+list by environment or project. Each task runs on the environment you choose,
+using its project, model, and workspace settings. Fixed-time schedules use that
+environment's time zone, which may differ from your phone's.
+
+You can edit, pause, resume, run immediately, or delete a task from the list.
+Leaving an edited form asks before discarding unsaved changes.
+
 ## Defaults and inheritance
 
 General contains the model and workspace for new threads. Integrations controls agent browser
@@ -54,12 +79,6 @@ Settings a repository can also declare in `t3.json`, such as the workspace for n
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the
 built-in default. Leave a setting on **Inherit** to let the next tier decide.
 Browser access changes apply when an agent session next starts.
-
-To start new worktree threads from a branch such as `dev` instead of the repository's default
-branch, select the project and set **Source Control → Default base branch**. This setting is
-available only for a specific project, not **All projects**. An explicit branch choice takes
-precedence; clearing the setting restores the repository default. It does not change Git's default
-branch or switch the current checkout for local-mode threads.
 
 New worktrees initialize git submodules recursively. If that step is slow because the repository
 declares many nested submodules, set **Submodules** in **Settings → General** (with the project
@@ -81,9 +100,8 @@ captures and log retention remain machine-wide.
 
 Worktrees can be removed after a chosen number of inactive days, after merging, or when they
 have no commits beyond the default branch. Only T3-managed worktrees are eligible. Active
-sessions, shared worktrees, and uncommitted changes prevent removal. Ignored files, including
-build output, caches, and `.env` files, are removed with eligible worktrees. Branches and thread
-history stay; starting another turn recreates the checkout.
+sessions, shared worktrees, uncommitted changes, and ignored files other than `node_modules`
+prevent removal. Branches and thread history stay; starting another turn recreates the checkout.
 Merge cleanup requires the commits to be included in the remote default branch, so squash merges
 may need the inactivity rule instead.
 

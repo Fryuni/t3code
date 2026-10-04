@@ -1,50 +1,33 @@
 import type {
   RepositoryIdentity,
+  SourceControlProviderKind,
   ThreadLinkedPullRequest,
   ThreadPullRequestKey,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 
-import { changeRequestLinkMatchesRepository, parseChangeRequestUrl } from "./changeRequestUrl.ts";
-import {
-  canonicalRepositoryKey,
-  normalizeSourceControlRepository,
-  sourceControlRepositorySelector,
-} from "./sourceControl.ts";
+import { pullRequestHostOf } from "@t3tools/contracts";
+import { parseChangeRequestUrl } from "./changeRequestUrl.ts";
+import { canonicalRepositoryKey, sourceControlRepositorySelector } from "./sourceControl.ts";
 
 type ThreadPullRequestKeySource = ThreadPullRequestKey & {
   readonly authority?: string;
   readonly url?: string;
 };
 
-/**
- * The change request a key's URL names, when it is the same one the key names. A URL that
- * disagrees on the number or the repository is not evidence about the key and is ignored.
- * The repository check deliberately ignores case everywhere, mount path included: it only
- * asks whether the URL is about this repository, and the URL's own spelling then wins.
- */
-function parsedChangeRequestOf(key: ThreadPullRequestKeySource) {
-  const parsed = key.url === undefined ? null : parseChangeRequestUrl(key.url);
-  return parsed !== null &&
-    parsed.number === key.number &&
-    parsed.repository.toLowerCase() === key.repository.trim().toLowerCase()
-    ? parsed
-    : null;
-}
-
-/**
- * One identity for a link however it arrived. The URL, when it names this change request,
- * decides the fold: the host that wrote it is known from its shape, so a GitLab path folds
- * whole and a Forgejo path keeps its mount case and web port. Without one, or without a kind,
- * only owner/name fold — the one part every host folds — and the rest is trusted as written.
- */
+/** Normalize stored links, recovering Forgejo HTTP ports from old links' URLs. */
 export function normalizeThreadPullRequestKey(
   key: ThreadPullRequestKeySource,
 ): ThreadPullRequestKey {
-  const parsed = parsedChangeRequestOf(key);
-  const host = key.authority ?? parsed?.authority ?? key.host;
-  const repository = parsed?.repository ?? normalizeSourceControlRepository(key.repository);
-  const canonical = canonicalRepositoryKey(`${host.trim().toLowerCase()}/${repository}`);
+  const parsed = key.url === undefined ? null : parseChangeRequestUrl(key.url);
+  const authority =
+    key.authority ??
+    (parsed?.repository === key.repository.trim().toLowerCase() && parsed.number === key.number
+      ? parsed.authority
+      : undefined);
+  const canonical = canonicalRepositoryKey(
+    `${(authority ?? key.host).trim().toLowerCase()}/${key.repository.trim().toLowerCase()}`,
+  );
   const separator = canonical.indexOf("/");
   return {
     host: canonical.slice(0, separator),
@@ -53,11 +36,7 @@ export function normalizeThreadPullRequestKey(
   };
 }
 
-/**
- * The identity of a link stored before keys were normalized, read from its URL where the stored
- * fields cannot say: legacy Azure selectors omit the organization and project, and legacy
- * Forgejo links recorded the hostname without the web port.
- */
+/** Legacy Azure selectors omit the organization and project; recover those from the PR URL. */
 export function legacyThreadPullRequestKey(
   linked: Pick<ThreadLinkedPullRequest, "repository" | "number" | "url">,
   fallbackHost?: string,
@@ -79,12 +58,12 @@ export function legacyThreadPullRequestKey(
   }
   return {
     host: host.trim().toLowerCase() || "unknown",
-    repository: normalizeSourceControlRepository(linked.repository),
+    repository: linked.repository.trim().toLowerCase(),
     number: linked.number,
   };
 }
 
-/** Compare normalized identities without folding case-sensitive instance paths. */
+/** Identity comparison for links: host-level, case-insensitive on host and repository. */
 export function threadPullRequestKeysEqual(
   left: ThreadPullRequestKeySource,
   right: ThreadPullRequestKeySource,
@@ -97,22 +76,12 @@ export function threadPullRequestKeyOf(key: ThreadPullRequestKeySource): string 
   return `${normalized.host}/${normalized.repository}#${normalized.number}`;
 }
 
-/**
- * Links a user should see, with canonical keys for callers that copy host/repository/number
- * into URL-less commands. Old stored fields can differ from the identity recovered from the
- * URL. Tombstoned stack members remain in storage to prevent rediscovery but are not returned.
- */
+/** Links a user should see. Tombstoned stack members stay in the array only so the
+ * sync reactor does not re-add them. */
 export function visibleThreadPullRequests(
   links: ReadonlyArray<ThreadPullRequestLink>,
 ): ReadonlyArray<ThreadPullRequestLink> {
-  return links
-    .filter((link) => link.source !== "stack-dismissed")
-    .map((link) => {
-      const key = normalizeThreadPullRequestKey(link);
-      return key.host === link.host && key.repository === link.repository
-        ? link
-        : { ...link, ...key };
-    });
+  return links.filter((link) => link.source !== "stack-dismissed");
 }
 
 function isOpen(link: ThreadPullRequestLink): boolean {
@@ -188,20 +157,45 @@ export function legacyLinkedPullRequestOf(
   identity: RepositoryIdentity | null | undefined,
 ): ThreadLinkedPullRequest | null {
   if (!identity) return null;
+  // A local-path remote has no host segment and no provider, so there is no host to match.
+  const host = pullRequestHostOf(identity, identity.provider as SourceControlProviderKind);
+  if (typeof host !== "string") return null;
   const repository = sourceControlRepositorySelector(identity);
   if (repository === null) return null;
-  // A link's URL says which instance it came from; the stored fields stand in when it does not
-  // parse, which is how links on hosts of unknown shape were recorded.
+  const azureKey =
+    identity.provider === "azure-devops"
+      ? canonicalRepositoryKey(identity.canonicalKey.toLowerCase())
+      : null;
   const link = resolveThreadCurrentPullRequestLink(
-    links.filter((link) =>
-      changeRequestLinkMatchesRepository(parseChangeRequestUrl(link.url) ?? link, identity),
-    ),
+    links.filter((link) => {
+      if (azureKey !== null) {
+        const key = legacyThreadPullRequestKey(link, link.host);
+        return canonicalRepositoryKey(`${key.host}/${key.repository}`) === azureKey;
+      }
+      const parsed = parseChangeRequestUrl(link.url);
+      if (parsed?.authority !== undefined) {
+        try {
+          const remote = new URL(identity.locator.remoteUrl);
+          if (remote.protocol === "http:" || remote.protocol === "https:") {
+            return (
+              parsed.authority === remote.host && parsed.repository === repository.toLowerCase()
+            );
+          }
+        } catch {
+          // SSH web ports are resolved by the provider's configured login.
+        }
+        return parsed.host === host && parsed.repository === repository.toLowerCase();
+      }
+      return (
+        link.host.toLowerCase() === host.toLowerCase() &&
+        link.repository.toLowerCase() === repository.toLowerCase()
+      );
+    }),
   );
   if (link === null) return null;
   return {
     projectId,
-    // Azure reads take the repository name alone; every other provider takes the path as linked.
-    repository: identity.provider === "azure-devops" ? repository : link.repository,
+    repository: azureKey === null ? link.repository : repository,
     number: link.number,
     url: link.url,
   };
@@ -329,4 +323,25 @@ export function threadPullRequestSearchTerms(thread: {
   }
   const legacy = thread.linkedPullRequest;
   return legacy ? [`#${legacy.number}`, `${legacy.repository}#${legacy.number}`, legacy.url] : [];
+}
+
+/** Older V2 event payloads stored one link; an explicit empty array means it was unlinked. */
+export function threadPullRequestsOf(thread: {
+  readonly pullRequests?: ReadonlyArray<ThreadPullRequestLink> | undefined;
+  readonly linkedPullRequest?: ThreadLinkedPullRequest | null | undefined;
+}): ReadonlyArray<ThreadPullRequestLink> {
+  if (thread.pullRequests !== undefined) return thread.pullRequests;
+  const linked = thread.linkedPullRequest;
+  return linked == null
+    ? []
+    : [
+        {
+          ...legacyThreadPullRequestKey(linked),
+          url: linked.url,
+          source: "manual",
+          linkedAt: "1970-01-01T00:00:00.000Z",
+          snapshot: null,
+          stack: null,
+        },
+      ];
 }

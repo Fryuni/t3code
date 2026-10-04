@@ -4,7 +4,6 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { describe, expect, it } from "vite-plus/test";
@@ -20,6 +19,40 @@ describe("project thread title", () => {
     expect(deriveThreadTitleFromPrompt(" \n ")).toBe("New thread");
   });
 
+  it("derives attachment-only titles from prepared image metadata", () => {
+    const uploadedAttachments = [
+      {
+        type: "image" as const,
+        id: "prepared-photo",
+        name: "photo.png",
+        mimeType: "image/png",
+        sizeBytes: 3,
+      },
+    ];
+    const input = buildProjectThreadStartTurnInput({
+      projectId: ProjectId.make("project"),
+      projectCwd: "/workspace",
+      threadId: "image-thread",
+      commandId: "image-command",
+      messageId: "image-message",
+      createdAt: "2026-09-04T00:00:00Z",
+      text: "",
+      uploadedAttachments,
+      modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      workspaceMode: "local",
+      branch: null,
+      worktreePath: null,
+      startFromOrigin: false,
+      worktreeBranchName: "unused",
+    });
+
+    expect(input.titleSeed).toBe("Image: photo.png");
+    expect(input.bootstrap.createThread.title).toBe(input.titleSeed);
+    expect(input.message.attachments).toEqual(uploadedAttachments);
+  });
+
   it.each([
     {
       comment: undefined,
@@ -27,7 +60,7 @@ describe("project thread title", () => {
     },
     {
       comment: 'Why "shared"?',
-      title: 'Keep `cache[key]` & <parser> shared. Retry! Comment: Why "shared"?',
+      title: "Keep `cache[key]` & <parser> shared. Retry! Commen...",
     },
   ])("uses readable titles and intact links with comment $comment", ({ comment, title }) => {
     const quoteText = "Keep `cache[key]` & <parser> shared.\n  Retry!";
@@ -58,7 +91,7 @@ describe("project thread title", () => {
       workspaceMode: "local",
       branch: null,
       worktreePath: null,
-      startFromRemote: null,
+      startFromOrigin: false,
       worktreeBranchName: "unused",
     });
 
@@ -87,7 +120,7 @@ describe("new thread on an existing branch", () => {
         workspaceMode: "local",
         branch: "feature/existing",
         worktreePath,
-        startFromRemote: null,
+        startFromOrigin: false,
         worktreeBranchName: "unused",
       });
 
@@ -99,51 +132,6 @@ describe("new thread on an existing branch", () => {
       expect(input.bootstrap).not.toHaveProperty("prepareWorktree");
       expect(input.bootstrap).not.toHaveProperty("runSetupScript");
       expect(input.threadId).toBe("new-thread");
-    },
-  );
-});
-
-describe("new worktree branch choice", () => {
-  it.each(
-    [true, false, undefined].flatMap((createNewBranch) =>
-      ([null, "origin", "upstream"] satisfies ReadonlyArray<WorktreeStartRemote>).map(
-        (startFromRemote) => ({ createNewBranch, startFromRemote }),
-      ),
-    ),
-  )(
-    "builds a worktree start with createNewBranch=$createNewBranch and remote=$startFromRemote",
-    ({ createNewBranch, startFromRemote }) => {
-      const input = buildProjectThreadStartTurnInput({
-        projectId: ProjectId.make("project"),
-        projectCwd: "/workspace",
-        threadId: "new-thread",
-        commandId: "command",
-        messageId: "message",
-        createdAt: "2026-09-06T00:00:00Z",
-        text: "Continue working",
-        uploadedAttachments: [],
-        modelSelection: { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" },
-        runtimeMode: "full-access",
-        interactionMode: "default",
-        workspaceMode: "worktree",
-        branch: "feature/existing",
-        worktreePath: null,
-        startFromRemote,
-        ...(createNewBranch !== undefined ? { createNewBranch } : {}),
-        worktreeBranchName: "t3code/new-branch",
-      });
-      expect(input.bootstrap.prepareWorktree).toEqual({
-        projectCwd: "/workspace",
-        baseBranch: "feature/existing",
-        ...(createNewBranch !== false
-          ? {
-              branch: "t3code/new-branch",
-              startFromRemote,
-              startFromOrigin: startFromRemote === "origin",
-            }
-          : {}),
-      });
-      expect(input.bootstrap.runSetupScript).toBe(true);
     },
   );
 });

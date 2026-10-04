@@ -12,7 +12,6 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as RpcClientError from "effect/unstable/rpc/RpcClientError";
@@ -136,6 +135,15 @@ describe("thread outbox", () => {
           },
         ],
       },
+    };
+    expect(
+      decodeQueuedThreadMessage(JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message)))),
+    ).toEqual(message);
+  });
+  it("retains queue mode when a queued provider switch reloads from storage", () => {
+    const message: QueuedThreadMessage = {
+      ...queuedMessage({ messageId: "queued-switch", createdAt: "2026-09-17T09:00:00.000Z" }),
+      dispatchMode: "queue",
     };
     expect(
       decodeQueuedThreadMessage(JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message)))),
@@ -1382,72 +1390,46 @@ describe("thread outbox", () => {
     ).toBe("remove");
   });
 
-  it.each([null, "origin", "upstream"] satisfies ReadonlyArray<WorktreeStartRemote>)(
-    "round-trips queued creations with remote=%s and gates incomplete ones from sending",
-    (startFromRemote) => {
-      const base = queuedMessage({
-        messageId: "message-1",
-        createdAt: "2026-06-08T10:00:01.000Z",
-      });
-      const creationMessage = {
-        ...base,
-        modelSelection: {
-          instanceId: ProviderInstanceId.make("codex"),
-          model: "gpt-5.4",
-        },
-        creation: {
-          projectId: ProjectId.make("project-1"),
-          workspaceMode: "worktree",
-          branch: "main",
-          worktreePath: null,
-          startFromRemote,
-          createNewBranch: false,
-        },
-      } satisfies QueuedThreadMessage;
-
-      expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(creationMessage))).toEqual(
-        creationMessage,
-      );
-      expect(isQueuedThreadCreationSendable(creationMessage)).toBe(true);
-      expect(
-        isQueuedThreadCreationSendable({
-          ...creationMessage,
-          creation: { ...creationMessage.creation, branch: null },
-        }),
-      ).toBe(false);
-      expect(
-        isQueuedThreadCreationSendable({
-          ...creationMessage,
-          creation: { ...creationMessage.creation, branch: "" },
-        }),
-      ).toBe(false);
-      expect(
-        isQueuedThreadCreationSendable({ ...creationMessage, modelSelection: undefined }),
-      ).toBe(false);
-      expect(isQueuedThreadCreationSendable(base)).toBe(false);
-    },
-  );
-
-  it.each([
-    { stored: { startFromOrigin: true }, expected: "origin" },
-    { stored: { startFromOrigin: false }, expected: null },
-    { stored: { startFromOrigin: true, startFromRemote: null }, expected: null },
-    { stored: { startFromOrigin: true, startFromRemote: "upstream" }, expected: "upstream" },
-    { stored: {}, expected: undefined },
-  ])("migrates persisted remote choice $stored", ({ stored, expected }) => {
-    const restored = decodeQueuedThreadMessage({
-      schemaVersion: 3,
-      ...queuedMessage({ messageId: "message-1", createdAt: "2026-06-08T10:00:01.000Z" }),
+  it("round-trips queued creations and gates incomplete ones from sending", () => {
+    const base = queuedMessage({
+      messageId: "message-1",
+      createdAt: "2026-06-08T10:00:01.000Z",
+    });
+    const creationMessage = {
+      ...base,
+      modelSelection: {
+        instanceId: ProviderInstanceId.make("codex"),
+        model: "gpt-5.4",
+      },
       creation: {
-        projectId: "project-1",
+        projectId: ProjectId.make("project-1"),
         workspaceMode: "worktree",
         branch: "main",
         worktreePath: null,
-        ...stored,
+        startFromOrigin: true,
       },
-    });
-    expect(restored.creation?.startFromRemote).toBe(expected);
-    expect(restored.creation).not.toHaveProperty("startFromOrigin");
+    } satisfies QueuedThreadMessage;
+
+    expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(creationMessage))).toEqual(
+      creationMessage,
+    );
+    expect(isQueuedThreadCreationSendable(creationMessage)).toBe(true);
+    expect(
+      isQueuedThreadCreationSendable({
+        ...creationMessage,
+        creation: { ...creationMessage.creation, branch: null },
+      }),
+    ).toBe(false);
+    expect(
+      isQueuedThreadCreationSendable({
+        ...creationMessage,
+        creation: { ...creationMessage.creation, branch: "" },
+      }),
+    ).toBe(false);
+    expect(isQueuedThreadCreationSendable({ ...creationMessage, modelSelection: undefined })).toBe(
+      false,
+    );
+    expect(isQueuedThreadCreationSendable(base)).toBe(false);
   });
 
   it("retries transport failures but drops deterministic command failures", () => {

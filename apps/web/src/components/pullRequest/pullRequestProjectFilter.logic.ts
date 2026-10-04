@@ -1,5 +1,4 @@
 import type { EnvironmentId } from "@t3tools/contracts";
-import { canonicalRepositoryKey } from "@t3tools/shared/sourceControl";
 
 import type { AssignableProject } from "./pullRequestProjectAssignment.logic";
 
@@ -31,9 +30,7 @@ export function pullRequestFilterProjects<Project extends FilterProject>(
 ) {
   const byRepository = new Map<string, Project>();
   for (const project of projects) {
-    const canonicalKey = project.repositoryIdentity?.canonicalKey;
-    const repository =
-      canonicalKey === undefined ? undefined : canonicalRepositoryKey(canonicalKey);
+    const repository = project.repositoryIdentity?.canonicalKey?.toLowerCase();
     const key = JSON.stringify([
       project.environmentId,
       repository ? ["repository", repository] : ["project", project.id],

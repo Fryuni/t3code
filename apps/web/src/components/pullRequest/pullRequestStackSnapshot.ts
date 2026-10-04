@@ -1,4 +1,3 @@
-import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import type { PullRequestRef, PullRequestStack, ThreadPullRequestLink } from "@t3tools/contracts";
 
 /** Saved native membership is enough for navigation, but never supplies action head SHAs. */
@@ -11,8 +10,7 @@ export function savedPullRequestStack(
   const matching = links.filter(
     (link) =>
       link.host.toLowerCase() === host &&
-      normalizeSourceControlRepository(link.repository) ===
-        normalizeSourceControlRepository(reference.repository),
+      link.repository.toLowerCase() === reference.repository.toLowerCase(),
   );
   const exact = matching.filter((link) => link.number === reference.number);
   const candidates =

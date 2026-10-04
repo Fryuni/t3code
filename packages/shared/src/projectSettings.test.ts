@@ -241,28 +241,6 @@ describe("projectSettingsOverrides patches", () => {
     expect(hasProjectSettingsOverrides(DEFAULT_SERVER_SETTINGS)).toBe(false);
   });
 
-  it("persists and clears the project-only default base branch by entry replacement", () => {
-    const written = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
-      projectSettingsOverrides: {
-        [projectId]: { defaultThreadBaseBranch: "dev", defaultAutoPull: true },
-      },
-    });
-    expect(written.projectSettingsOverrides[projectId]).toEqual({
-      defaultThreadBaseBranch: "dev",
-      defaultAutoPull: true,
-    });
-    expect(resolveProjectSettings(written, projectId).overrides.defaultThreadBaseBranch).toBe(
-      "dev",
-    );
-
-    const cleared = applyServerSettingsPatch(written, {
-      projectSettingsOverrides: {
-        [projectId]: clearProjectSettingsOverrides(written, projectId, ["defaultThreadBaseBranch"]),
-      },
-    });
-    expect(cleared.projectSettingsOverrides[projectId]).toEqual({ defaultAutoPull: true });
-  });
-
   it("derives the legacy per-key maps from the generic record", () => {
     const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
       projectSettingsOverrides: {
@@ -387,4 +365,28 @@ describe("resolveWorktreeCleanup", () => {
         .worktreeAfterDays,
     ).toBe(8);
   });
+});
+
+it("inherits branch naming defaults and applies project overrides independently", () => {
+  const settings = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
+    branchNamingMode: "static",
+    branchNamePrefix: "team/",
+    branchNameInstructions: "Use issue IDs.",
+    projectSettingsOverrides: { [projectId]: { branchNamingMode: "custom" } },
+  });
+  expect(resolveProjectSettings(settings, projectId).settings).toMatchObject({
+    branchNamingMode: "custom",
+    branchNamePrefix: "team/",
+    branchNameInstructions: "Use issue IDs.",
+  });
+  expect(resolveProjectSettings(settings, otherProjectId).settings).toMatchObject({
+    branchNamingMode: "static",
+    branchNamePrefix: "team/",
+  });
+  const cleared = applyServerSettingsPatch(settings, {
+    projectSettingsOverrides: {
+      [projectId]: clearProjectSettingsOverrides(settings, projectId, ["branchNamingMode"]),
+    },
+  });
+  expect(resolveProjectSettings(cleared, projectId).settings.branchNamingMode).toBe("static");
 });

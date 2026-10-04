@@ -47,14 +47,11 @@ describe("highlightSourceFile", () => {
     ]);
   });
 
-  it("initializes source and snippet highlighting without a warmup", async ({ onTestFinished }) => {
+  it("initializes source and snippet highlighting without a warmup", async () => {
     vi.resetModules();
     const highlighter = await import("./shikiReviewHighlighter");
     const source = "const answer: number = 42;";
 
-    // Shiki bounds tokenization by wall time; CI contention must not truncate this fixture.
-    const clockSpy = vi.spyOn(Date, "now").mockReturnValue(0);
-    onTestFinished(() => clockSpy.mockRestore());
     const highlighted = await highlighter.highlightSourceFile({
       path: "example.ts",
       contents: source,

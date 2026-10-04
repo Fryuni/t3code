@@ -53,11 +53,7 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
-import {
-  resolveDesktopPairingUrl,
-  resolveHostedPairingUrl,
-  withPublicUrlEndpoint,
-} from "./pairingUrls";
+import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
 import {
   applyWslEnableSelection,
   isQrShareableEndpoint,
@@ -121,6 +117,7 @@ import { Menu, MenuItem, MenuPopup, MenuSeparator, MenuTrigger } from "../ui/men
 import { Switch } from "../ui/switch";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
+import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "../ui/empty";
 import { AnimatedHeight } from "../AnimatedHeight";
@@ -168,11 +165,13 @@ import {
   usePrimaryEnvironment,
   useRelayEnvironmentDiscovery,
 } from "~/state/environments";
+import { APP_VERSION } from "~/branding";
 import { requestConfirmDialog } from "~/confirmDialog";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { primaryServerKeybindingsAtom, serverEnvironment } from "~/state/server";
 import { ConnectionStatusDot } from "../ConnectionStatusDot";
 import {
+  OutdatedServerUpdateAction,
   ServerUpdateAction,
   ServerUpdateProgress,
   ServerUpdatesAction,
@@ -1601,6 +1600,17 @@ function SavedBackendListRow({
         ) : null
       }
     >
+      {unsupported &&
+      environment.entry.serverUpdateRequired === true &&
+      serverUpdateState.status !== "running" ? (
+        <OutdatedServerUpdateAction
+          environmentId={environmentId}
+          serverLabel={`${environment.label} server`}
+          fromVersion={lastDescriptor?.serverVersion}
+          targetVersion={APP_VERSION}
+          label={serverUpdateState.status === "failed" ? "Retry update" : "Update"}
+        />
+      ) : null}
       {showUpdateAction ? (
         <ServerUpdateAction
           environmentId={environmentId}
@@ -2571,13 +2581,10 @@ export function ConnectionsSettings() {
   );
   const visibleDesktopNetworkAdvertisedEndpoints = useMemo(
     () =>
-      withPublicUrlEndpoint(
-        isLocalBackendNetworkAccessible
-          ? desktopAdvertisedEndpoints.filter((endpoint) => !isTailscaleHttpsEndpoint(endpoint))
-          : [],
-        primaryServerConfig?.publicUrl,
-      ),
-    [desktopAdvertisedEndpoints, isLocalBackendNetworkAccessible, primaryServerConfig?.publicUrl],
+      isLocalBackendNetworkAccessible
+        ? desktopAdvertisedEndpoints.filter((endpoint) => !isTailscaleHttpsEndpoint(endpoint))
+        : [],
+    [desktopAdvertisedEndpoints, isLocalBackendNetworkAccessible],
   );
   const visibleDesktopAdvertisedEndpoints = useMemo(
     () =>
@@ -2587,22 +2594,12 @@ export function ConnectionsSettings() {
     [tailscaleHttpsEndpoint, visibleDesktopNetworkAdvertisedEndpoints],
   );
   const isLocalBackendRemotelyReachable =
-    isLocalBackendNetworkAccessible ||
-    visibleDesktopNetworkAdvertisedEndpoints.some(
-      (endpoint) => endpoint.reachability !== "loopback",
-    ) ||
-    tailscaleHttpsEndpoint?.status === "available";
+    isLocalBackendNetworkAccessible || tailscaleHttpsEndpoint?.status === "available";
   const defaultDesktopNetworkAdvertisedEndpoint = useMemo(
     () =>
       selectPairingEndpoint(visibleDesktopNetworkAdvertisedEndpoints, defaultAdvertisedEndpointKey),
     [defaultAdvertisedEndpointKey, visibleDesktopNetworkAdvertisedEndpoints],
   );
-  // A server behind an external proxy advertises a public URL while local
-  // network exposure stays off, so the network access row has an endpoint to
-  // name even though the toggle reads as local-only.
-  const hasRemoteAdvertisedEndpoint =
-    defaultDesktopNetworkAdvertisedEndpoint !== null &&
-    defaultDesktopNetworkAdvertisedEndpoint.reachability !== "loopback";
   const defaultDesktopAdvertisedEndpoint = useMemo(
     () =>
       defaultDesktopNetworkAdvertisedEndpoint ??
@@ -2825,9 +2822,9 @@ export function ConnectionsSettings() {
           </label>
         </div>
         {savedBackendError || discoveredSshHostsError ? (
-          <div className="rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
-            {savedBackendError ?? discoveredSshHostsError}
-          </div>
+          <Alert variant="error">
+            <AlertDescription>{savedBackendError ?? discoveredSshHostsError}</AlertDescription>
+          </Alert>
         ) : null}
         <Button
           variant="outline"
@@ -3239,7 +3236,7 @@ export function ConnectionsSettings() {
     <SettingsRow
       title={searchableSetting("network-access").title}
       description={
-        isLocalBackendNetworkAccessible || hasRemoteAdvertisedEndpoint ? (
+        isLocalBackendNetworkAccessible ? (
           <NetworkAccessDescription
             endpoint={defaultDesktopNetworkAdvertisedEndpoint}
             hiddenEndpointCount={Math.max(visibleDesktopNetworkAdvertisedEndpoints.length - 1, 0)}
@@ -3273,7 +3270,7 @@ export function ConnectionsSettings() {
       description={
         currentAuthPolicy === "remote-reachable"
           ? "Remote access is already configured. Change network exposure where the server starts."
-          : "Only this machine can connect. Restart with a reachable --host or --public-url for an external proxy."
+          : "Only this machine can connect. Restart with a non-loopback host for remote pairing."
       }
       control={
         <Tooltip>

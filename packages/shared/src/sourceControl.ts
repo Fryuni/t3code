@@ -47,6 +47,17 @@ const GITLAB_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   urlExample: "https://gitlab.com/group/project/-/merge_requests/42",
 };
 
+const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
+  icon: "forgejo",
+  providerName: "Forgejo",
+  shortName: "PR",
+  longName: "pull request",
+  pluralLongName: "pull requests",
+  providerLongName: "Forgejo pull request",
+  checkoutCommandExample: "tea pr checkout 123",
+  urlExample: "https://codeberg.org/owner/repo/pulls/42",
+};
+
 const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   icon: "azure-devops",
   providerName: "Azure DevOps",
@@ -56,17 +67,6 @@ const AZURE_DEVOPS_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
   providerLongName: "Azure DevOps pull request",
   checkoutCommandExample: "az repos pr checkout --id 123",
   urlExample: "https://dev.azure.com/org/project/_git/repo/pullrequest/42",
-};
-
-const FORGEJO_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
-  icon: "forgejo",
-  providerName: "Forgejo",
-  shortName: "PR",
-  longName: "pull request",
-  pluralLongName: "pull requests",
-  providerLongName: "Forgejo pull request",
-  checkoutCommandExample: "fj pr checkout 123",
-  urlExample: "https://codeberg.org/owner/repo/pulls/42",
 };
 
 const BITBUCKET_CHANGE_REQUEST_PRESENTATION: ChangeRequestPresentation = {
@@ -299,37 +299,7 @@ export function sourceControlRepositorySelector(
   return identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
 }
 
-/**
- * A repository path folded the way its host folds it, so two spellings of one repository
- * compare equal and two repositories never do.
- *
- * GitHub, GitLab, Bitbucket, and Azure fold the whole path. Forgejo folds owner and name, but
- * an instance can be served below a mount path (`https://example.com/forgejo`), and that
- * prefix belongs to whatever proxy serves it, where case can distinguish two instances on one
- * host. Without a kind, or with one that might still turn out to be Forgejo, only the last two
- * segments fold — the part every host folds — and the rest is trusted as written.
- */
-export function normalizeSourceControlRepository(repository: string, kind?: string | null): string {
-  if (kind != null && kind !== "unknown" && kind !== "forgejo")
-    return repository.trim().toLowerCase();
-  const segments = repository.trim().split("/");
-  return segments
-    .map((segment, index) => (index >= segments.length - 2 ? segment.toLowerCase() : segment))
-    .join("/");
-}
-
-/**
- * The comparison form of a `host/repository` key: host folded, the repository folded per
- * `normalizeSourceControlRepository`, and Azure's SSH and legacy hosts rewritten to the web
- * spelling. A Forgejo host keeps its port, since instances on one hostname can differ by it.
- */
-export function canonicalRepositoryKey(key: string, kind?: string | null): string {
-  const separator = key.indexOf("/");
-  if (separator >= 0) {
-    const host = key.slice(0, separator).toLowerCase();
-    const provider = isAzureDevOpsHost(host) ? "azure-devops" : kind;
-    key = `${host}/${normalizeSourceControlRepository(key.slice(separator + 1), provider)}`;
-  }
+export function canonicalRepositoryKey(key: string): string {
   return key
     .replace(
       /^(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com)\/v3\/([^/]+)\/([^/]+)\/([^/]+)$/u,

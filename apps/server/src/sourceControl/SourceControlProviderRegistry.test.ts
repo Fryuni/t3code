@@ -4,8 +4,6 @@ import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
-import * as TestClock from "effect/testing/TestClock";
-import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
 import { ChildProcessSpawner } from "effect/unstable/process";
 import { VcsRepositoryDetectionError } from "@t3tools/contracts";
 
@@ -44,7 +42,6 @@ function makeRegistry(input: {
   readonly process?: Partial<VcsProcess.VcsProcess["Service"]>;
   readonly github?: Partial<GitHubCli.GitHubCli["Service"]>;
   readonly gitlab?: Partial<GitLabCli.GitLabCli["Service"]>;
-  readonly listLogins?: ForgejoCli.ForgejoCli["Service"]["listLogins"];
   readonly resolve?: VcsDriverRegistry.VcsDriverRegistry["Service"]["resolve"];
 }) {
   const driver = {
@@ -99,9 +96,7 @@ function makeRegistry(input: {
         Layer.mock(BitbucketApi.BitbucketApi)({}),
         Layer.mock(GitHubCli.GitHubCli)(input.github ?? {}),
         Layer.mock(GitLabCli.GitLabCli)(input.gitlab ?? {}),
-        Layer.mock(ForgejoCli.ForgejoCli)({
-          listLogins: input.listLogins ?? (() => Effect.succeed([])),
-        }),
+        Layer.mock(ForgejoCli.ForgejoCli)({ listLogins: () => Effect.succeed([]) }),
         ServerConfig.layerTest(process.cwd(), {
           prefix: "t3-source-control-registry-test-",
         }).pipe(Layer.provide(NodeServices.layer)),
@@ -301,51 +296,6 @@ it.effect("falls back to a non-origin remote when origin is not configured", () 
     const provider = yield* registry.resolve({ cwd: "/repo" });
 
     assert.strictEqual(provider.kind, "azure-devops");
-  }),
-);
-
-it.effect("shares cached refinement while keeping requested web authorities separate", () =>
-  Effect.gen(function* () {
-    const remoteUrl = "ssh://git@ssh.example:2222/Owner/Repo.git";
-    let probes = 0;
-    const registry = yield* makeRegistry({
-      remotes: [{ name: "origin", url: remoteUrl }],
-      listLogins: () =>
-        Effect.sync(() => {
-          probes++;
-          return [3000, 4000].map((port) => ({
-            name: String(port),
-            url: `https://forge.example:${port}`,
-            ssh_host: "ssh.example:2222",
-            user: "alice",
-            default: "false",
-          }));
-        }),
-    });
-    const resolve = (port: number) =>
-      registry.resolveHandle({
-        cwd: "/repo",
-        context: {
-          provider: detectSourceControlProviderFromRemoteUrl(remoteUrl)!,
-          remoteName: "origin",
-          remoteUrl,
-          requestedHost: `forge.example:${port}`,
-        },
-      });
-    const handles = yield* Effect.all([resolve(3000), resolve(3000)], { concurrency: "unbounded" });
-    assert.strictEqual(handles[0]?.context?.provider.baseUrl, "https://forge.example:3000");
-    assert.strictEqual(probes, 1);
-    assert.strictEqual(
-      (yield* resolve(4000)).context?.provider.baseUrl,
-      "https://forge.example:4000",
-    );
-    assert.strictEqual(probes, 2);
-    yield* TestClock.adjust("6 seconds");
-    yield* resolve(3000);
-    assert.strictEqual(probes, 2);
-    yield* TestClock.adjust("1 minute");
-    yield* resolve(3000);
-    assert.strictEqual(probes, 3);
   }),
 );
 

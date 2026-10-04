@@ -8,16 +8,52 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { SettingsTarget } from "./settings-environment-filter";
 import {
-  planMobileProjectOverridePatch,
   planMobileScopedSettingsClear,
   planMobileScopedSettingsPatch,
   resolveMobileSettingsTargets,
+  uniformMobileSetting,
 } from "./settings-scoped-server";
 
 const firstId = "first" as EnvironmentId;
 const secondId = "second" as EnvironmentId;
 const firstProject = "first-project" as ProjectId;
 const secondProject = "second-project" as ProjectId;
+
+describe("mobile usage-limit settings across environments", () => {
+  it.each(["autoResumeLimitedThreads", "snoozeLimitedThreads"] as const)(
+    "shows %s as mixed and can enable it everywhere without changing other settings",
+    (key) => {
+      const targets = resolveMobileSettingsTargets(
+        [
+          environment(firstId, { ...DEFAULT_SERVER_SETTINGS, [key]: true }),
+          environment(secondId, { ...DEFAULT_SERVER_SETTINGS, [key]: false }),
+        ],
+        null,
+      );
+
+      expect(uniformMobileSetting(targets, key)).toBeNull();
+      const writes = planMobileScopedSettingsPatch(targets, false, { [key]: true });
+      expect(writes).toEqual([
+        { environmentId: firstId, patch: { [key]: true } },
+        { environmentId: secondId, patch: { [key]: true } },
+      ]);
+      const updatedTargets = targets.map((target) => ({
+        ...target,
+        settings: {
+          ...target.settings,
+          [key]:
+            writes.find((write) => write.environmentId === target.environment.environmentId)?.patch[
+              key
+            ] ?? target.settings[key],
+        },
+      }));
+      expect(uniformMobileSetting(updatedTargets, key)).toBe(true);
+      expect(uniformMobileSetting(targets.slice(0, 1), key)).toBe(true);
+      expect(uniformMobileSetting(targets.slice(1), key)).toBe(false);
+      expect(uniformMobileSetting([], key)).toBeNull();
+    },
+  );
+});
 
 function environment(environmentId: EnvironmentId, settings: ServerSettings): SettingsTarget {
   return {
@@ -38,7 +74,7 @@ describe("mobile project settings scope", () => {
     };
     const secondSettings: ServerSettings = {
       ...DEFAULT_SERVER_SETTINGS,
-      responseStreamingMode: "token",
+      responseStreamingMode: "turn",
       projectSettingsOverrides: {},
     };
     const targets = resolveMobileSettingsTargets(
@@ -67,7 +103,7 @@ describe("mobile project settings scope", () => {
       },
     ]);
     expect(firstSettings.responseStreamingMode).toBe("paragraph");
-    expect(secondSettings.responseStreamingMode).toBe("token");
+    expect(secondSettings.responseStreamingMode).toBe("turn");
   });
 
   it("removes a project override when a picker sends null for a key that cannot store it", () => {
@@ -124,37 +160,5 @@ describe("mobile project settings scope", () => {
     expect(
       planMobileScopedSettingsPatch(targets, true, { enableProviderUpdateChecks: false }),
     ).toEqual([]);
-  });
-
-  it("saves and clears the project-only base branch without dropping sibling overrides", () => {
-    const settings: ServerSettings = {
-      ...DEFAULT_SERVER_SETTINGS,
-      projectSettingsOverrides: {
-        [firstProject]: { defaultAutoPull: true, defaultThreadBaseBranch: "dev" },
-      },
-    };
-    const targets = resolveMobileSettingsTargets(
-      [environment(firstId, settings)],
-      [{ environmentId: firstId, id: firstProject }],
-    );
-
-    expect(planMobileProjectOverridePatch(targets, { defaultThreadBaseBranch: "release" })).toEqual(
-      [
-        {
-          environmentId: firstId,
-          patch: {
-            projectSettingsOverrides: {
-              [firstProject]: { defaultAutoPull: true, defaultThreadBaseBranch: "release" },
-            },
-          },
-        },
-      ],
-    );
-    expect(planMobileScopedSettingsClear(targets, ["defaultThreadBaseBranch"])).toEqual([
-      {
-        environmentId: firstId,
-        patch: { projectSettingsOverrides: { [firstProject]: { defaultAutoPull: true } } },
-      },
-    ]);
   });
 });

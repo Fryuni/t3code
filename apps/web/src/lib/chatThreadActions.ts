@@ -4,7 +4,6 @@ import type {
   ModelSelection,
   ProjectId,
   ScopedProjectRef,
-  WorktreeStartRemote,
 } from "@t3tools/contracts";
 import type { ComposerThreadDraftState, DraftThreadEnvMode } from "../composerDraftStore";
 
@@ -25,8 +24,7 @@ interface NewThreadHandler {
       branch?: string | null;
       worktreePath?: string | null;
       envMode?: DraftThreadEnvMode;
-      startFromRemote?: WorktreeStartRemote;
-      createNewBranch?: boolean;
+      startFromOrigin?: boolean;
     },
     // The opened draft's identity, which most callers have no use for.
   ): Promise<unknown>;
@@ -39,11 +37,11 @@ export interface ChatThreadActionContext {
   readonly handleNewThread: NewThreadHandler;
 }
 
-export function resolveNewDraftStartFromRemote(input: {
+export function resolveNewDraftStartFromOrigin(input: {
   envMode: DraftThreadEnvMode;
   newWorktreesStartFromOrigin: boolean;
-}): WorktreeStartRemote {
-  return input.envMode === "worktree" && input.newWorktreesStartFromOrigin ? "origin" : null;
+}): boolean {
+  return input.envMode === "worktree" && input.newWorktreesStartFromOrigin;
 }
 
 export function resolveNewThreadModelSelectionOverride(input: {

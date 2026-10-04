@@ -232,7 +232,6 @@ function EnvironmentDetail({ environmentId }: { readonly environmentId: Environm
                           const targetVersion = await findEnvironmentUpdate(
                             config.environment.serverVersion,
                             controller.signal,
-                            config.environment.releaseRepository,
                           );
                           setRelease({
                             fromVersion: config.environment.serverVersion,

@@ -133,7 +133,7 @@ jobs:
           T3CODE_TRANSFER_BUDGET_REPORT_PATH: ${{ runner.temp }}/t3code-transfer-budget.md
         run: vp run --filter t3 test --shard ${{ matrix.shard }}/${{ strategy.job-total }}
 
-      # src/server.test.ts writes the budget report in exactly one shard.
+      # integration/transferBudgetV2.integration.test.ts writes the budget report in exactly one shard.
       - name: Publish transfer budget report
         if: always()
         run: |

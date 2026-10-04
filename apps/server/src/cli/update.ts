@@ -9,7 +9,6 @@ import {
 import {
   CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_CHANNELS,
-  CLI_RELEASE_LATEST_URL,
   cliReleaseIndexPageUrl,
   cliReleaseChannelOf,
   newestCliReleaseVersion,
@@ -33,7 +32,6 @@ import {
 
 import packageJson from "../../package.json" with { type: "json" };
 import * as BootService from "../cloud/bootService.ts";
-import { resolveLatestReleaseVersion } from "../cloud/latestRelease.ts";
 import {
   ensurePinnedRuntimeInstalled,
   pinnedRuntimeCommand,
@@ -335,31 +333,6 @@ const belongsToBootService = Effect.fn("cli.update.belongs_to_boot_service")(fun
   return false;
 });
 
-/**
- * The version `t3 update` moves to. Fork builds set `latestReleaseUrl` and
- * follow their repository's latest release, which has no channels to pick.
- */
-export const resolveUpdateTarget = Effect.fn("cli.update.resolve_target")(function* (
-  input: {
-    readonly channel: CliReleaseChannel | undefined;
-    readonly requestedVersion: string | undefined;
-  },
-  latestReleaseUrl: string | undefined = CLI_RELEASE_LATEST_URL,
-) {
-  if (latestReleaseUrl !== undefined && input.channel !== undefined) {
-    return yield* new CliUpdateError({
-      reason: "This t3 build follows its repository's latest release; --channel does not apply.",
-    });
-  }
-  if (input.requestedVersion !== undefined) return input.requestedVersion;
-  if (latestReleaseUrl === undefined) {
-    return yield* resolveNewestVersion(input.channel ?? cliReleaseChannelOf(packageJson.version));
-  }
-  return yield* resolveLatestReleaseVersion(latestReleaseUrl).pipe(
-    Effect.mapError((error) => new CliUpdateError({ reason: error.reason })),
-  );
-});
-
 const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   readonly baseDir: string;
   readonly logsDir: string;
@@ -379,6 +352,7 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   const service = yield* BootService.BootService;
 
   const currentVersion = packageJson.version;
+  const channel = input.channel ?? cliReleaseChannelOf(currentVersion);
   if (input.requestedVersion !== undefined && !isExactServiceVersion(input.requestedVersion)) {
     return yield* new CliUpdateError({
       reason: `'${input.requestedVersion}' is not an exact t3 version.`,
@@ -386,9 +360,11 @@ const runUpdate = Effect.fn("cli.update.run")(function* (input: {
   }
   const progress = createUpdateProgress();
   progress.status("Checking for updates...");
-  const targetVersion = yield* resolveUpdateTarget(input).pipe(
-    Effect.ensuring(Effect.sync(progress.finish)),
-  );
+  const targetVersion = yield* (
+    input.requestedVersion === undefined
+      ? resolveNewestVersion(channel)
+      : Effect.succeed(input.requestedVersion)
+  ).pipe(Effect.ensuring(Effect.sync(progress.finish)));
   const targetChannel = cliReleaseChannelOf(targetVersion);
 
   // Preview is a maintainers' dogfooding train: it is cut by hand from

@@ -4,13 +4,12 @@ import {
   type EnvironmentId,
   type ProjectId,
   type ProjectScopedServerSettingKey,
-  type ProjectSettingsOverrides,
   type ServerSettings,
   type ServerSettingsPatch,
 } from "@t3tools/contracts";
 import {
+  clearProjectSettingsOverrides,
   resolveProjectSettings,
-  type ResolvedProjectSettings,
 } from "@t3tools/shared/projectSettings";
 
 import type { SettingsTarget } from "./settings-environment-filter";
@@ -19,8 +18,7 @@ export interface ScopedMobileSettingsTarget {
   readonly environment: SettingsTarget;
   readonly projectId: ProjectId | null;
   readonly settings: ServerSettings;
-  readonly sources: ResolvedProjectSettings["sources"];
-  readonly overrides: ProjectSettingsOverrides;
+  readonly sources: ReturnType<typeof resolveProjectSettings>["sources"];
 }
 
 export function resolveMobileSettingsTargets(
@@ -94,32 +92,21 @@ export function planMobileScopedSettingsPatch(
     patch: { projectSettingsOverrides } as ServerSettingsPatch,
   }));
 }
-export function planMobileProjectOverridePatch(
-  targets: readonly ScopedMobileSettingsTarget[],
-  patch: Partial<ProjectSettingsOverrides>,
-) {
-  const writes = new Map<EnvironmentId, Record<string, unknown>>();
-  for (const target of targets) {
-    if (
-      target.projectId === null ||
-      target.environment.serverConfig.environment.capabilities.projectSettingsOverrides !== true
-    )
-      continue;
-    const current =
-      target.environment.serverConfig.settings.projectSettingsOverrides[target.projectId] ?? {};
-    const overrides = writes.get(target.environment.environmentId) ?? {};
-    overrides[target.projectId] = { ...current, ...patch };
-    writes.set(target.environment.environmentId, overrides);
-  }
-  return [...writes].map(([environmentId, projectSettingsOverrides]) => ({
-    environmentId,
-    patch: { projectSettingsOverrides } as ServerSettingsPatch,
-  }));
+
+/** A mixed selection has no single value to display. */
+export function uniformMobileSetting<K extends keyof ServerSettings>(
+  targets: readonly Pick<ScopedMobileSettingsTarget, "settings">[],
+  key: K,
+): ServerSettings[K] | null {
+  const reference = targets[0];
+  if (!reference) return null;
+  const value = reference.settings[key];
+  return targets.every((target) => target.settings[key] === value) ? value : null;
 }
 
 export function planMobileScopedSettingsClear(
   targets: readonly ScopedMobileSettingsTarget[],
-  keys: readonly (keyof ProjectSettingsOverrides)[],
+  keys: readonly ProjectScopedServerSettingKey[],
 ) {
   const writes = new Map<EnvironmentId, Record<string, unknown>>();
   for (const target of targets) {
@@ -128,12 +115,12 @@ export function planMobileScopedSettingsClear(
       target.environment.serverConfig.environment.capabilities.projectSettingsOverrides !== true
     )
       continue;
-    const current =
-      target.environment.serverConfig.settings.projectSettingsOverrides[target.projectId] ?? {};
-    const next = { ...current };
-    for (const key of keys) delete next[key];
     const overrides = writes.get(target.environment.environmentId) ?? {};
-    overrides[target.projectId] = Object.keys(next).length === 0 ? null : next;
+    overrides[target.projectId] = clearProjectSettingsOverrides(
+      target.environment.serverConfig.settings,
+      target.projectId,
+      keys,
+    );
     writes.set(target.environment.environmentId, overrides);
   }
   return [...writes].map(([environmentId, projectSettingsOverrides]) => ({

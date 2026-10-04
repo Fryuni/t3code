@@ -5,7 +5,6 @@ import {
   deriveLocalBranchNameFromRemoteRef,
   resolveEnvironmentOptionLabel,
   resolveBranchSelectionTarget,
-  resolveAutomaticWorktreeBaseBranch,
   resolveCurrentWorkspaceLabel,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
@@ -13,8 +12,8 @@ import {
   resolveBranchTriggerLabel,
   resolveBranchToolbarPrBranch,
   resolveBranchToolbarValue,
-  resolveSelectedBranchRef,
   resolveLockedWorkspaceLabel,
+  resolveWorkspaceDisplayName,
   resolveLocalCheckoutBranchMismatch,
   resolvePreviousWorktreeLabel,
   resolvePreviousWorktreeSeed,
@@ -145,30 +144,6 @@ describe("resolveDraftEnvModeAfterBranchChange", () => {
 });
 
 describe("resolveBranchToolbarValue", () => {
-  it("keeps an existing-branch selection empty until the user chooses a branch", () => {
-    expect(
-      resolveBranchToolbarValue({
-        envMode: "worktree",
-        activeWorktreePath: null,
-        activeThreadBranch: null,
-        currentGitBranch: "main",
-        createNewBranch: false,
-      }),
-    ).toBeNull();
-  });
-
-  it("preserves a selected existing branch", () => {
-    expect(
-      resolveBranchToolbarValue({
-        envMode: "worktree",
-        activeWorktreePath: null,
-        activeThreadBranch: "feature/existing",
-        currentGitBranch: "main",
-        createNewBranch: false,
-      }),
-    ).toBe("feature/existing");
-  });
-
   it("defaults new-worktree mode to current git ref when no explicit base ref is set", () => {
     expect(
       resolveBranchToolbarValue({
@@ -203,114 +178,7 @@ describe("resolveBranchToolbarValue", () => {
   });
 });
 
-describe("resolveSelectedBranchRef", () => {
-  const localRef: VcsRef = {
-    name: "origin/topic",
-    isRemote: false,
-    current: false,
-    isDefault: false,
-    worktreePath: "/repo/topic",
-  };
-  const remoteRef: VcsRef = {
-    ...localRef,
-    isRemote: true,
-    remoteName: "origin",
-    worktreePath: null,
-  };
-
-  it.each([
-    { caseName: "both listed", listedRefs: [localRef, remoteRef], queriedRefs: [] },
-    { caseName: "local queried", listedRefs: [remoteRef], queriedRefs: [localRef] },
-    { caseName: "local listed", listedRefs: [localRef], queriedRefs: [remoteRef] },
-  ])("keeps a local branch's full upstream source and checkout ($caseName)", (refs) => {
-    const selected = resolveSelectedBranchRef({ branchName: "origin/topic", ...refs });
-    expect(selected).toBe(localRef);
-    expect(selected?.worktreePath).toBe("/repo/topic");
-    expect(
-      resolveBranchTriggerLabel({
-        activeWorktreePath: null,
-        effectiveEnvMode: "worktree",
-        resolvedActiveBranch: selected?.name ?? null,
-        resolvedActiveBranchIsRemote: selected?.isRemote === true,
-        resolvedActiveBranchRemoteName: selected?.remoteName ?? null,
-        startFromRemote: "upstream",
-      }),
-    ).toBe("From upstream/origin/topic");
-  });
-
-  it("uses an explicit remote when the matching local branch is absent", () => {
-    const selected = resolveSelectedBranchRef({
-      branchName: "origin/topic",
-      listedRefs: [],
-      queriedRefs: [remoteRef],
-    });
-    expect(selected).toBe(remoteRef);
-    expect(
-      resolveBranchTriggerLabel({
-        activeWorktreePath: null,
-        effectiveEnvMode: "worktree",
-        resolvedActiveBranch: selected?.name ?? null,
-        resolvedActiveBranchIsRemote: selected?.isRemote === true,
-        resolvedActiveBranchRemoteName: selected?.remoteName ?? null,
-        startFromRemote: "upstream",
-      }),
-    ).toBe("From upstream/topic");
-  });
-});
-
 describe("resolveBranchTriggerLabel", () => {
-  it.each(["main", "feature/demo"])("shows the upstream source for local branch %s", (branch) => {
-    expect(
-      resolveBranchTriggerLabel({
-        activeWorktreePath: null,
-        effectiveEnvMode: "worktree",
-        resolvedActiveBranch: branch,
-        resolvedActiveBranchIsRemote: false,
-        startFromRemote: "upstream",
-      }),
-    ).toBe(`From upstream/${branch}`);
-  });
-
-  it.each(["origin/feature/demo", "upstream/feature/demo"])(
-    "shows upstream when the selected ref is %s",
-    (branch) => {
-      expect(
-        resolveBranchTriggerLabel({
-          activeWorktreePath: null,
-          effectiveEnvMode: "worktree",
-          resolvedActiveBranch: branch,
-          resolvedActiveBranchIsRemote: true,
-          startFromRemote: "upstream",
-        }),
-      ).toBe("From upstream/feature/demo");
-    },
-  );
-
-  it("keeps the selected ref when no remote is chosen", () => {
-    expect(
-      resolveBranchTriggerLabel({
-        activeWorktreePath: null,
-        effectiveEnvMode: "worktree",
-        resolvedActiveBranch: "origin/feature/demo",
-        resolvedActiveBranchIsRemote: true,
-        startFromRemote: null,
-      }),
-    ).toBe("From origin/feature/demo");
-  });
-
-  it("uses remote metadata when the remote name contains slashes", () => {
-    expect(
-      resolveBranchTriggerLabel({
-        activeWorktreePath: null,
-        effectiveEnvMode: "worktree",
-        resolvedActiveBranch: "my-org/fork/feature/demo",
-        resolvedActiveBranchIsRemote: true,
-        resolvedActiveBranchRemoteName: "my-org/fork",
-        startFromRemote: "upstream",
-      }),
-    ).toBe("From upstream/feature/demo");
-  });
-
   it("shows the origin ref when a new worktree will start from origin", () => {
     expect(
       resolveBranchTriggerLabel({
@@ -318,7 +186,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
     ).toBe("From origin/main");
   });
@@ -330,7 +198,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "feature/demo",
         resolvedActiveBranchIsRemote: false,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
     ).toBe("From origin/feature/demo");
   });
@@ -342,7 +210,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
-        startFromRemote: null,
+        startFromOrigin: false,
       }),
     ).toBe("From main");
   });
@@ -354,21 +222,21 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "origin/feature/demo",
         resolvedActiveBranchIsRemote: true,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
     ).toBe("From origin/feature/demo");
   });
 
-  it("uses the selected remote for an explicit ref from another remote", () => {
+  it("preserves an explicit ref from a non-origin remote", () => {
     expect(
       resolveBranchTriggerLabel({
         activeWorktreePath: null,
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "upstream/feature/demo",
         resolvedActiveBranchIsRemote: true,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
-    ).toBe("From origin/feature/demo");
+    ).toBe("From upstream/feature/demo");
   });
 
   it("keeps current-checkout labels and empty state unchanged", () => {
@@ -378,7 +246,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "local",
         resolvedActiveBranch: "main",
         resolvedActiveBranchIsRemote: false,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
     ).toBe("main");
     expect(
@@ -387,7 +255,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: null,
         resolvedActiveBranchIsRemote: null,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
     ).toBe("Select ref");
   });
@@ -399,7 +267,7 @@ describe("resolveBranchTriggerLabel", () => {
         effectiveEnvMode: "worktree",
         resolvedActiveBranch: "upstream/feature/demo",
         resolvedActiveBranchIsRemote: null,
-        startFromRemote: "origin",
+        startFromOrigin: true,
       }),
     ).toBe("From upstream/feature/demo");
   });
@@ -557,9 +425,28 @@ describe("shouldShowEnvironmentIndicator", () => {
 });
 
 describe("shouldShowComposerContextStrip", () => {
+  it.each([false, true])(
+    "honors the active-thread preference with resting controls %s",
+    (hostsRestingComposerControls) => {
+      const input = {
+        isDraftHeroState: false,
+        hasActiveProject: true,
+        isGitRepo: true,
+        showEnvironmentIndicator: true,
+        hostsRestingComposerControls,
+      };
+      expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: false })).toBe(
+        false,
+      );
+      expect(shouldShowComposerContextStrip({ ...input, persistInActiveThreads: true })).toBe(true);
+    },
+  );
+
   it("keeps the environment indicator visible for a non-Git project", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: true,
@@ -571,6 +458,8 @@ describe("shouldShowComposerContextStrip", () => {
   it("hides the strip when a non-Git project has nothing to show", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: false,
@@ -582,6 +471,8 @@ describe("shouldShowComposerContextStrip", () => {
   it("keeps the strip for visible resting composer controls in a non-Git thread", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: false,
         showEnvironmentIndicator: false,
@@ -593,6 +484,8 @@ describe("shouldShowComposerContextStrip", () => {
   it("shows Git controls without requiring an environment indicator", () => {
     expect(
       shouldShowComposerContextStrip({
+        isDraftHeroState: true,
+        persistInActiveThreads: false,
         hasActiveProject: true,
         isGitRepo: true,
         showEnvironmentIndicator: false,
@@ -675,39 +568,15 @@ describe("resolveLockedWorkspaceLabel", () => {
   });
 });
 
-describe("resolveAutomaticWorktreeBaseBranch", () => {
-  it("prefers the project override, then Git default, then current branch", () => {
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: "dev",
-        gitDefault: "main",
-        currentBranch: "feature/current",
-      }),
-    ).toBe("dev");
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: undefined,
-        gitDefault: "main",
-        currentBranch: "feature/current",
-      }),
-    ).toBe("main");
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: undefined,
-        gitDefault: null,
-        currentBranch: "feature/current",
-      }),
-    ).toBe("feature/current");
+describe("resolveWorkspaceDisplayName", () => {
+  it("returns the final folder for POSIX and Windows paths", () => {
+    expect(resolveWorkspaceDisplayName("/repo/.t3/worktrees/feature-a")).toBe("feature-a");
+    expect(resolveWorkspaceDisplayName("C:\\code\\project\\feature-b\\")).toBe("feature-b");
   });
 
-  it("retains an explicitly configured name even when Git refs do not list it", () => {
-    expect(
-      resolveAutomaticWorktreeBaseBranch({
-        projectOverride: "release/next",
-        gitDefault: "main",
-        currentBranch: "main",
-      }),
-    ).toBe("release/next");
+  it("handles missing and root paths", () => {
+    expect(resolveWorkspaceDisplayName(null)).toBeNull();
+    expect(resolveWorkspaceDisplayName("/")).toBe("/");
   });
 });
 
@@ -1026,17 +895,4 @@ describe("sanitizeNewRefName", () => {
     expect(sanitizeNewRefName("new - branch")).toBe("new---branch");
     expect(sanitizeNewRefName("foo--bar")).toBe("foo--bar");
   });
-});
-
-it("labels an existing branch without a base or origin prefix", () => {
-  expect(
-    resolveBranchTriggerLabel({
-      activeWorktreePath: null,
-      effectiveEnvMode: "worktree",
-      resolvedActiveBranch: "feature/existing",
-      resolvedActiveBranchIsRemote: false,
-      startFromRemote: "origin",
-      createNewBranch: false,
-    }),
-  ).toBe("feature/existing");
 });

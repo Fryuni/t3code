@@ -1,4 +1,5 @@
 import type {
+  BranchNamingOptions,
   VcsRef,
   SourceControlProviderInfo,
   VcsStatusLocalResult,
@@ -39,6 +40,24 @@ export function sanitizeBranchFragment(raw: string): string {
     .replace(/[./_-]+$/g, "");
 
   return branchFragment.length > 0 ? branchFragment : "update";
+}
+
+/** Custom naming preserves the model's complete ref; Git validates it on rename. */
+export function formatGeneratedBranchName(raw: string, naming?: BranchNamingOptions): string {
+  if (naming?.mode === "custom") return raw.trim();
+  const branch = sanitizeBranchFragment(raw);
+  if (naming?.mode !== "static") return branch;
+  const prefix = naming.prefix
+    .split("/")
+    .map((part) =>
+      part
+        .replace(/[^a-zA-Z0-9_-]+/g, "-")
+        .replace(/-+/g, "-")
+        .replace(/^-+|-+$/g, ""),
+    )
+    .filter(Boolean)
+    .join("/");
+  return prefix ? `${prefix}/${branch}` : branch;
 }
 
 /**
@@ -275,7 +294,7 @@ function deriveLocalBranchNameCandidatesFromRemoteRef(
 // dashes are left alone, since ref names are case sensitive and consecutive
 // dashes are valid.
 export function sanitizeNewRefName(rawName: string): string {
-  return rawName.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, "").replace(/[ \t\n\r\f\v]+/g, "-");
+  return rawName.trim().replace(/[ \t\n\r\f\v]+/g, "-");
 }
 
 /**
@@ -350,11 +369,11 @@ function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
       ? { sourceControlProvider: status.sourceControlProvider }
       : {}),
     hasPrimaryRemote: status.hasPrimaryRemote,
-    ...(status.remoteNames === undefined ? {} : { remoteNames: status.remoteNames }),
     isDefaultRef: status.isDefaultRef,
     refName: status.refName,
     hasWorkingTreeChanges: status.hasWorkingTreeChanges,
     workingTree: status.workingTree,
+    ...(status.branchChanges ? { branchChanges: status.branchChanges } : {}),
   };
 }
 

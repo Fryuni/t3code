@@ -24,10 +24,7 @@ interface HarnessOptions {
   readonly preflight?: "ready" | "blocked";
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
   readonly desktopAppUpdate?: DesktopAppUpdate.DesktopAppUpdate["Service"];
-  readonly latestReleaseUrl?: string;
 }
-
-const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
 
 // The staged runtime is a release archive: the fake client serves SHA256SUMS
 // and the tarball, and the fake runner stands in for tar before it answers
@@ -36,9 +33,6 @@ const archiveBytes = new TextEncoder().encode("not really a tarball");
 const releaseHttpClient = (order: string[]) =>
   HttpClient.make((request) =>
     Effect.gen(function* () {
-      if (request.url === LATEST_URL) {
-        return HttpClientResponse.fromWeb(request, Response.json({ tag_name: "v1.1.0" }));
-      }
       if (request.url.endsWith("/SHA256SUMS")) {
         const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", archiveBytes));
         const hex = Array.from(new Uint8Array(digest), (byte) =>
@@ -116,7 +110,7 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
   const config = yield* ServerConfig.ServerConfig.pipe(
     Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
-  const selfUpdate = yield* ServerSelfUpdate.make(options.latestReleaseUrl).pipe(
+  const selfUpdate = yield* ServerSelfUpdate.make().pipe(
     Effect.provideService(ProcessRunner.ProcessRunner, runner),
     Effect.provideService(ServiceLauncherClient.ServiceLauncherClient, launcher),
     Effect.provideService(
@@ -354,18 +348,6 @@ it.layer(NodeServices.layer)("server self update", (it) => {
     Effect.gen(function* () {
       const { selfUpdate, order } = yield* makeHarness();
       expect(yield* selfUpdate.update({ targetVersion: "1.1.0" })).toEqual({
-        targetVersion: "1.1.0",
-        method: "boot-service",
-        updateId: "launcher-id",
-      });
-      expect(order).toEqual(["download", "extract", "preflight", "accept"]);
-    }),
-  );
-
-  it.effect("a fork build updates to its latest release, not the client's version", () =>
-    Effect.gen(function* () {
-      const { selfUpdate, order } = yield* makeHarness({ latestReleaseUrl: LATEST_URL });
-      expect(yield* selfUpdate.update({ targetVersion: "9.9.9" })).toEqual({
         targetVersion: "1.1.0",
         method: "boot-service",
         updateId: "launcher-id",

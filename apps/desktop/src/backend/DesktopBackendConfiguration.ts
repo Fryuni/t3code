@@ -600,7 +600,6 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   input: SharedBootstrapInput & {
     readonly port: number;
     readonly distro: string | null;
-    readonly publicUrl: string | undefined;
   },
 ): Effect.fn.Return<
   DesktopBackendManager.DesktopBackendStartConfig,
@@ -645,7 +644,7 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     // The packaged sidecar is a Windows executable and cannot run inside the
     // Linux WSL backend. Keep the field absent instead of passing an unusable
     // `/mnt/.../*.exe` path; WSL resource telemetry is reported unavailable.
-    // See docs/architecture/resource-telemetry.md.
+    // See docs/internals/resource-telemetry.md.
     ...buildObservabilityFragment(input.observabilitySettings),
   };
 
@@ -732,12 +731,10 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
   // exports the Windows-side base dir for the primary; if it leaks into
   // the WSL backend the Linux side ends up sharing C:\Users\...\.t3 via
   // /mnt/c, which means both backends read/write the same database and
-  // their env-ids collide). The Windows public URL belongs to the primary;
-  // remove it here even if WSLENV explicitly forwards it, and pass it as a
-  // CLI argument only when WSL is the primary.
+  // their env-ids collide).
   const parentEnvWithoutT3Home: Record<string, string | undefined> = {};
   for (const [key, value] of Object.entries(process.env)) {
-    if (key === "T3CODE_HOME" || key === "T3CODE_PUBLIC_URL") continue;
+    if (key === "T3CODE_HOME") continue;
     parentEnvWithoutT3Home[key] = value;
   }
   const wslEnv = mergeWslEnv(parentEnvWithoutT3Home.WSLENV, forwardedEnvNames);
@@ -770,10 +767,6 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
     onNone: () => [] as ReadonlyArray<string>,
     onSome: (url) => ["--dev-url", url.href],
   });
-  // Pass the advertised origin explicitly across the Windows/WSL boundary,
-  // just like the dev URL, without relying on WSLENV URL translation.
-  const publicUrl = input.publicUrl;
-  const publicUrlArgs = publicUrl ? ["--public-url", publicUrl] : [];
 
   if (preflight._tag === "Failed") {
     const retryLimit =
@@ -820,7 +813,6 @@ const resolveWslStartConfig = Effect.fn("desktop.backendConfiguration.resolveWsl
       "--bootstrap-fd",
       "0",
       ...devUrlArgs,
-      ...publicUrlArgs,
     ],
     preflightFailure: Option.none(),
     ...(preflight.runtimeId === undefined ? {} : { wslRuntimeId: preflight.runtimeId }),
@@ -886,7 +878,6 @@ export const make = Effect.gen(function* () {
       ...shared,
       port: backendExposure.port,
       distro: persistedSettings.wslDistro,
-      publicUrl: process.env.T3CODE_PUBLIC_URL,
     }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopWslEnvironment.DesktopWslEnvironment, wslEnvironment),
@@ -950,7 +941,7 @@ export const make = Effect.gen(function* () {
     resolveWsl: (input) =>
       Effect.gen(function* () {
         const shared = yield* sharedInputs;
-        return yield* resolveWslStartConfig({ ...shared, ...input, publicUrl: undefined }).pipe(
+        return yield* resolveWslStartConfig({ ...shared, ...input }).pipe(
           Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
           Effect.provideService(DesktopWslEnvironment.DesktopWslEnvironment, wslEnvironment),
           Effect.provideService(DesktopWslServerTree.DesktopWslServerTree, wslServerTree),

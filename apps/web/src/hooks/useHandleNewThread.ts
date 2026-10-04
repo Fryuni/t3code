@@ -4,12 +4,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type ScopedProjectRef,
-  type ThreadId,
-  type WorktreeStartRemote,
-} from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -28,10 +23,10 @@ import {
   selectProjectGroupingSettings,
 } from "../logicalProject";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { readProjects, readThreadShell, useProjects, useThread } from "../state/entities";
+import { readProjects, readThreadShell, useProjects, useThreadShell } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
-  resolveNewDraftStartFromRemote,
+  resolveNewDraftStartFromOrigin,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
 import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
@@ -44,8 +39,7 @@ interface NewThreadWorkspaceOptions {
   branch?: string | null;
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
-  startFromRemote?: WorktreeStartRemote;
-  createNewBranch?: boolean;
+  startFromOrigin?: boolean;
 }
 
 // The workspace options the caller passed explicitly, shaped for the draft
@@ -56,8 +50,7 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
     ...(options?.branch !== undefined ? { branch: options.branch } : {}),
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
-    ...(options?.startFromRemote !== undefined ? { startFromRemote: options.startFromRemote } : {}),
-    ...(options?.createNewBranch !== undefined ? { createNewBranch: options.createNewBranch } : {}),
+    ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
   };
 }
 
@@ -77,8 +70,7 @@ export function useNewThreadHandler() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
-        startFromRemote?: WorktreeStartRemote;
-        createNewBranch?: boolean;
+        startFromOrigin?: boolean;
         replace?: boolean;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
@@ -145,7 +137,6 @@ export function useNewThreadHandler() {
       );
       const projectDefaultModelSelection = projectSettings.settings.defaultModelSelection;
       const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
-      const projectDefaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
       const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
         resolveNewThreadModelSelectionOverride({
           projectDefaultSelection: projectDefaultModelSelection ?? null,
@@ -176,8 +167,7 @@ export function useNewThreadHandler() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
-      const hasStartFromRemoteOption = options?.startFromRemote !== undefined;
-      const hasCreateNewBranchOption = options?.createNewBranch !== undefined;
+      const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const storedDraftThreadRef = storedDraftThread
         ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
@@ -217,8 +207,7 @@ export function useNewThreadHandler() {
             hasBranchOption ||
             hasWorktreePathOption ||
             hasEnvModeOption ||
-            hasStartFromRemoteOption ||
-            hasCreateNewBranchOption;
+            hasStartFromOriginOption;
           // Resurrecting an empty stored draft must not resurrect its stale
           // context: explicit workspace options win outright; otherwise the
           // env context resets to the configured defaults so drafts seeded
@@ -261,12 +250,10 @@ export function useNewThreadHandler() {
               return null;
             }
             workspaceContext = {
-              branch:
-                defaultEnvMode === "worktree" ? (projectDefaultThreadBaseBranch ?? null) : null,
+              branch: null,
               worktreePath: null,
               envMode: defaultEnvMode,
-              createNewBranch: true,
-              startFromRemote: resolveNewDraftStartFromRemote({
+              startFromOrigin: resolveNewDraftStartFromOrigin({
                 envMode: defaultEnvMode,
                 newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
               }),
@@ -352,8 +339,7 @@ export function useNewThreadHandler() {
           hasBranchOption ||
           hasWorktreePathOption ||
           hasEnvModeOption ||
-          hasStartFromRemoteOption ||
-          hasCreateNewBranchOption
+          hasStartFromOriginOption
         ) {
           setDraftThreadContext(currentRouteTarget.draftId, pickExplicitWorkspaceOptions(options));
         }
@@ -417,21 +403,15 @@ export function useNewThreadHandler() {
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
           createdAt,
-          branch: hasBranchOption
-            ? (options?.branch ?? null)
-            : initialEnvMode === "worktree"
-              ? (projectDefaultThreadBaseBranch ?? null)
-              : null,
+          branch: options?.branch ?? null,
           worktreePath: options?.worktreePath ?? null,
           envMode: initialEnvMode,
-          createNewBranch: options?.createNewBranch ?? true,
-          startFromRemote:
-            options?.startFromRemote !== undefined
-              ? options.startFromRemote
-              : resolveNewDraftStartFromRemote({
-                  envMode: initialEnvMode,
-                  newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
-                }),
+          startFromOrigin:
+            options?.startFromOrigin ??
+            resolveNewDraftStartFromOrigin({
+              envMode: initialEnvMode,
+              newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
+            }),
           runtimeMode: defaultRuntimeMode,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
         });
@@ -462,7 +442,7 @@ export function useHandleNewThread() {
   });
   const routeThreadRef = routeTarget?.kind === "server" ? routeTarget.threadRef : null;
   const routeDraftId = routeTarget?.kind === "draft" ? routeTarget.draftId : null;
-  const activeThread = useThread(routeThreadRef);
+  const activeThread = useThreadShell(routeThreadRef);
   const getDraftThread = useComposerDraftStore((store) => store.getDraftThread);
   const activeDraftThread = useComposerDraftStore(() =>
     routeTarget

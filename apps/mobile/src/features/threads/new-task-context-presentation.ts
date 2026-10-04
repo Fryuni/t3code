@@ -1,4 +1,3 @@
-import type { VcsRef, WorktreeStartRemote } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 
 type WorkspaceMode = "local" | "worktree";
@@ -60,44 +59,20 @@ export function resolveNewTaskLocalWorkspaceSelection(input: {
   };
 }
 
-export function resolveNewTaskBranchRemoteName(input: {
-  readonly branchName: string | null;
-  readonly branches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
-  readonly queriedBranches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
-}): string | null {
-  const localBranch =
-    input.branches.find((ref) => ref.name === input.branchName && !ref.isRemote) ??
-    input.queriedBranches.find((ref) => ref.name === input.branchName && !ref.isRemote);
-  if (localBranch) return null;
-  const branch =
-    input.branches.find((ref) => ref.name === input.branchName) ??
-    input.queriedBranches.find((ref) => ref.name === input.branchName);
-  return branch?.remoteName ?? null;
-}
-
 export function resolveNewTaskBranchLabel(input: {
   readonly branchName: string | null;
-  readonly branchRemoteName?: string | null;
-  readonly startFromRemote: WorktreeStartRemote;
-  readonly createNewBranch?: boolean;
+  readonly startFromOrigin: boolean;
   readonly workspaceMode: WorkspaceMode;
 }): string {
   if (!input.branchName) {
     return "Choose branch";
   }
 
-  if (input.workspaceMode === "local" || input.createNewBranch === false) {
+  if (input.workspaceMode === "local") {
     return input.branchName;
   }
 
-  const remotePrefix = input.branchRemoteName ? `${input.branchRemoteName}/` : null;
-  const normalizedBranchName =
-    remotePrefix && input.branchName.startsWith(remotePrefix)
-      ? input.branchName.slice(remotePrefix.length)
-      : input.branchName;
-  const baseRef = input.startFromRemote
-    ? `${input.startFromRemote}/${normalizedBranchName}`
-    : input.branchName;
+  const baseRef = input.startFromOrigin ? `origin/${input.branchName}` : input.branchName;
   return `From ${baseRef}`;
 }
 

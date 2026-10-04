@@ -143,22 +143,6 @@ describe("environment release checks", () => {
     expect(fetchMock.mock.calls[1]?.[1]).toEqual({ signal });
   });
 
-  it("follows a fork build's latest release instead of upstream channels", async () => {
-    const fetchMock = vi
-      .fn()
-      .mockImplementation(async () => Response.json({ tag_name: "v0.0.44-fork.20261002.10" }));
-    vi.stubGlobal("fetch", fetchMock);
-    expect(await findEnvironmentUpdate("0.0.44-fork.20261002.9", signal, "someone/t3code")).toBe(
-      "0.0.44-fork.20261002.10",
-    );
-    expect(
-      await findEnvironmentUpdate("0.0.44-fork.20261002.10", signal, "someone/t3code"),
-    ).toBeNull();
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
-      "https://api.github.com/repos/someone/t3code/releases/latest",
-    );
-  });
-
   it("reports failed checks instead of claiming the server is current", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 403 })));
     await expect(findEnvironmentUpdate("1.0.0", signal)).rejects.toThrow("403");

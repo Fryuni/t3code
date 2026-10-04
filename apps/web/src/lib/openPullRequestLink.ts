@@ -3,12 +3,8 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useCallback, useMemo } from "react";
 
-import {
-  changeRequestLinkMatchesRepository,
-  changeRequestLinkOnRepositoryInstance,
-  parseChangeRequestUrl,
-  type ChangeRequestLink,
-} from "@t3tools/shared/changeRequestUrl";
+import { pullRequestHostOf, type SourceControlProviderKind } from "@t3tools/contracts";
+import { parseChangeRequestUrl, type ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
 import {
   canonicalRepositoryKey,
   sourceControlRepositorySelector,
@@ -19,7 +15,7 @@ import { stackedThreadToast, toastManager } from "../components/ui/toast";
 import { useRightPanelStore } from "../rightPanelStore";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 
-import { readThreadShell, useProjects, useServerConfigs } from "../state/entities";
+import { useProjects, useServerConfigs } from "../state/entities";
 import { serverEnvironment } from "../state/server";
 import { usePrimaryEnvironmentId } from "../state/environments";
 
@@ -32,29 +28,71 @@ export {
   changeRequestRepositoryUrl,
 } from "@t3tools/shared/changeRequestUrl";
 
+function resolvedForgejoRepository(project: EnvironmentProject): URL | null {
+  const identity = project.repositoryIdentity;
+  if (identity?.provider !== "forgejo" || !identity.webUrl) return null;
+  try {
+    const url = new URL(identity.webUrl);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Keep Forgejo servers on different HTTP ports separate when selecting a project. */
+function matchesChangeRequestAuthority(
+  project: EnvironmentProject,
+  link: ChangeRequestLink,
+): boolean {
+  if (link.authority === undefined) return true;
+  try {
+    const remote = new URL(project.repositoryIdentity?.locator.remoteUrl ?? "");
+    if (remote.protocol === "http:" || remote.protocol === "https:") {
+      return remote.host.toLowerCase() === link.authority;
+    }
+  } catch {
+    // SSH remotes do not specify the server's HTTP port; tea resolves the configured login.
+  }
+  return true;
+}
+
 /**
- * The project a link belongs to, or nothing. Matched the way the server matches, through the
- * shared `changeRequestLinkMatchesRepository`: the repository identity is the full path below
- * the host where one was recorded — which is what nested GitLab groups and Azure project paths
- * need — and the host is the one the identity is addressed below, so github.com and an
- * Enterprise install stay apart, as do Forgejo instances on different ports or mount paths.
- *
- * One environment can hold two checkouts of the same repository under different projects, and
- * both match. `preferredProjectId` — the thread the link is opened beside — wins then, so the
- * panel shows the thread's own pull request as its own rather than as somebody else's branch.
+ * The project a link belongs to, or nothing. Matched the way the server matches: the repository
+ * identity is the full path below the host where one was recorded — which is what nested GitLab
+ * groups and Azure project paths need — and the host is the first segment of the canonical
+ * remote, so github.com and an Enterprise install stay apart.
  */
 export function findProjectForChangeRequest(
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
-  preferredProjectId?: string,
 ): EnvironmentProject | undefined {
-  const preferred =
-    preferredProjectId === undefined
-      ? undefined
-      : projects.find((project) => project.id === preferredProjectId);
-  return (preferred === undefined ? projects : [preferred, ...projects]).find((project) =>
-    changeRequestLinkMatchesRepository(link, project.repositoryIdentity),
-  );
+  return projects.find((project) => {
+    const identity = project.repositoryIdentity;
+    if (!identity || !matchesChangeRequestAuthority(project, link)) return false;
+    const kind = identity.provider as SourceControlProviderKind | undefined;
+    if (kind === undefined) return false;
+    const web = resolvedForgejoRepository(project);
+    if (web)
+      return (
+        web.host.toLowerCase() === (link.authority ?? link.host).toLowerCase() &&
+        web.pathname.replace(/^\/+|\/+$/g, "").toLowerCase() === link.repository.toLowerCase()
+      );
+    if (kind === "azure-devops") {
+      return (
+        canonicalRepositoryKey(identity.canonicalKey.toLowerCase()) ===
+        canonicalRepositoryKey(`${link.host}/${link.repository}`.toLowerCase())
+      );
+    }
+    const repository =
+      identity.displayName ??
+      (identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null);
+    return (
+      repository !== null &&
+      repository.toLowerCase() === link.repository.toLowerCase() &&
+      (pullRequestHostOf(identity, kind) === link.host.toLowerCase() ||
+        pullRequestHostOf(identity, kind) === link.authority)
+    );
+  });
 }
 
 export function resolvePullRequestPreviewTarget({
@@ -110,19 +148,38 @@ export function usePullRequestPreviewTarget(environmentId: EnvironmentId | null,
 export function findProjectOnChangeRequestHost(
   projects: ReadonlyArray<EnvironmentProject>,
   link: ChangeRequestLink,
-  preferredProjectId?: string,
 ): EnvironmentProject | undefined {
-  const own = findProjectForChangeRequest(projects, link, preferredProjectId);
+  const own = findProjectForChangeRequest(projects, link);
   if (own !== undefined) return own;
   // Azure CLI reads use the checkout's organization and project, not host-wide credentials.
-  if (canonicalRepositoryKey(`${link.host}/${link.repository}`).startsWith("dev.azure.com/"))
+  if (
+    canonicalRepositoryKey(`${link.host}/${link.repository}`.toLowerCase()).startsWith(
+      "dev.azure.com/",
+    )
+  )
     return undefined;
   return projects.find((project) => {
     const identity = project.repositoryIdentity;
+    const kind = identity?.provider as SourceControlProviderKind | undefined;
+    const web = resolvedForgejoRepository(project);
+    if (web) {
+      const mount = web.pathname
+        .replace(/^\/+|\/+$/g, "")
+        .split("/")
+        .slice(0, -2)
+        .join("/");
+      return (
+        web.host.toLowerCase() === (link.authority ?? link.host).toLowerCase() &&
+        (!mount || link.repository.toLowerCase().startsWith(`${mount.toLowerCase()}/`))
+      );
+    }
     return (
-      identity?.provider !== undefined &&
-      identity.provider !== "azure-devops" &&
-      changeRequestLinkOnRepositoryInstance(link, identity)
+      identity != null &&
+      kind !== undefined &&
+      kind !== "azure-devops" &&
+      matchesChangeRequestAuthority(project, link) &&
+      (pullRequestHostOf(identity, kind) === link.host.toLowerCase() ||
+        pullRequestHostOf(identity, kind) === link.authority)
     );
   });
 }
@@ -173,11 +230,6 @@ export function useOpenChangeRequestLink(
       const reads = (environmentId: string) =>
         serverConfigs.get(environmentId as EnvironmentId)?.environment.capabilities.pullRequests ===
         true;
-      // Beside a thread, its own checkout of the repository is the one the link means: the panel
-      // takes the project as the pull request's home, and hands its work back to that project.
-      const threadProjectId = resolvedThreadRef
-        ? readThreadShell(resolvedThreadRef)?.projectId
-        : undefined;
       // Beside a thread the panel reads on that thread's environment, so a project from another
       // one could not be read there whatever its remote says: two environments can hold the same
       // repository, and handing the panel the wrong one's id opens a surface that never loads.
@@ -195,7 +247,7 @@ export function useOpenChangeRequestLink(
                   Number(right.environmentId === primaryEnvironmentId) -
                   Number(left.environmentId === primaryEnvironmentId),
               );
-      const exactProject = findProjectForChangeRequest(projects, parsed, threadProjectId);
+      const exactProject = findProjectForChangeRequest(projects, parsed);
       const project =
         exactProject ??
         (resolvedPanelRef
@@ -206,7 +258,6 @@ export function useOpenChangeRequestLink(
                     .threadPullRequests === true,
               ),
               parsed,
-              threadProjectId,
             )
           : undefined);
       if (project === undefined || !reads(project.environmentId)) return false;

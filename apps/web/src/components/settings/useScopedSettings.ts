@@ -18,7 +18,6 @@ import { useOptionalSettingsScope, useSettingsScope } from "./SettingsScopeConte
 import {
   persistScopedSettingsPatch,
   planProjectOverridesClear,
-  planProjectDefaultThreadBaseBranchPatch,
   planScopedSettingsClear,
   planScopedSettingsPatch,
   scopedSettingsAreMixed,
@@ -87,17 +86,6 @@ export function useUpdateScopedSettings() {
   const run = useRunScopedPlan();
   return useCallback(
     (patch: ScopedSettingsPatch) => run(planScopedSettingsPatch(scope, environments, patch)),
-    [environments, run, scope],
-  );
-}
-
-/** Save the project-only worktree base branch, preserving every sibling override field. */
-export function useUpdateProjectDefaultThreadBaseBranch() {
-  const { scope, environments } = useSettingsScope();
-  const run = useRunScopedPlan();
-  return useCallback(
-    (branch: string | null) =>
-      run(planProjectDefaultThreadBaseBranchPatch(scope, environments, branch)),
     [environments, run, scope],
   );
 }

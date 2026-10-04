@@ -157,6 +157,48 @@ it.effect("submits a Forgejo review without sending its summary in the prelimina
   );
 });
 
+it.effect("reads Forgejo checks without repository or viewer requests", () => {
+  const paths: string[] = [];
+  return Effect.gen(function* () {
+    const provider = yield* ForgejoPullRequestProvider.make;
+    const read = provider.getChangeRequestChecks;
+    if (read === undefined) return yield* Effect.die("checks read missing");
+    const result = yield* read({
+      cwd: "/repo",
+      repository: "acme/web",
+      host: "forgejo.test",
+      number: 1,
+    });
+    assert.strictEqual(result.state, "open");
+    assert.strictEqual(result.checks[0]?.status, "failure");
+    assert.deepStrictEqual(paths, [
+      "repos/acme/web/pulls/1",
+      "repos/acme/web/statuses/head?sort=recentupdate&limit=50&page=1",
+      "repos/acme/web/statuses/head?sort=recentupdate&limit=50&page=2",
+    ]);
+  }).pipe(
+    Effect.provide(
+      Layer.mock(ForgejoCli.ForgejoCli)({
+        api: (input) => {
+          paths.push(input.path);
+          assert.match(input.path, /^repos\/acme\/web\/(pulls\/1|statuses\/head)/);
+          return Effect.succeed(
+            processOutput(
+              input.path.endsWith("pulls/1")
+                ? `{"number":1,"title":"Checks","body":"","html_url":"https://forgejo.test/acme/web/pulls/1", "user":null,"state":"open","merged":false,
+            "head":{"ref":"feature","sha":"head","repo":null},"base":{"ref":"main","sha":"base","repo":null},
+            "created_at":"2026-09-16T00:00:00Z","updated_at":"2026-09-16T00:00:00Z","closed_at":null,"merged_at":null,"labels":[]}`
+                : input.path.endsWith("page=1")
+                  ? `[{"context":"build","status":"failure","description":null,"target_url":null,"updated_at":"2026-09-16T00:00:00Z"}]`
+                  : "[]",
+            ),
+          );
+        },
+      }),
+    ),
+  );
+});
+
 it.effect("loads Forgejo pull request references from files and commits views", () =>
   Effect.gen(function* () {
     const provider = yield* ForgejoSourceControlProvider.make;
@@ -1626,160 +1668,3 @@ it.effect(
       Effect.provide(VcsProcess.layer.pipe(Layer.provideMerge(NodeServices.layer))),
     ),
 );
-
-it("parses Forgejo remotes padded by whitespace", () => {
-  // Pasted references arrive padded, and the surrounding space must not reach the URL parser
-  // or the scp-form pattern, which would otherwise read it as part of the host.
-  assert.deepStrictEqual(
-    ForgejoCli.parseForgejoRemote("  HTTPS://forge.example:3000/Forge/Owner/Repo.git  "),
-    {
-      host: "forge.example:3000",
-      hostname: "forge.example",
-      ssh: false,
-      path: "Forge/Owner/Repo",
-    },
-  );
-  assert.deepStrictEqual(ForgejoCli.parseForgejoRemote("\tgit@ssh.example:Owner/Repo.git\n"), {
-    host: "ssh.example",
-    hostname: "ssh.example",
-    ssh: true,
-    path: "Owner/Repo",
-  });
-});
-
-it("keeps case-distinct mounted Forgejo instances separate when selecting a login", () => {
-  // Instance mount paths are case-sensitive, so `/Forge` and `/forge` are different servers
-  // and must never fold together when a login is selected.
-  const logins = ["Forge", "forge"].map((path) => ({
-    name: path,
-    url: `https://forge.example:3000/${path}`,
-    user: "alice",
-    default: "false",
-    ssh_host: path === "Forge" ? "ssh.example:2222" : "ssh.example:3333",
-  }));
-  const select = (remoteUrl: string) =>
-    ForgejoCli.matchForgejoLogin(logins, ForgejoCli.parseForgejoRemote(remoteUrl)!)?.name;
-  assert.strictEqual(select("https://forge.example:3000/Forge/Owner/Repo.git"), "Forge");
-  assert.strictEqual(select("https://forge.example:3000/forge/Owner/Repo.git"), "forge");
-  assert.strictEqual(select("ssh://git@ssh.example:3333/Owner/Repo.git"), "forge");
-  assert.isUndefined(select("https://forge.example:4000/Forge/Owner/Repo.git"));
-});
-
-for (const scenario of [
-  "matching",
-  "wrong-path",
-  "wrong-port",
-  "ambiguous",
-  "unavailable",
-] as const) {
-  it.effect(`discovers advertised Forgejo SSH remotes: ${scenario}`, () => {
-    let repositoryLookups = 0;
-    return Effect.gen(function* () {
-      const cli = yield* ForgejoCli.make;
-      const discovery = yield* ForgejoSourceControlProvider.makeDiscovery.pipe(
-        Effect.provideService(ForgejoCli.ForgejoCli, cli),
-      );
-      const context = {
-        provider: {
-          kind: "unknown" as const,
-          name: "git.rudd-agama.ts.net",
-          baseUrl: "https://git.rudd-agama.ts.net",
-        },
-        remoteName: "origin",
-        remoteUrl: "ssh://git@git.rudd-agama.ts.net/maria/project.git",
-      };
-      assert.strictEqual(discovery.type, "managed-cli");
-      if (discovery.type !== "managed-cli") return;
-      const provider = yield* discovery.refineUnknownRemote({ cwd: "/repo", context });
-      if (scenario !== "matching") {
-        assert.isNull(provider);
-        return;
-      }
-      assert.deepStrictEqual(provider, {
-        kind: "forgejo",
-        name: "Forgejo / Gitea",
-        baseUrl: "https://git.fryuni.dev",
-      });
-      if (!provider) return;
-      const resolved = yield* cli.resolveRepository({
-        cwd: "/repo",
-        context: { ...context, provider },
-      });
-      assert.strictEqual(resolved.baseUrl, "https://git.fryuni.dev");
-      assert.strictEqual(resolved.repository, "maria/project");
-      const sourceControl = yield* ForgejoSourceControlProvider.make.pipe(
-        Effect.provideService(ForgejoCli.ForgejoCli, cli),
-      );
-      assert.deepStrictEqual(
-        yield* sourceControl.listChangeRequests({
-          cwd: "/repo",
-          context: { ...context, provider },
-          headSelector: "feature",
-          state: "open",
-        }),
-        [],
-      );
-      // Discovery and subsequent PR operations share the clone URL probe.
-      assert.strictEqual(repositoryLookups, 2);
-    }).pipe(
-      Effect.provideService(
-        FileSystem.FileSystem,
-        FileSystem.makeNoop({
-          exists: () => Effect.succeed(true),
-          readFileString: () =>
-            Effect.succeed(
-              encodeJson({
-                hosts: {
-                  "git.fryuni.dev": { type: "Application", token: "test-token" },
-                  "other.test": { type: "Application", token: "other-token" },
-                },
-                aliases: {},
-              }),
-            ),
-        }),
-      ),
-      Effect.provideService(
-        HttpClient.HttpClient,
-        HttpClient.make((request) => {
-          assert.strictEqual(request.method, "GET");
-          if (request.url.includes("/pulls?")) {
-            assert.isTrue(
-              request.url.startsWith("https://git.fryuni.dev/api/v1/repos/maria/project/pulls?"),
-            );
-            return Effect.succeed(HttpClientResponse.fromWeb(request, new Response("[]")));
-          }
-          repositoryLookups++;
-          assert.isTrue(request.url.endsWith("/api/v1/repos/maria/project"));
-          const sshUrl =
-            scenario === "wrong-path"
-              ? "git@git.rudd-agama.ts.net:maria/other.git"
-              : scenario === "wrong-port"
-                ? "ssh://git@git.rudd-agama.ts.net:2222/maria/project.git"
-                : "git@git.rudd-agama.ts.net:maria/project.git";
-          return Effect.succeed(
-            HttpClientResponse.fromWeb(
-              request,
-              new Response(
-                encodeJson({
-                  ssh_url:
-                    request.url.startsWith("https://git.fryuni.dev/") || scenario === "ambiguous"
-                      ? sshUrl
-                      : "git@other.test:maria/project.git",
-                }),
-                { status: scenario === "unavailable" ? 404 : 200 },
-              ),
-            ),
-          );
-        }),
-      ),
-      Effect.provide(
-        Layer.mock(VcsProcess.VcsProcess)({
-          run: (input) =>
-            input.command === "fj"
-              ? Effect.succeed(processOutput(""))
-              : Effect.succeed(processOutput("[]")),
-        }),
-      ),
-    );
-  });
-}

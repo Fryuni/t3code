@@ -5,36 +5,7 @@
  * platform key, so a rename here is a release-breaking change.
  */
 
-declare const __T3CODE_BUILD_RELEASE_REPOSITORY__: string | undefined;
-
-/**
- * A fork's release workflow bakes its own `owner/repo` into the server bundle,
- * so that build downloads from the fork and updates to the fork's latest
- * release. Builds from source, and every other bundle importing this module,
- * leave it unset and follow upstream. The server advertises it to clients as
- * the environment's `releaseRepository`.
- */
-export const CLI_RELEASE_FORK_REPOSITORY =
-  typeof __T3CODE_BUILD_RELEASE_REPOSITORY__ === "undefined"
-    ? undefined
-    : __T3CODE_BUILD_RELEASE_REPOSITORY__.trim() || undefined;
-const CLI_RELEASE_REPOSITORY = CLI_RELEASE_FORK_REPOSITORY ?? "pingdotgg/t3code";
-
-/**
- * GitHub's latest release for a repository, which excludes drafts and
- * prereleases. It is the whole update policy of a fork: forks publish no
- * channel trains to walk.
- */
-export function cliReleaseLatestUrl(repository: string): string {
-  return `https://api.github.com/repos/${repository}/releases/latest`;
-}
-
-/** Set only in fork builds. */
-export const CLI_RELEASE_LATEST_URL =
-  CLI_RELEASE_FORK_REPOSITORY === undefined
-    ? undefined
-    : cliReleaseLatestUrl(CLI_RELEASE_FORK_REPOSITORY);
-
+const CLI_RELEASE_REPOSITORY = "pingdotgg/t3code";
 export const CLI_RELEASE_CHECKSUMS_FILE = "SHA256SUMS";
 /** Overrides the download origin for mirrors and air-gapped installs. */
 export const CLI_RELEASE_BASE_URL_ENV = "T3CODE_RELEASE_BASE_URL";
@@ -130,11 +101,6 @@ export function cliReleaseIndexPageUrl(page: number): string {
   return `https://api.github.com/repos/${CLI_RELEASE_REPOSITORY}/releases?per_page=100&page=${page}`;
 }
 
-/** The version a release tag (`v<version>`) publishes, if it names one. */
-export function cliReleaseTagVersion(tagName: string): string | undefined {
-  return /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tagName)?.[1];
-}
-
 /**
  * Picks the newest version on a channel from the release index. Tags are
  * `v<version>`; the channel is decided by the same rule the runtime uses, so
@@ -150,7 +116,7 @@ export function newestCliReleaseVersion(
 ): string | undefined {
   for (const release of releases) {
     if (release.draft) continue;
-    const version = cliReleaseTagVersion(release.tag_name);
+    const version = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(release.tag_name)?.[1];
     if (version === undefined) continue;
     if (cliReleaseChannelOf(version) === channel) return version;
   }

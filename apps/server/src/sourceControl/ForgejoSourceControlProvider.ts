@@ -246,10 +246,8 @@ export const make = Effect.gen(function* () {
           for (const item of items) {
             if (
               item.head.ref !== branch ||
-              (source?.repository &&
-                item.head.repo?.full_name.toLowerCase() !== source.repository.toLowerCase()) ||
-              (source?.owner &&
-                item.head.repo?.owner.login.toLowerCase() !== source.owner.toLowerCase())
+              (source?.repository && item.head.repo?.full_name !== source.repository) ||
+              (source?.owner && item.head.repo?.owner.login !== source.owner)
             )
               continue;
             const normalized = toForgejoChangeRequest(item);
@@ -302,7 +300,7 @@ export const make = Effect.gen(function* () {
             {
               ...input,
               path:
-                owner?.toLowerCase() === user.login.toLowerCase()
+                owner === user.login
                   ? "user/repos"
                   : `orgs/${encodeURIComponent(owner ?? "")}/repos`,
               method: "POST",

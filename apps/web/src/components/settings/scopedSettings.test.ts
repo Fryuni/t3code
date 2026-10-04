@@ -13,7 +13,6 @@ import {
   listProjectOverrides,
   persistScopedSettingsPatch,
   planProjectOverridesClear,
-  planProjectDefaultThreadBaseBranchPatch,
   planScopedSettingsClear,
   planScopedSettingsPatch,
   resolveScopedSettingsTargets,
@@ -273,35 +272,6 @@ describe("scoped settings writes", () => {
       planScopedSettingsPatch(checkout, [laptop, server], { defaultAutoPull: true }),
     ).toMatchObject({
       serverWrites: [{ environmentId: server.environmentId }],
-    });
-  });
-
-  it("writes and clears the project-only default base branch without losing sibling overrides", () => {
-    const withExisting = environment("Server", {
-      settings: {
-        projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
-      },
-    });
-    expect(
-      planProjectDefaultThreadBaseBranchPatch(checkout, [withExisting], "dev").serverWrites[0]
-        ?.patch,
-    ).toEqual({
-      projectSettingsOverrides: {
-        [projectId]: { enableAgentBrowserAccess: false, defaultThreadBaseBranch: "dev" },
-      },
-    });
-
-    const configured = environment("Server", {
-      settings: {
-        projectSettingsOverrides: {
-          [projectId]: { enableAgentBrowserAccess: false, defaultThreadBaseBranch: "dev" },
-        },
-      },
-    });
-    expect(
-      planProjectDefaultThreadBaseBranchPatch(checkout, [configured], null).serverWrites[0]?.patch,
-    ).toEqual({
-      projectSettingsOverrides: { [projectId]: { enableAgentBrowserAccess: false } },
     });
   });
 

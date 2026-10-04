@@ -20,13 +20,11 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpClient } from "effect/unstable/http";
 
-import { CLI_RELEASE_BASE_URL_ENV, CLI_RELEASE_LATEST_URL } from "@t3tools/shared/cliRelease";
+import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
 
-import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import * as ProcessRunner from "../processRunner.ts";
-import { resolveLatestReleaseVersion } from "./latestRelease.ts";
 import {
   ensurePinnedRuntimeInstalled,
   pinnedRuntimeCommand,
@@ -171,9 +169,7 @@ export const withRunningThreadContinuation = Effect.fn(
   });
 });
 
-export const make = Effect.fn("cloud.server_self_update.make")(function* (
-  latestReleaseUrl: string | undefined = CLI_RELEASE_LATEST_URL,
-) {
+export const make = Effect.fn("cloud.server_self_update.make")(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const desktopAppUpdate = yield* DesktopAppUpdate.DesktopAppUpdate;
   const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
@@ -217,20 +213,9 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* (
       );
     }
 
-    // Clients ask for upstream versions, which a fork never publishes, so a
-    // fork build moves to its own repository's latest release instead.
-    const targetVersion =
-      latestReleaseUrl === undefined
-        ? input.targetVersion.trim()
-        : yield* resolveLatestReleaseVersion(latestReleaseUrl).pipe(
-            Effect.provideService(HttpClient.HttpClient, httpClient),
-            Effect.mapError((error) => failWith(error.reason, error)),
-          );
+    const targetVersion = input.targetVersion.trim();
     if (!isExactServiceVersion(targetVersion)) {
       return yield* failWith(`'${targetVersion}' is not an exact t3 version.`);
-    }
-    if (latestReleaseUrl !== undefined && targetVersion === packageJson.version) {
-      return yield* failWith(`This server already runs the latest release, ${targetVersion}.`);
     }
     if (yield* Ref.getAndSet(inFlight, true)) {
       return yield* failWith("A server update is already in progress.");

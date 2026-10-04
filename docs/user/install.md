@@ -38,38 +38,6 @@ Run `t3 --help` for the full reference.
 To try T3 Code once without installing it, run `npx t3@latest` instead (needs
 Node.js for `npx`).
 
-### Install the Fryuni fork
-
-The `Fryuni/t3code` fork publishes its own Linux x64 builds as
-[GitHub releases](https://github.com/Fryuni/t3code/releases), a few hours after
-each change to the fork. To install one, look up the fork's latest release and
-point the installer at it:
-
-```bash
-version="$(curl -fsSL https://api.github.com/repos/Fryuni/t3code/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')"
-curl -fsSL https://raw.githubusercontent.com/Fryuni/t3code/main/scripts/install.sh |
-  T3CODE_VERSION="$version" T3CODE_RELEASE_BASE_URL=https://github.com/Fryuni/t3code/releases/download sh
-```
-
-The variables are only needed for this first install. The `t3` it installs
-always updates from the fork: `t3 update`, `t3 service install`, and updates
-started from a connected app all move to the fork's latest release, never an
-upstream one.
-
-T3 Code does not update itself on a schedule. To receive each fork release
-unattended, run `t3 update --yes` regularly; it does nothing when you are
-already current. For example, this `crontab -e` line checks every night at
-4 AM:
-
-```text
-0 4 * * * XDG_RUNTIME_DIR=/run/user/$(id -u) $HOME/.local/bin/t3 update --yes
-```
-
-`XDG_RUNTIME_DIR` lets cron reach the
-[background service](./background-service.md) to restart it on the new version. The restart interrupts running agent turns,
-so pick an hour when none are running. The fork publishes no builds for macOS
-or Windows; use the standard installer there.
-
 ### Intel Macs
 
 There is no `t3` executable for Intel Macs (the desktop app is available). To
@@ -130,6 +98,14 @@ Install T3 Code from the
 The phone connects to a server on another machine. Follow
 [remote access](./remote-access.md) to link it through T3 Connect or a pairing URL.
 
+Nightly builds need the beta app. The store apps cannot connect to them. A Nightly build also
+shows these links as QR codes in **Settings → General → Mobile app**.
+
+- **iPhone and iPad:** join the [TestFlight beta](https://testflight.apple.com/join/XgaxaRtd).
+- **Android:** join the [beta group](https://groups.google.com/g/t3-code-v2-beta). With the same
+  Google account, open the [Google Play testing page](https://play.google.com/apps/testing/com.t3tools.t3code)
+  and become a tester.
+
 If the app crashes during launch, open Settings → Diagnostics on the next launch
 that succeeds. It lists startup crashes from the last 7 days with the error and
 component stack that store crash reports leave out. Copy the report and paste it
@@ -150,8 +126,8 @@ computer.
 | Cursor      | Install [Cursor CLI](https://cursor.com/cli), then run `agent login`.                                                                                     |
 | Grok Build  | Install [Grok Build CLI](https://x.ai/cli), then run `grok login`.                                                                                        |
 | OpenCode    | Install [OpenCode](https://opencode.ai), then run `opencode auth login`.                                                                                  |
-| OhMyPi      | Install [OhMyPi](https://omp.sh), then run `omp` to select a model and configure credentials.                                                             |
 | Antigravity | Install and sign in with Google from T3 Code's provider settings.                                                                                         |
+| Pi          | Install [Pi](https://pi.dev), then run `pi` once to finish its login or API-key setup.                                                                    |
 
 Provider CLIs must be on the server's `PATH`. If T3 Code cannot find one, set its
 **Binary path** in provider settings, especially when using a version manager.
@@ -178,35 +154,8 @@ base URL. Mark secret values as sensitive; after saving, T3 Code does not displa
 their original values.
 
 For provider-specific setup and accounts, see [Codex](./providers-codex.md),
-[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md), and
-[Antigravity](./providers-antigravity.md).
-
-### OhMyPi
-
-Enable OhMyPi in **Settings → Providers** after configuring `omp` on the environment's
-machine. Set **Binary path** if it is not on the server's `PATH`. T3 Code launches
-`omp acp` using the CLI's existing credentials; remote and mobile clients use that
-same environment.
-
-Available models and thinking levels load from OhMyPi before you start a thread.
-Refresh provider status after changing your OhMyPi credentials or model configuration.
-Choose **OhMyPi default** to use the model configured in OhMyPi, or select a model
-from the picker. You can switch models, stop turns, and continue a saved session
-after reconnecting.
-
-**Advisor**, **Computer use**, and **Prewalk** sit with the thinking level in the
-composer's model options. T3 Code applies them every time it starts or resumes the
-thread's session, so they stay set for the thread; a change takes effect on the next
-turn. Your OhMyPi configuration does not switch them on for T3 Code threads, and vibe
-mode is not available.
-
-OhMyPi's slash commands and skills are available in a workspace before its first turn.
-Start a skill with a `$` mention, as with other providers.
-
-**Auto** uses the same approval policy as **Supervised**. **Auto-accept edits**
-allows workspace writes, and **Full access** allows all tool tiers. OhMyPi's
-structured question dialogs, conversation rollback, and background title, branch,
-commit, and PR generation are not currently supported in T3 Code.
+[Claude](./providers-claude.md), [OpenCode](./providers-opencode.md),
+[Antigravity](./providers-antigravity.md), and [Pi](./providers-pi.md).
 
 ## Next steps
 

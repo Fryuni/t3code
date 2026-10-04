@@ -1,7 +1,7 @@
-import { resolveProviderSkillInstructionsPath } from "@t3tools/client-runtime/providerSkills";
 import { ComposerContextId } from "@t3tools/contracts";
 import { useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/unstable/reactivity";
+import { useNavigation } from "@react-navigation/native";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert } from "react-native";
 import type { EnvironmentId } from "@t3tools/contracts";
@@ -153,15 +153,13 @@ export function ComposerEditor({
         : "",
     [environmentId, draft.context, draft.attachments],
   );
+  const navigation = useNavigation();
   const selectedReference = selected
     ? collectComposerContextReferences(selected.source)[0]
     : undefined;
   const selectedSkillName = selected?.source.match(/^\p{Sc}(.+)$/u)?.[1];
   const selectedSkill = selectedSkillName
     ? props.skills?.find((skill) => skill.name === selectedSkillName)
-    : undefined;
-  const selectedSkillInstructionsPath = selectedSkill
-    ? resolveProviderSkillInstructionsPath(selectedSkill)
     : undefined;
   const record = draft.context?.records.find(
     (entry) => entry.contextId === selectedReference?.contextId,
@@ -225,14 +223,21 @@ export function ComposerEditor({
               : undefined)
           }
           {...(selectedSkill?.description ? { skillDescription: selectedSkill.description } : {})}
-          {...(selectedSkillInstructionsPath && onOpenMention
+          {...(selectedSkill?.path && onOpenMention
             ? {
                 onOpenSkill: () => {
                   setSelected(null);
-                  onOpenMention(selectedSkillInstructionsPath);
+                  onOpenMention(selectedSkill.path!);
                 },
               }
             : {})}
+          onOpenThread={(thread) => {
+            setSelected(null);
+            navigation.navigate("Thread", {
+              environmentId: String(thread.environmentId),
+              threadId: String(thread.threadId),
+            });
+          }}
           environmentId={environmentId}
           records={draft.context?.records}
           attachments={draft.attachments}

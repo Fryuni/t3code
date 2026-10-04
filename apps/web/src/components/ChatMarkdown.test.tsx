@@ -73,101 +73,6 @@ function codeButton(renderer: ReactTestRenderer, label: string) {
   return button.props as ComponentProps<typeof Button>;
 }
 
-describe("ChatMarkdown file path copying", () => {
-  it.each([
-    {
-      name: "absolute markdown link",
-      cwd: "/worktrees/feature",
-      text: "[file.ts](/worktrees/feature/src/file.ts)",
-      relativePath: "src/file.ts",
-      fullPath: "/worktrees/feature/src/file.ts",
-    },
-    {
-      name: "another worktree",
-      cwd: "/worktrees/other-feature",
-      text: "[file.ts](/worktrees/other-feature/src/file.ts)",
-      relativePath: "src/file.ts",
-      fullPath: "/worktrees/other-feature/src/file.ts",
-    },
-    {
-      name: "relative link with a line and column",
-      cwd: "/worktrees/feature",
-      text: "[file.ts](src/file.ts:7:3)",
-      relativePath: "src/file.ts:7:3",
-      fullPath: "/worktrees/feature/src/file.ts:7:3",
-    },
-    {
-      name: "inline code mention",
-      cwd: "/worktrees/feature",
-      text: "`/worktrees/feature/src/file.ts`",
-      relativePath: "src/file.ts",
-      fullPath: "/worktrees/feature/src/file.ts",
-    },
-    {
-      name: "Windows file URI",
-      cwd: "C:\\worktrees\\feature",
-      text: "[file.ts](file:///C:/worktrees/feature/src/file.ts#L7)",
-      relativePath: "src/file.ts:7",
-      fullPath: "C:/worktrees/feature/src/file.ts:7",
-    },
-    {
-      name: "workspace root",
-      cwd: "/tmp/worktrees/feature",
-      text: "[workspace](/tmp/worktrees/feature)",
-      relativePath: ".",
-      fullPath: "/tmp/worktrees/feature",
-    },
-    {
-      name: "file outside the workspace",
-      cwd: "/worktrees/feature",
-      text: "[file.ts](/tmp/file.ts)",
-      relativePath: "/tmp/file.ts",
-      fullPath: "/tmp/file.ts",
-    },
-  ])("copies the correct paths for $name", async ({ cwd, text, relativePath, fullPath }) => {
-    const writeText = vi.fn(async (_text: string) => {});
-    const showContextMenu = vi.fn(async () => "copy-relative");
-    vi.stubGlobal("window", { desktopBridge: { showContextMenu } });
-    vi.stubGlobal("navigator", { clipboard: { writeText } });
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-    let renderer: ReactTestRenderer | undefined;
-
-    try {
-      await act(async () => {
-        renderer = create(<ChatMarkdown cwd={cwd} text={text} />);
-      });
-      const chip = renderer!.root.find(
-        (instance) =>
-          typeof instance.type === "string" &&
-          instance.props.className?.includes("chat-markdown-file-link"),
-      );
-      await act(async () => {
-        chip.props.onContextMenu({
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn(),
-          clientX: 10,
-          clientY: 10,
-        });
-      });
-      expect(writeText).toHaveBeenCalledExactlyOnceWith(relativePath);
-
-      showContextMenu.mockResolvedValue("copy-full");
-      await act(async () => {
-        chip.props.onContextMenu({
-          preventDefault: vi.fn(),
-          stopPropagation: vi.fn(),
-          clientX: 10,
-          clientY: 10,
-        });
-      });
-      expect(writeText).toHaveBeenLastCalledWith(fullPath);
-    } finally {
-      await act(async () => renderer?.unmount());
-      vi.unstubAllGlobals();
-    }
-  });
-});
-
 describe("ChatMarkdown context references", () => {
   it("renders text and image references through the chip renderer, with readable fallback", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -956,6 +861,23 @@ describe("ChatMarkdown Windows file links", () => {
     expect(html).toContain('href="C:/Users/shawn/project/src/main.ts"');
     expect(html).toContain("chat-markdown-file-link");
   });
+
+  it.each([true, false])(
+    "keeps backslashes CommonMark would read as escapes with parseRawHtml=%s",
+    (parseRawHtml) => {
+      const html = renderToStaticMarkup(
+        <ChatMarkdown
+          cwd="C:/Users/shawn/project"
+          environmentId={environmentId}
+          text={String.raw`[settings](C:\Users\shawn\.claude\settings.json)`}
+          lineBreaks={!parseRawHtml}
+          parseRawHtml={parseRawHtml}
+        />,
+      );
+
+      expect(html).toContain('href="C:/Users/shawn/.claude/settings.json"');
+    },
+  );
 
   it.each([true, false])(
     "distinguishes same-named backslash paths with parseRawHtml=%s",
