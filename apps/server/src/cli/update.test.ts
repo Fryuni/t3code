@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import {
   HostProcessEnvironment,
   HostProcessInvokedAs,
@@ -11,7 +12,37 @@ import {
   HostProcessWorkingDirectory,
 } from "@t3tools/shared/hostProcess";
 
-import { repointLauncher, resolveLauncherPath } from "./update.ts";
+import { repointLauncher, resolveLauncherPath, resolveUpdateTarget } from "./update.ts";
+
+const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
+const latestReleaseClient = (requests: string[]) =>
+  HttpClient.make((request) => {
+    requests.push(request.url);
+    return Effect.succeed(
+      HttpClientResponse.fromWeb(request, Response.json({ tag_name: "v0.0.44-fork.20261002.7" })),
+    );
+  });
+
+it.effect("a fork build updates to its latest release and has no channels", () =>
+  Effect.gen(function* () {
+    const requests: string[] = [];
+    const resolve = (input: Parameters<typeof resolveUpdateTarget>[0]) =>
+      resolveUpdateTarget(input, LATEST_URL).pipe(
+        Effect.provideService(HttpClient.HttpClient, latestReleaseClient(requests)),
+      );
+
+    assert.equal(
+      yield* resolve({ channel: undefined, requestedVersion: undefined }),
+      "0.0.44-fork.20261002.7",
+    );
+    assert.equal(yield* resolve({ channel: undefined, requestedVersion: "0.0.43" }), "0.0.43");
+    const error = yield* resolve({ channel: "nightly", requestedVersion: undefined }).pipe(
+      Effect.flip,
+    );
+    assert.include(error.reason, "--channel does not apply");
+    assert.deepStrictEqual(requests, [LATEST_URL]);
+  }),
+);
 
 it.layer(NodeServices.layer)("t3 update launcher", (it) => {
   it.effect("repoints a symlink that lives in a runtime versions tree", () =>

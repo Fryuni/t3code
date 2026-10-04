@@ -84,9 +84,15 @@ export function resolveVersionMismatch(
   };
 }
 
+/**
+ * A fork build (`releaseRepository`) follows its own releases and can never
+ * move to this client's version, so it is not offered one. Its updates come
+ * from the fork's feed through mobile's update check and `t3 update`.
+ */
 export function resolveServerConfigVersionMismatch(
   serverConfig: Pick<ServerConfig, "environment"> | null | undefined,
 ): VersionMismatch | null {
+  if (serverConfig?.environment.releaseRepository !== undefined) return null;
   return resolveVersionMismatch(serverConfig?.environment.serverVersion);
 }
 

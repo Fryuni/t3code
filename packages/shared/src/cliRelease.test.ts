@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  CLI_RELEASE_LATEST_URL,
   cliArchiveFileName,
   cliArchivePlatformKey,
   cliArchiveTarCommand,
@@ -38,6 +39,11 @@ describe("cliRelease", () => {
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
     );
+  });
+
+  it("follows upstream unless a fork build baked in its own repository", () => {
+    expect(CLI_RELEASE_LATEST_URL).toBeUndefined();
+    expect(cliReleaseIndexPageUrl(1)).toContain("/repos/pingdotgg/t3code/releases?");
   });
 
   it("parses sha256sum output including binary-mode markers", () => {
