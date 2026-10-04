@@ -208,6 +208,10 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** `owner/repo` of a fork build, which updates to that repository's latest
+      GitHub release instead of upstream's channels. Absent on upstream builds,
+      so clients look for updates upstream. */
+  releaseRepository: Schema.optionalKey(TrimmedNonEmptyString),
   /** Absent on hosts from before explicit orchestration protocol negotiation. */
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,

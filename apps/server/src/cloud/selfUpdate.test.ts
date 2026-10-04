@@ -1,5 +1,5 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { expect, it } from "@effect/vitest";
+import { afterEach, expect, it, vi } from "@effect/vitest";
 import { ServerSelfUpdateError, ThreadId } from "@t3tools/contracts";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Cause from "effect/Cause";
@@ -11,6 +11,7 @@ import * as Path from "effect/Path";
 import { HttpClient, HttpClientResponse } from "effect/unstable/http";
 import * as ChildProcessSpawner from "effect/unstable/process/ChildProcessSpawner";
 
+import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import * as ProcessRunner from "../processRunner.ts";
@@ -24,15 +25,37 @@ interface HarnessOptions {
   readonly preflight?: "ready" | "blocked";
   readonly requestUpdate?: ServiceLauncherClient.ServiceLauncherClient["Service"]["requestUpdate"];
   readonly desktopAppUpdate?: DesktopAppUpdate.DesktopAppUpdate["Service"];
+  /** The one release the fake repository publishes, which is also its latest. */
+  readonly releaseVersion?: string;
+  /** Builds the server as a fork that follows the fake repository's latest release. */
+  readonly forkBuild?: boolean;
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
+// What a fork's release workflow bakes in; see packages/shared/src/cliRelease.ts.
+const importForkBuild = Effect.promise(() => {
+  vi.stubGlobal("__T3CODE_BUILD_RELEASE_REPOSITORY__", "someone/t3code");
+  vi.resetModules();
+  return import("./selfUpdate.ts");
+});
+const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
 
 // The staged runtime is a release archive: the fake client serves SHA256SUMS
 // and the tarball, and the fake runner stands in for tar before it answers
 // the staged preflight.
 const archiveBytes = new TextEncoder().encode("not really a tarball");
-const releaseHttpClient = (order: string[]) =>
+const releaseHttpClient = (order: string[], releaseVersion: string) =>
   HttpClient.make((request) =>
     Effect.gen(function* () {
+      if (request.url === LATEST_URL) {
+        return HttpClientResponse.fromWeb(
+          request,
+          Response.json({ tag_name: `v${releaseVersion}` }),
+        );
+      }
       if (request.url.endsWith("/SHA256SUMS")) {
         const digest = yield* Effect.promise(() => crypto.subtle.digest("SHA-256", archiveBytes));
         const hex = Array.from(new Uint8Array(digest), (byte) =>
@@ -40,7 +63,7 @@ const releaseHttpClient = (order: string[]) =>
         ).join("");
         return HttpClientResponse.fromWeb(
           request,
-          new Response(`${hex}  t3-1.1.0-linux-x64.tar.gz\n`),
+          new Response(`${hex}  t3-${releaseVersion}-linux-x64.tar.gz\n`),
         );
       }
       order.push("download");
@@ -55,6 +78,7 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
   const path = yield* Path.Path;
   const baseDir = yield* fs.makeTempDirectoryScoped({ prefix: "t3-self-update-test-" });
   const order: string[] = [];
+  const releaseVersion = options.releaseVersion ?? "1.1.0";
   const runner = ProcessRunner.ProcessRunner.of({
     run: (input) =>
       Effect.gen(function* () {
@@ -77,10 +101,10 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
         order.push("preflight");
         const result =
           options.preflight === "blocked"
-            ? { status: "blocked", version: "1.1.0", reason: "local update required" }
+            ? { status: "blocked", version: releaseVersion, reason: "local update required" }
             : {
                 status: "ready",
-                version: "1.1.0",
+                version: releaseVersion,
                 launcherProtocol: SERVICE_LAUNCHER_PROTOCOL,
               };
         return {
@@ -110,7 +134,8 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
   const config = yield* ServerConfig.ServerConfig.pipe(
     Effect.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
-  const selfUpdate = yield* ServerSelfUpdate.make().pipe(
+  const SelfUpdate = options.forkBuild === true ? yield* importForkBuild : ServerSelfUpdate;
+  const selfUpdate = yield* SelfUpdate.make().pipe(
     Effect.provideService(ProcessRunner.ProcessRunner, runner),
     Effect.provideService(ServiceLauncherClient.ServiceLauncherClient, launcher),
     Effect.provideService(
@@ -120,7 +145,7 @@ const makeHarness = Effect.fn("test.make_self_update_harness")(function* (
         run: () => Effect.die("unexpected desktop app update run"),
       },
     ),
-    Effect.provideService(HttpClient.HttpClient, releaseHttpClient(order)),
+    Effect.provideService(HttpClient.HttpClient, releaseHttpClient(order, releaseVersion)),
     Effect.provideService(HostProcessPlatform, "linux"),
     Effect.provideService(HostProcessArchitecture, "x64"),
     Effect.provide(ServerConfig.layer({ ...config, mode: options.mode ?? "web" })),
@@ -354,6 +379,41 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       });
       expect(order).toEqual(["download", "extract", "preflight", "accept"]);
     }),
+  );
+
+  it.effect("an upstream build installs the version the client asks for, even an older one", () =>
+    Effect.gen(function* () {
+      const { selfUpdate, order } = yield* makeHarness({ releaseVersion: "0.0.1" });
+      expect((yield* selfUpdate.update({ targetVersion: "0.0.1" })).targetVersion).toBe("0.0.1");
+      expect(order).toEqual(["download", "extract", "preflight", "accept"]);
+    }),
+  );
+
+  it.effect("a fork build updates to its latest release, not the client's version", () =>
+    Effect.gen(function* () {
+      const { selfUpdate, order } = yield* makeHarness({ forkBuild: true });
+      expect(yield* selfUpdate.update({ targetVersion: "9.9.9" })).toEqual({
+        targetVersion: "1.1.0",
+        method: "boot-service",
+        updateId: "launcher-id",
+      });
+      expect(order).toEqual(["download", "extract", "preflight", "accept"]);
+    }),
+  );
+
+  it.effect.each([packageJson.version, "0.0.1"])(
+    "a fork build whose latest release is %s does not move to it",
+    (latestVersion) =>
+      Effect.gen(function* () {
+        const { selfUpdate, order } = yield* makeHarness({
+          forkBuild: true,
+          releaseVersion: latestVersion,
+        });
+        expect(
+          (yield* selfUpdate.update({ targetVersion: "9.9.9" }).pipe(Effect.flip)).reason,
+        ).toBe(`This server already runs the latest release, ${packageJson.version}.`);
+        expect(order).toEqual([]);
+      }),
   );
 
   it.effect("rejects invalid versions and desktop-managed servers before staging", () =>

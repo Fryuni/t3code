@@ -15,7 +15,7 @@
     "scripts": {
       // Knip loads its preprocessor through a CLI option; native verification and
       // worktree setup (from t3.json) run directly.
-      // The CLI archive smoke tool is run manually in this fork, without release workflows.
+      // The CLI archive smoke tool runs from this fork's server-linux-release workflow.
       "entry": [
         "knip-schemas.ts",
         "smoke-cli-archive.ts",

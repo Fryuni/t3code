@@ -1,6 +1,6 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { ORCHESTRATION_PROTOCOL_VERSION } from "@t3tools/contracts";
-import { expect, it } from "@effect/vitest";
+import { afterEach, expect, it, vi } from "@effect/vitest";
 import * as Crypto from "effect/Crypto";
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
@@ -30,6 +30,10 @@ const makeServerEnvironmentLayer = (baseDir: string) =>
     Layer.provide(ServerSecretStore.layer),
     Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
   );
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 const emptySecretStoreLayer = Layer.succeed(
   ServerSecretStore.ServerSecretStore,
@@ -182,6 +186,34 @@ it.layer(NodeServices.layer)("ServerEnvironmentLive", (it) => {
       expect(second.capabilities.threadPullRequestLinking).toBe(true);
       expect(second.capabilities.serverResolvedCommandContext).toBe(true);
       expect(second.capabilities.agentActivityPublishing).toBe(false);
+    }),
+  );
+
+  it.effect("only a fork build advertises the repository it updates from", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-server-environment-release-test-",
+      });
+      const descriptorOf = (build: typeof ServerEnvironment) =>
+        Effect.gen(function* () {
+          const serverEnvironment = yield* build.ServerEnvironment;
+          return yield* serverEnvironment.getDescriptor;
+        }).pipe(
+          Effect.provide(
+            build.layer.pipe(
+              Layer.provide(ServerSecretStore.layer),
+              Layer.provide(ServerConfig.layerTest(process.cwd(), baseDir)),
+            ),
+          ),
+        );
+
+      expect(yield* descriptorOf(ServerEnvironment)).not.toHaveProperty("releaseRepository");
+      // What a fork's release workflow bakes in; see packages/shared/src/cliRelease.ts.
+      vi.stubGlobal("__T3CODE_BUILD_RELEASE_REPOSITORY__", "someone/t3code");
+      vi.resetModules();
+      const fork = yield* Effect.promise(() => import("./ServerEnvironment.ts"));
+      expect((yield* descriptorOf(fork)).releaseRepository).toBe("someone/t3code");
     }),
   );
 

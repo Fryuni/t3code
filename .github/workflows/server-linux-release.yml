@@ -100,6 +100,11 @@ jobs:
           VP_NODE_VERSION: "26.8.2"
         run: node apps/server/scripts/cli.ts build-exe --verbose
 
+      # Without the release-repository define the build follows upstream's
+      # releases, and its updates would leave this fork. Never publish one.
+      - name: Check the executable follows this repository
+        run: grep -qF "\"$GITHUB_REPOSITORY\"" apps/server/dist-exe/bin.mjs
+
       - name: Build resource monitor
         run: |
           set -euo pipefail

@@ -7,6 +7,8 @@ import {
 import {
   cliReleaseChannelOf,
   cliReleaseIndexPageUrl,
+  cliReleaseLatestUrl,
+  cliReleaseTagVersion,
   newestCliReleaseVersion,
 } from "@t3tools/shared/cliRelease";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -51,9 +53,25 @@ const Releases = Schema.Array(
   }),
 );
 const decodeReleases = Schema.decodeUnknownSync(Releases);
+const decodeLatestRelease = Schema.decodeUnknownSync(Schema.Struct({ tag_name: Schema.String }));
 
-/** Preserve the host's release channel and never offer a downgrade. */
-export async function findEnvironmentUpdate(currentVersion: string, signal: AbortSignal) {
+/**
+ * Preserve the host's release channel and never offer a downgrade. A fork
+ * build names its `releaseRepository`, whose latest release is the only target.
+ */
+export async function findEnvironmentUpdate(
+  currentVersion: string,
+  signal: AbortSignal,
+  releaseRepository?: string,
+) {
+  if (releaseRepository !== undefined) {
+    const response = await fetch(cliReleaseLatestUrl(releaseRepository), { signal });
+    if (!response.ok) throw new Error(`Could not check releases (${response.status}). Try again.`);
+    const { tag_name } = decodeLatestRelease(await response.json());
+    const version = cliReleaseTagVersion(tag_name);
+    if (version === undefined) throw new Error(`The latest release '${tag_name}' is not T3 Code.`);
+    return compareSemverVersions(version, currentVersion) > 0 ? version : null;
+  }
   const channel = cliReleaseChannelOf(currentVersion);
   for (let page = 1; ; page++) {
     const response = await fetch(cliReleaseIndexPageUrl(page), { signal });
