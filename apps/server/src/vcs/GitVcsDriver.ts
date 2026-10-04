@@ -71,6 +71,7 @@ export interface GitStatusDetails {
   isRepo: boolean;
   sourceControlProvider?: VcsStatusResult["sourceControlProvider"];
   hasOriginRemote: boolean;
+  remoteNames?: ReadonlyArray<string>;
   isDefaultBranch: boolean;
   branch: string | null;
   upstreamRef: string | null;
@@ -266,6 +267,8 @@ export interface GitFetchRemoteInput {
   cwd: string;
   remoteName: string;
   refName?: string;
+  /** Fail when `refName` is missing on the remote instead of fetching the whole remote. */
+  requireBranch?: boolean;
 }
 
 export interface GitRemoteExistsInput {

@@ -34,6 +34,7 @@ import {
   OrchestrationV2ShellSnapshot,
   OrchestrationV2SubscribeThreadInput,
   OrchestrationV2Subagent,
+  OrchestrationV2ThreadLaunchWorkspaceStrategy,
   OrchestrationV2ThreadProjection,
   OrchestrationV2ThreadStreamItem,
   OrchestrationV2ThreadShell,
@@ -1246,5 +1247,43 @@ describe("limit recovery choice updates", () => {
     { autoResume: true, snooze: false },
   ])("accepts an explicit independent choice %j", (choice) => {
     expect(decode({ ...identity, ...choice })).toEqual({ ...identity, ...choice });
+  });
+});
+
+describe("thread launch worktree strategies", () => {
+  const decode = Schema.decodeUnknownSync(OrchestrationV2ThreadLaunchWorkspaceStrategy);
+  it.each([
+    { type: "worktree", baseRef: "feature/existing", createBranch: false },
+    { type: "worktree", baseRef: "main", createBranch: true, startFromOrigin: true },
+    { type: "worktree", baseRef: "main", branch: "feature/new" },
+  ])("keeps the branch-creation choice of %j", (strategy) => {
+    expect(decode(strategy)).toEqual(strategy);
+  });
+
+  it.each([null, "origin", "upstream"] as const)("keeps the start remote %s", (remote) => {
+    const strategy = {
+      type: "worktree",
+      baseRef: "main",
+      startFromOrigin: remote === "origin",
+      startFromRemote: remote,
+    };
+    expect(decode(strategy)).toEqual(strategy);
+  });
+
+  it("rejects an unknown start remote", () => {
+    expect(() =>
+      decode({ type: "worktree", baseRef: "main", startFromRemote: "mirror" }),
+    ).toThrow();
+  });
+
+  it("decodes a scheduled task strategy persisted before start remotes existed", () => {
+    const decodeJson = Schema.decodeUnknownSync(
+      Schema.fromJsonString(OrchestrationV2ThreadLaunchWorkspaceStrategy),
+    );
+    expect(decodeJson('{"type":"worktree","baseRef":"main","startFromOrigin":true}')).toEqual({
+      type: "worktree",
+      baseRef: "main",
+      startFromOrigin: true,
+    });
   });
 });

@@ -1,5 +1,6 @@
 import {
   canonicalRepositoryKey,
+  normalizeSourceControlRepository,
   isSshRemoteUrl,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
@@ -389,8 +390,8 @@ function parseListCursor(raw: string): ListCursor | null {
  * How a listing tells two repositories apart. The host is part of it because the same
  * `owner/repo` exists on github.com and on an Enterprise install, and they are two repositories.
  */
-function listCursorKey(host: string, repository: string): string {
-  return `${host} ${repository.toLowerCase()}`;
+function listCursorKey(host: string, repository: string, kind: SourceControlProviderKind): string {
+  return `${host} ${normalizeSourceControlRepository(repository, kind)}`;
 }
 
 /**
@@ -792,6 +793,7 @@ export const make = Effect.gen(function* () {
           const key = listCursorKey(
             host,
             kind === "azure-devops" ? identity.canonicalKey : repository,
+            kind,
           );
           if (seen.has(key)) continue;
           seen.add(key);
@@ -830,7 +832,11 @@ export const make = Effect.gen(function* () {
         const own = supported[0];
         const repository = ref.repository.trim();
         const host = ref.host?.trim().toLowerCase();
-        if (own !== undefined && own.repository.toLowerCase() === repository.toLowerCase()) {
+        if (
+          own !== undefined &&
+          normalizeSourceControlRepository(own.repository, own.api.kind) ===
+            normalizeSourceControlRepository(repository, own.api.kind)
+        ) {
           // Hostless references only ever meant the project's own repository, and a hosted one
           // naming it still is; either way the project serves itself.
           if (host === undefined || host === own.host) return Effect.succeed(own);
@@ -868,7 +874,8 @@ export const make = Effect.gen(function* () {
               onHost.find(
                 (candidate) =>
                   candidate.api.kind !== "azure-devops" &&
-                  candidate.repository.toLowerCase() === repository.toLowerCase(),
+                  normalizeSourceControlRepository(candidate.repository, candidate.api.kind) ===
+                    normalizeSourceControlRepository(repository, candidate.api.kind),
               ) ??
               onHost.find((candidate) => candidate.api.kind !== "azure-devops");
             if (route === undefined) {
@@ -878,11 +885,12 @@ export const make = Effect.gen(function* () {
             }
             return Effect.succeed(
               route.api.kind === "azure-devops" ||
-                route.repository.toLowerCase() === repository.toLowerCase()
+                normalizeSourceControlRepository(route.repository, route.api.kind) ===
+                  normalizeSourceControlRepository(repository, route.api.kind)
                 ? route
                 : {
                     ...route,
-                    repository,
+                    repository: normalizeSourceControlRepository(repository, route.api.kind),
                     remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
                   },
             );
@@ -2471,7 +2479,8 @@ export const make = Effect.gen(function* () {
         if (
           project === undefined ||
           project.api.listChangeRequestStats === undefined ||
-          project.repository.toLowerCase() !== ref.repository.trim().toLowerCase()
+          normalizeSourceControlRepository(project.repository, project.api.kind) !==
+            normalizeSourceControlRepository(ref.repository, project.api.kind)
         ) {
           continue;
         }
@@ -2492,7 +2501,7 @@ export const make = Effect.gen(function* () {
             return Effect.succeed<ReadonlyArray<PullRequestDiffStat>>([]);
           const projectsByRepository = new Map(
             entries.map((entry) => [
-              `${entry.project.repository.toLowerCase()} ${entry.number}`,
+              `${normalizeSourceControlRepository(entry.project.repository, entry.project.api.kind)} ${entry.number}`,
               entry.project,
             ]),
           );
@@ -2507,7 +2516,7 @@ export const make = Effect.gen(function* () {
             Effect.map((read) =>
               read.flatMap((stat): ReadonlyArray<PullRequestDiffStat> => {
                 const project = projectsByRepository.get(
-                  `${stat.repository.toLowerCase()} ${stat.number}`,
+                  `${normalizeSourceControlRepository(stat.repository, first.project.api.kind)} ${stat.number}`,
                 );
                 return project === undefined
                   ? []
@@ -2643,7 +2652,7 @@ export const make = Effect.gen(function* () {
     JSON.stringify([
       ref.projectId,
       ref.host?.toLowerCase() ?? "",
-      ref.repository.toLowerCase(),
+      normalizeSourceControlRepository(ref.repository),
       ref.number,
     ]);
   const refEpoch = (ref: PullRequestRef) =>
@@ -2658,7 +2667,7 @@ export const make = Effect.gen(function* () {
       refEpoch(ref),
       ref.projectId,
       ref.host?.toLowerCase() ?? null,
-      ref.repository.toLowerCase(),
+      normalizeSourceControlRepository(ref.repository),
       ref.number,
       ref.expectedAccountId ?? null,
       ref[credentialNamespace] ?? null,
@@ -2748,7 +2757,7 @@ export const make = Effect.gen(function* () {
       operation,
       project.api.kind,
       project.host.toLowerCase(),
-      project.repository.toLowerCase(),
+      normalizeSourceControlRepository(project.repository, project.api.kind),
       project.project.id,
       project.project.workspaceRoot,
       String(input.number),
@@ -3131,7 +3140,8 @@ export const make = Effect.gen(function* () {
       const stat = result.stats.find(
         (stat) =>
           stat.projectId === ref.projectId &&
-          stat.repository.toLowerCase() === ref.repository.toLowerCase() &&
+          normalizeSourceControlRepository(stat.repository) ===
+            normalizeSourceControlRepository(ref.repository) &&
           stat.number === ref.number,
       );
       if (stat !== undefined) recordStats(key, stat, at);

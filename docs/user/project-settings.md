@@ -52,6 +52,12 @@ to override its environment defaults. Worktree directories keep their original n
 If generation fails, or a custom name is invalid or already taken, the temporary
 branch name remains.
 
+New worktree branches start from the repository's default branch. To start them from a branch
+such as `dev`, select the project and set **Settings → Source Control → Default base branch**.
+It is only available for a specific project, not **All projects**. A base branch you pick for a
+thread still wins, and clearing the setting returns to the repository default. It does not change
+Git's default branch and does not affect **Current checkout** threads.
+
 ## Scheduled tasks on mobile
 
 Open **Settings → Scheduled tasks** to create recurring tasks or manage existing
@@ -100,8 +106,9 @@ captures and log retention remain machine-wide.
 
 Worktrees can be removed after a chosen number of inactive days, after merging, or when they
 have no commits beyond the default branch. Only T3-managed worktrees are eligible. Active
-sessions, shared worktrees, uncommitted changes, and ignored files other than `node_modules`
-prevent removal. Branches and thread history stay; starting another turn recreates the checkout.
+sessions, shared worktrees, and uncommitted changes prevent removal. Ignored files, including
+build output, caches, and `.env` files, are removed with eligible worktrees. Branches and thread
+history stay; starting another turn recreates the checkout.
 Merge cleanup requires the commits to be included in the remote default branch, so squash merges
 may need the inactivity rule instead.
 

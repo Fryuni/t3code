@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { afterEach, describe, expect, it, vi } from "vite-plus/test";
 
 import {
   cliArchiveFileName,
@@ -37,6 +37,38 @@ describe("cliRelease", () => {
     );
     expect(cliReleaseDownloadBaseUrl("1.2.3", "https://mirror.example/t3/")).toBe(
       "https://mirror.example/t3/v1.2.3",
+    );
+  });
+
+  describe("release repository baked in at build time", () => {
+    afterEach(() => {
+      vi.unstubAllGlobals();
+    });
+
+    // Packaged builds always define it: empty unless a fork's workflow set it.
+    it.each([
+      { build: "without the define", define: undefined, fork: undefined },
+      { build: "with an empty define", define: "", fork: undefined },
+      { build: "with a blank define", define: "  ", fork: undefined },
+      { build: "with a fork's define", define: " someone/t3code ", fork: "someone/t3code" },
+    ])(
+      "a build $build releases from the fork it names, else upstream",
+      async ({ define, fork }) => {
+        vi.stubGlobal("__T3CODE_BUILD_RELEASE_REPOSITORY__", define);
+        vi.resetModules();
+        const release = await import("./cliRelease.ts");
+        const repository = fork ?? "pingdotgg/t3code";
+        expect(release.CLI_RELEASE_FORK_REPOSITORY).toBe(fork);
+        expect(release.CLI_RELEASE_LATEST_URL).toBe(
+          fork === undefined ? undefined : `https://api.github.com/repos/${fork}/releases/latest`,
+        );
+        expect(release.cliReleaseIndexPageUrl(1)).toBe(
+          `https://api.github.com/repos/${repository}/releases?per_page=100&page=1`,
+        );
+        expect(release.cliReleaseDownloadBaseUrl("1.0.0")).toBe(
+          `https://github.com/${repository}/releases/download/v1.0.0`,
+        );
+      },
     );
   });
 

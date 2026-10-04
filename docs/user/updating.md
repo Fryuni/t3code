@@ -58,6 +58,15 @@ asks before restarting the background service; if you decline, run
 stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
+A `t3` [installed from the Fryuni fork](./install.md#install-the-fryuni-fork)
+updates from the fork instead: run plain `t3 update` to move to the fork's
+latest release. The fork does not publish the versions an app shows, so
+`t3 update <client-version>` cannot download one, and `--channel` is rejected.
+**Update server** also moves a fork server to the fork's latest release,
+whichever version the notice names. For a fork server you started by hand, an
+app may offer **Copy update command** instead; that command runs an upstream
+build, so run `t3 update` and restart the server with your usual options.
+
 If you run the server with `npx` rather than an installed `t3`, there is
 nothing to update on the host: stop the server and relaunch it as
 `npx t3@<client-version>` with the same subcommand and options.
@@ -84,7 +93,9 @@ To update an environment from your phone, open **Settings → Environments** and
 select it. **Check for updates** finds the latest release on that environment's
 current release channel. Keep the app open while the environment updates and
 reconnects. Hosts that cannot update remotely show instructions for updating on
-the machine instead.
+the machine instead. For a server [installed from the Fryuni fork](./install.md#install-the-fryuni-fork),
+the app may offer an upstream version; updating installs the fork's latest
+release instead, or reports that the server already runs it.
 
 The same page lets you refresh provider status and update supported providers.
 These controls require a connected environment and permission to operate it.

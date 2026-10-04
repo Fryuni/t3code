@@ -4,7 +4,12 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  type ScopedProjectRef,
+  type ThreadId,
+  type WorktreeStartRemote,
+} from "@t3tools/contracts";
 import { useParams, useRouter } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 import {
@@ -26,7 +31,7 @@ import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { readProjects, readThreadShell, useProjects, useThreadShell } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
-  resolveNewDraftStartFromOrigin,
+  resolveNewDraftStartFromRemote,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
 import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
@@ -39,7 +44,9 @@ interface NewThreadWorkspaceOptions {
   branch?: string | null;
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
-  startFromOrigin?: boolean;
+  startFromRemote?: WorktreeStartRemote;
+  createNewBranch?: boolean;
+  environmentSelection?: "auto" | "manual";
 }
 
 // The workspace options the caller passed explicitly, shaped for the draft
@@ -50,7 +57,8 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
     ...(options?.branch !== undefined ? { branch: options.branch } : {}),
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
-    ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
+    ...(options?.startFromRemote !== undefined ? { startFromRemote: options.startFromRemote } : {}),
+    ...(options?.createNewBranch !== undefined ? { createNewBranch: options.createNewBranch } : {}),
   };
 }
 
@@ -70,7 +78,8 @@ export function useNewThreadHandler() {
         branch?: string | null;
         worktreePath?: string | null;
         envMode?: DraftThreadEnvMode;
-        startFromOrigin?: boolean;
+        startFromRemote?: WorktreeStartRemote;
+        createNewBranch?: boolean;
         replace?: boolean;
       },
       // Which draft the thread ended up in, so a caller that has something to put in it — a
@@ -137,6 +146,10 @@ export function useNewThreadHandler() {
       );
       const projectDefaultModelSelection = projectSettings.settings.defaultModelSelection;
       const defaultRuntimeMode = projectSettings.settings.defaultRuntimeMode;
+      // Project-only: it seeds the base of a new worktree branch, never a local checkout.
+      // A seeded draft is marked automatic, like the toolbar's own pick, because a
+      // branch alone reads as a manual choice and would pin the draft's environment.
+      const projectDefaultThreadBaseBranch = projectSettings.overrides.defaultThreadBaseBranch;
       const resolveModelSelectionOverride = (destinationDraftId: DraftId) =>
         resolveNewThreadModelSelectionOverride({
           projectDefaultSelection: projectDefaultModelSelection ?? null,
@@ -167,7 +180,8 @@ export function useNewThreadHandler() {
       const hasBranchOption = options?.branch !== undefined;
       const hasWorktreePathOption = options?.worktreePath !== undefined;
       const hasEnvModeOption = options?.envMode !== undefined;
-      const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
+      const hasStartFromRemoteOption = options?.startFromRemote !== undefined;
+      const hasCreateNewBranchOption = options?.createNewBranch !== undefined;
       const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
       const storedDraftThreadRef = storedDraftThread
         ? scopeThreadRef(storedDraftThread.environmentId, storedDraftThread.threadId)
@@ -207,7 +221,8 @@ export function useNewThreadHandler() {
             hasBranchOption ||
             hasWorktreePathOption ||
             hasEnvModeOption ||
-            hasStartFromOriginOption;
+            hasStartFromRemoteOption ||
+            hasCreateNewBranchOption;
           // Resurrecting an empty stored draft must not resurrect its stale
           // context: explicit workspace options win outright; otherwise the
           // env context resets to the configured defaults so drafts seeded
@@ -249,11 +264,17 @@ export function useNewThreadHandler() {
             if (openedMeanwhile || promotedMeanwhile || remappedMeanwhile || investedMeanwhile) {
               return null;
             }
+            const seededBranch =
+              defaultEnvMode === "worktree" ? (projectDefaultThreadBaseBranch ?? null) : null;
             workspaceContext = {
-              branch: null,
+              branch: seededBranch,
+              ...(seededBranch
+                ? { environmentSelection: emptyStoredDraftThread.environmentSelection ?? "auto" }
+                : {}),
               worktreePath: null,
               envMode: defaultEnvMode,
-              startFromOrigin: resolveNewDraftStartFromOrigin({
+              createNewBranch: true,
+              startFromRemote: resolveNewDraftStartFromRemote({
                 envMode: defaultEnvMode,
                 newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
               }),
@@ -339,7 +360,8 @@ export function useNewThreadHandler() {
           hasBranchOption ||
           hasWorktreePathOption ||
           hasEnvModeOption ||
-          hasStartFromOriginOption
+          hasStartFromRemoteOption ||
+          hasCreateNewBranchOption
         ) {
           setDraftThreadContext(currentRouteTarget.draftId, pickExplicitWorkspaceOptions(options));
         }
@@ -400,18 +422,26 @@ export function useNewThreadHandler() {
           });
           return { draftId: racedDraft.draftId, threadId: racedDraft.threadId };
         }
+        const createNewBranch = options?.createNewBranch ?? true;
+        const seededBranch =
+          !hasBranchOption && initialEnvMode === "worktree" && createNewBranch
+            ? (projectDefaultThreadBaseBranch ?? null)
+            : null;
         setLogicalProjectDraftThreadId(logicalProjectKey, projectRef, draftId, {
           threadId,
           createdAt,
-          branch: options?.branch ?? null,
+          branch: hasBranchOption ? (options?.branch ?? null) : seededBranch,
+          ...(seededBranch ? { environmentSelection: "auto" } : {}),
           worktreePath: options?.worktreePath ?? null,
           envMode: initialEnvMode,
-          startFromOrigin:
-            options?.startFromOrigin ??
-            resolveNewDraftStartFromOrigin({
-              envMode: initialEnvMode,
-              newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
-            }),
+          createNewBranch,
+          startFromRemote:
+            options?.startFromRemote !== undefined
+              ? options.startFromRemote
+              : resolveNewDraftStartFromRemote({
+                  envMode: initialEnvMode,
+                  newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
+                }),
           runtimeMode: defaultRuntimeMode,
           ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
         });

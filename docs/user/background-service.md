@@ -35,6 +35,11 @@ maintainers' test train: its builds can be broken and are never offered as
 updates, so the installer and `t3 update` ask for confirmation before
 installing one.
 
+A `t3` [installed from a fork's releases](./install.md#install-the-fryuni-fork)
+follows that repository's latest release instead of a channel. `t3 update`
+moves to it, and `--channel` does not apply. An update started from a connected
+app also installs the fork's latest release, whichever version the app offers.
+
 `t3 uninstall` removes the background service, the `t3` launcher, and the
 downloaded versions after showing you the list and asking once. Your projects,
 threads, and settings under `~/.t3/userdata` are kept. Pass `--yes` from a

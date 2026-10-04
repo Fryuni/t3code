@@ -67,6 +67,7 @@ import {
   ToolActivitySource,
 } from "./providerRuntime.ts";
 import { ThreadTokenUsageSnapshot } from "./providerRuntime.ts";
+import { WorktreeStartRemote } from "./vcs.ts";
 
 export const OrchestrationV2Actor = Schema.Literals(["user", "agent", "system"]);
 export type OrchestrationV2Actor = typeof OrchestrationV2Actor.Type;
@@ -2976,6 +2977,19 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     baseRef: TrimmedNonEmptyString,
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
+    /**
+     * Fetches `baseRef` from this remote and starts the worktree at its tip; null uses the local
+     * ref. Takes precedence over `startFromOrigin`, which older servers still read, so clients
+     * send both. A missing origin branch falls back to the local ref; a missing upstream remote or
+     * branch fails the launch.
+     */
+    startFromRemote: Schema.optional(WorktreeStartRemote),
+    /**
+     * Absent or true creates a new branch from `baseRef`. False checks out `baseRef`, which must
+     * be an existing local branch that no other worktree has checked out, and cannot be combined
+     * with `branch`, `startFromOrigin: true`, or a non-null `startFromRemote`.
+     */
+    createBranch: Schema.optional(Schema.Boolean),
   }),
 ]);
 export type OrchestrationV2ThreadLaunchWorkspaceStrategy =

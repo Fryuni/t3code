@@ -1,13 +1,15 @@
 import type {
   ModelSelection,
+  OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ServerConfig,
   ProjectId,
   RuntimeMode,
   ScheduledTask,
   ScheduledTaskUpsertSchedule,
+  WorktreeStartRemote,
 } from "@t3tools/contracts";
 
-import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, resolveWorktreeStartRemote } from "@t3tools/contracts";
 import {
   resolveProjectSettings,
   type LegacyProjectSettingsFields,
@@ -101,7 +103,7 @@ export type ScheduledTaskDraft = {
   readonly baseRef: string;
   readonly checkoutPath: string;
   readonly enabled: boolean;
-  readonly startFromOrigin: boolean;
+  readonly startFromRemote: WorktreeStartRemote;
   readonly runtimeMode: RuntimeMode;
 };
 
@@ -123,7 +125,7 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     draft.baseRef,
     draft.checkoutPath,
     draft.enabled,
-    draft.startFromOrigin,
+    draft.startFromRemote,
     draft.runtimeMode,
   ]);
 }
@@ -151,7 +153,7 @@ export function createDraft(
     baseRef: "main",
     checkoutPath: "",
     enabled: true,
-    startFromOrigin: true,
+    startFromRemote: "origin",
     runtimeMode: "full-access",
   };
 }
@@ -172,10 +174,26 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
         ? task.workspaceStrategy.worktreePath
         : "",
     enabled: task.enabled,
-    startFromOrigin:
+    startFromRemote:
       task.workspaceStrategy.type === "worktree"
-        ? (task.workspaceStrategy.startFromOrigin ?? false)
-        : true,
+        ? resolveWorktreeStartRemote(task.workspaceStrategy)
+        : "origin",
     runtimeMode: task.runtimeMode,
   };
+}
+
+/** The strategy a saved task launches with. Servers that only read `startFromOrigin` still get it. */
+export function scheduledTaskWorkspaceStrategy(
+  draft: ScheduledTaskDraft,
+): OrchestrationV2ThreadLaunchWorkspaceStrategy {
+  return draft.workspace === "root"
+    ? { type: "root" }
+    : draft.workspace === "existing_worktree"
+      ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
+      : {
+          type: "worktree",
+          baseRef: draft.baseRef.trim() || "main",
+          startFromRemote: draft.startFromRemote,
+          startFromOrigin: draft.startFromRemote === "origin",
+        };
 }

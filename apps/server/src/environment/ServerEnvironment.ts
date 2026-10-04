@@ -4,6 +4,7 @@ import {
   PROVIDER_SEND_TURN_MAX_FILE_BYTES,
   type ExecutionEnvironmentDescriptor,
 } from "@t3tools/contracts";
+import { CLI_RELEASE_FORK_REPOSITORY } from "@t3tools/shared/cliRelease";
 import { HostProcessArchitecture, HostProcessPlatform } from "@t3tools/shared/hostProcess";
 import * as Context from "effect/Context";
 import * as Crypto from "effect/Crypto";
@@ -212,6 +213,9 @@ export const make = Effect.gen(function* () {
       ...(machine === null ? {} : { machine }),
     },
     serverVersion: packageJson.version,
+    ...(CLI_RELEASE_FORK_REPOSITORY === undefined
+      ? {}
+      : { releaseRepository: CLI_RELEASE_FORK_REPOSITORY }),
     orchestrationProtocolVersion: ORCHESTRATION_PROTOCOL_VERSION,
     capabilities: {
       repositoryIdentity: true,
@@ -223,6 +227,7 @@ export const make = Effect.gen(function* () {
       pullRequestChecks: true,
       inlineMessageContext: true,
       requiredWorktreeBootstrap: true,
+      existingBranchWorktree: true,
       threadSettlement: true,
       threadAutoSettlement: true,
       storageCleanup: true,

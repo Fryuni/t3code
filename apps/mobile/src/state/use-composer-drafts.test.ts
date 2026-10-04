@@ -1713,6 +1713,35 @@ describe("mobile composer drafts", () => {
       },
     });
   });
+  it.each([
+    { stored: { startFromOrigin: true }, expected: "origin" },
+    { stored: { startFromOrigin: false }, expected: null },
+    { stored: { startFromOrigin: true, startFromRemote: null }, expected: null },
+    { stored: { startFromOrigin: true, startFromRemote: "upstream" }, expected: "upstream" },
+    { stored: { startFromRemote: "upstream" }, expected: "upstream" },
+    { stored: {}, expected: undefined },
+  ])("restores live and archived worktree remote choices $stored", ({ stored, expected }) => {
+    const draft = {
+      text: "saved task",
+      attachments: [],
+      workspaceSelection: { mode: "worktree", branch: "main", worktreePath: null, ...stored },
+    };
+    const restored = decodePersistedComposerState({
+      schemaVersion: 1,
+      drafts: { "environment-1:thread-1": draft },
+      signedOutDrafts: {
+        "account-1": { drafts: { "environment-1:thread-1": draft }, queuedMessages: [] },
+      },
+    });
+    const live = restored.drafts["environment-1:thread-1"]?.workspaceSelection;
+    const archived =
+      restored.cloudDrafts.signedOut["account-1"]?.drafts["environment-1:thread-1"]
+        ?.workspaceSelection;
+    expect([live?.startFromRemote, archived?.startFromRemote]).toEqual([expected, expected]);
+    expect(live).not.toHaveProperty("startFromOrigin");
+    expect(archived).not.toHaveProperty("startFromOrigin");
+  });
+
   it("keeps legacy content-only drafts and rejects invalid selector state", () => {
     expect(
       decodePersistedComposerState({
@@ -2185,7 +2214,7 @@ describe("mobile composer drafts", () => {
         mode: "worktree",
         branch: "main",
         worktreePath: null,
-        startFromOrigin: false,
+        startFromRemote: null,
       },
     };
 

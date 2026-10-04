@@ -111,6 +111,9 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   inlineMessageContext: Schema.optionalKey(Schema.Boolean),
   /** Server rejects required worktrees instead of falling back to the project checkout. */
   requiredWorktreeBootstrap: Schema.optionalKey(Schema.Boolean),
+  /** Server understands `createBranch: false` on worktree launches. Older servers drop the key
+      and create a new branch anyway, so clients hide the toggle when this is absent. */
+  existingBranchWorktree: Schema.optionalKey(Schema.Boolean),
   /** Server understands thread.settle / thread.unsettle commands. Absent on
       pre-settlement servers, so clients treat missing as unsupported and
       never send the commands under version skew. */
@@ -205,6 +208,10 @@ export const ExecutionEnvironmentDescriptor = Schema.Struct({
   label: TrimmedNonEmptyString,
   platform: ExecutionEnvironmentPlatform,
   serverVersion: TrimmedNonEmptyString,
+  /** `owner/repo` of a fork build, which updates to that repository's latest
+      GitHub release instead of upstream's channels. Absent on upstream builds,
+      so clients look for updates upstream. */
+  releaseRepository: Schema.optionalKey(TrimmedNonEmptyString),
   /** Absent on hosts from before explicit orchestration protocol negotiation. */
   orchestrationProtocolVersion: Schema.optionalKey(Schema.Int),
   capabilities: ExecutionEnvironmentCapabilities,

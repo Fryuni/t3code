@@ -53,7 +53,11 @@ import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
 import { cn } from "../../lib/utils";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
-import { resolveDesktopPairingUrl, resolveHostedPairingUrl } from "./pairingUrls";
+import {
+  resolveDesktopPairingUrl,
+  resolveHostedPairingUrl,
+  withPublicUrlEndpoint,
+} from "./pairingUrls";
 import {
   applyWslEnableSelection,
   isQrShareableEndpoint,
@@ -2581,10 +2585,13 @@ export function ConnectionsSettings() {
   );
   const visibleDesktopNetworkAdvertisedEndpoints = useMemo(
     () =>
-      isLocalBackendNetworkAccessible
-        ? desktopAdvertisedEndpoints.filter((endpoint) => !isTailscaleHttpsEndpoint(endpoint))
-        : [],
-    [desktopAdvertisedEndpoints, isLocalBackendNetworkAccessible],
+      withPublicUrlEndpoint(
+        isLocalBackendNetworkAccessible
+          ? desktopAdvertisedEndpoints.filter((endpoint) => !isTailscaleHttpsEndpoint(endpoint))
+          : [],
+        primaryServerConfig?.publicUrl,
+      ),
+    [desktopAdvertisedEndpoints, isLocalBackendNetworkAccessible, primaryServerConfig?.publicUrl],
   );
   const visibleDesktopAdvertisedEndpoints = useMemo(
     () =>
@@ -2594,12 +2601,22 @@ export function ConnectionsSettings() {
     [tailscaleHttpsEndpoint, visibleDesktopNetworkAdvertisedEndpoints],
   );
   const isLocalBackendRemotelyReachable =
-    isLocalBackendNetworkAccessible || tailscaleHttpsEndpoint?.status === "available";
+    isLocalBackendNetworkAccessible ||
+    visibleDesktopNetworkAdvertisedEndpoints.some(
+      (endpoint) => endpoint.reachability !== "loopback",
+    ) ||
+    tailscaleHttpsEndpoint?.status === "available";
   const defaultDesktopNetworkAdvertisedEndpoint = useMemo(
     () =>
       selectPairingEndpoint(visibleDesktopNetworkAdvertisedEndpoints, defaultAdvertisedEndpointKey),
     [defaultAdvertisedEndpointKey, visibleDesktopNetworkAdvertisedEndpoints],
   );
+  // A server behind an external proxy advertises a public URL while local
+  // network exposure stays off, so the network access row has an endpoint to
+  // name even though the toggle reads as local-only.
+  const hasRemoteAdvertisedEndpoint =
+    defaultDesktopNetworkAdvertisedEndpoint !== null &&
+    defaultDesktopNetworkAdvertisedEndpoint.reachability !== "loopback";
   const defaultDesktopAdvertisedEndpoint = useMemo(
     () =>
       defaultDesktopNetworkAdvertisedEndpoint ??
@@ -3236,7 +3253,7 @@ export function ConnectionsSettings() {
     <SettingsRow
       title={searchableSetting("network-access").title}
       description={
-        isLocalBackendNetworkAccessible ? (
+        isLocalBackendNetworkAccessible || hasRemoteAdvertisedEndpoint ? (
           <NetworkAccessDescription
             endpoint={defaultDesktopNetworkAdvertisedEndpoint}
             hiddenEndpointCount={Math.max(visibleDesktopNetworkAdvertisedEndpoints.length - 1, 0)}
@@ -3270,7 +3287,7 @@ export function ConnectionsSettings() {
       description={
         currentAuthPolicy === "remote-reachable"
           ? "Remote access is already configured. Change network exposure where the server starts."
-          : "Only this machine can connect. Restart with a non-loopback host for remote pairing."
+          : "Only this machine can connect. Restart with a reachable --host or --public-url for an external proxy."
       }
       control={
         <Tooltip>

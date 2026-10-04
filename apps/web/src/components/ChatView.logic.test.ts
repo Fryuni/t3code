@@ -39,6 +39,7 @@ import {
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
   getAntigravitySendBlockReason,
   resolveBackgroundDraftWorkspaceOptions,
+  resolvePrepareWorktreeBranchOptions,
   resolveComposerInteractionMode,
   restorePlanFollowUpComposer,
   resolveComposerProviderSelection,
@@ -1690,19 +1691,68 @@ describe("resolveComposerInteractionMode", () => {
   });
 });
 
+describe("resolvePrepareWorktreeBranchOptions", () => {
+  it.each(["origin", "upstream", null] as const)(
+    "starts a new branch from remote %s",
+    (startFromRemote) => {
+      expect(
+        resolvePrepareWorktreeBranchOptions({ createNewBranch: true, startFromRemote }),
+      ).toEqual({ startFromRemote });
+    },
+  );
+
+  it.each(["origin", "upstream", null] as const)(
+    "never sends start remote %s when reusing an existing branch",
+    (startFromRemote) => {
+      expect(
+        resolvePrepareWorktreeBranchOptions({ createNewBranch: false, startFromRemote }),
+      ).toStrictEqual({ createBranch: false });
+    },
+  );
+});
+
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
-  it("keeps New worktree selected without reusing the launched worktree", () => {
+  it.each(
+    [true, false].flatMap((createNewBranch) =>
+      (["origin", "upstream", null] as const).map((startFromRemote) => ({
+        createNewBranch,
+        startFromRemote,
+      })),
+    ),
+  )(
+    "keeps New worktree, its starting remote $startFromRemote, and only a reusable base branch (createNewBranch=$createNewBranch)",
+    ({ createNewBranch, startFromRemote }) => {
+      expect(
+        resolveBackgroundDraftWorkspaceOptions({
+          envMode: "worktree",
+          branch: "main",
+          startFromRemote,
+          createNewBranch,
+        }),
+      ).toEqual({
+        envMode: "worktree",
+        branch: createNewBranch ? "main" : null,
+        worktreePath: null,
+        startFromRemote,
+        createNewBranch,
+      });
+    },
+  );
+
+  it("keeps the branch when the background thread uses the current checkout", () => {
     expect(
       resolveBackgroundDraftWorkspaceOptions({
-        envMode: "worktree",
-        branch: "main",
-        startFromOrigin: true,
+        envMode: "local",
+        branch: "feature/existing",
+        startFromRemote: "upstream",
+        createNewBranch: false,
       }),
     ).toEqual({
-      envMode: "worktree",
-      branch: "main",
+      envMode: "local",
+      branch: "feature/existing",
       worktreePath: null,
-      startFromOrigin: true,
+      startFromRemote: null,
+      createNewBranch: false,
     });
   });
 });
@@ -1922,6 +1972,35 @@ it("follows a changed server PR link without replacing an unrelated open panel",
     shouldRetargetThreadPullRequestPanel(previous, current, {
       ...surface,
       projectId: "another-project",
+    }),
+  ).toBe(false);
+});
+
+it("treats case-distinct Forgejo instance paths as different PR links", () => {
+  const previous = {
+    projectId: ProjectId.make("project-1"),
+    repository: "Forge/acme/web",
+    number: 42,
+    url: "https://git.example.test/Forge/acme/web/pulls/42",
+  };
+  const current = {
+    ...previous,
+    repository: "forge/acme/web",
+    url: "https://git.example.test/forge/acme/web/pulls/42",
+  };
+  const surface = {
+    id: "pull-request:previous",
+    kind: "pull-request",
+    projectId: previous.projectId,
+    repository: "Forge/ACME/WEB",
+    number: previous.number,
+  } satisfies RightPanelSurface;
+
+  expect(shouldRetargetThreadPullRequestPanel(previous, current, surface)).toBe(true);
+  expect(
+    shouldRetargetThreadPullRequestPanel(previous, current, {
+      ...surface,
+      repository: "forge/acme/web",
     }),
   ).toBe(false);
 });

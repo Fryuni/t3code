@@ -86,6 +86,14 @@ const otherProject = {
   title: "Other",
 } as const;
 
+// A query for "feature/existing" also matches the archived branch, on an earlier page.
+const localRefs = [
+  { name: "main", current: true, isDefault: true, worktreePath: "/repo" },
+  { name: "archive/feature/existing", current: false, isDefault: false, worktreePath: null },
+  { name: "feature/existing", current: false, isDefault: false, worktreePath: null },
+  { name: "t3code/abcd1234", current: false, isDefault: false, worktreePath: null },
+];
+
 const adapter = {
   instanceId: modelSelection.instanceId,
   driver: ProviderDriverKind.make("codex"),
@@ -97,8 +105,11 @@ const adapter = {
 interface HarnessOptions {
   readonly managedFolders?: Layer.Layer<ManagedProjectFolders.ManagedProjectFolders>;
   readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
-  readonly fetchRemote?: GitWorkflow.GitWorkflowService["Service"]["fetchRemote"];
+  readonly resolveWorktreeBase?: GitWorkflow.GitWorkflowService["Service"]["resolveWorktreeBase"];
+  readonly remoteExists?: GitWorkflow.GitWorkflowService["Service"]["remoteExists"];
   readonly renameBranch?: GitWorkflow.GitWorkflowService["Service"]["renameBranch"];
+  readonly pruneWorktrees?: GitWorkflow.GitWorkflowService["Service"]["pruneWorktrees"];
+  readonly listRefs?: GitWorkflow.GitWorkflowService["Service"]["listRefs"];
   readonly runSetup?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"]["runForThread"];
   readonly generateTitle?: TextGeneration.TextGeneration["Service"]["generateThreadTitle"];
   readonly generateBranchName?: TextGeneration.TextGeneration["Service"]["generateBranchName"];
@@ -121,12 +132,32 @@ function makeHarness(options: HarnessOptions = {}) {
     options.createWorktree ??
       ((input) =>
         Effect.succeed({
-          worktree: { path: "/repo-worktrees/feature", refName: input.newRefName, headSha: "abc" },
+          worktree: {
+            path: "/repo-worktrees/feature",
+            refName: input.newRefName ?? input.refName,
+            headSha: "abc",
+          },
         } as never)),
   );
   const renameBranch = vi.fn(
     options.renameBranch ?? ((input) => Effect.succeed({ branch: input.newBranch })),
   );
+  const resolveWorktreeBase = vi.fn<
+    GitWorkflow.GitWorkflowService["Service"]["resolveWorktreeBase"]
+  >(
+    options.resolveWorktreeBase ??
+      ((input, resolveOptions) =>
+        input.startFromRemote === null
+          ? Effect.succeed({ baseRef: input.baseBranch, fetchStatus: "skipped" })
+          : (resolveOptions?.onFetchStart?.() ?? Effect.void).pipe(
+              Effect.as({
+                baseRef: "remote-main-sha",
+                fetchStatus: "done" as const,
+                fetchDetail: `${input.startFromRemote}/${input.baseBranch} at remote-`,
+              }),
+            )),
+  );
+  const remoteExists = vi.fn(options.remoteExists ?? (() => Effect.succeed(true)));
   const runSetup = vi.fn(
     options.runSetup ?? (() => Effect.succeed({ status: "no-script" as const })),
   );
@@ -161,12 +192,24 @@ function makeHarness(options: HarnessOptions = {}) {
     Layer.mock(GitWorkflow.GitWorkflowService)({
       createWorktree,
       renameBranch,
-      fetchRemote: options.fetchRemote ?? (() => Effect.void),
-      remoteExists: () => Effect.succeed(true),
-      remoteBranchExists: () => Effect.succeed(true),
+      // One ref per page, so a lookup has to follow the cursor.
+      listRefs:
+        options.listRefs ??
+        ((input) => {
+          const matches = localRefs.filter((ref) => ref.name.includes(input.query ?? ""));
+          const cursor = input.cursor ?? 0;
+          return Effect.succeed({
+            refs: matches.slice(cursor, cursor + 1),
+            isRepo: true,
+            hasPrimaryRemote: true,
+            nextCursor: cursor + 1 < matches.length ? cursor + 1 : null,
+            totalCount: matches.length,
+          });
+        }),
+      resolveWorktreeBase,
+      pruneWorktrees: options.pruneWorktrees ?? (() => Effect.void),
+      remoteExists,
       removeWorktree: () => Effect.void,
-      resolveRemoteTrackingCommit: () =>
-        Effect.succeed({ commitSha: "remote-main-sha", remoteRefName: "origin/main" }),
     }),
     Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
       runForThread: runSetup,
@@ -221,6 +264,8 @@ function makeHarness(options: HarnessOptions = {}) {
     ),
     createWorktree,
     renameBranch,
+    resolveWorktreeBase,
+    remoteExists,
     generateBranchName,
     generateThreadTitle,
     runSetup,
@@ -255,6 +300,24 @@ function launchInput(input: {
     creationSource: "web" as const,
   };
 }
+
+const awaitRunStatus = (threadId: ThreadId, status: "starting" | "failed") =>
+  ThreadManagement.ThreadManagementService.use((threads) =>
+    threads.streamStoredEventsFrom({ threadId }).pipe(
+      Stream.filter(
+        (stored) => stored.event.type === "run.updated" && stored.event.payload.status === status,
+      ),
+      Stream.runHead,
+    ),
+  );
+
+const fetchStage = (threadId: ThreadId) =>
+  WorktreeSetupTracker.WorktreeSetupTracker.use((tracker) => tracker.get(threadId)).pipe(
+    Effect.map((snapshot) => {
+      const stage = snapshot?.stages.find((entry) => entry.id === "fetch");
+      return { status: stage?.status, detail: stage?.detail };
+    }),
+  );
 
 function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.Effect<void, E, R> {
   return Effect.gen(function* () {
@@ -1244,11 +1307,385 @@ it.effect("renames a temporary branch on an existing worktree to a generated nam
   }),
 );
 
+it.effect.each(["feature/existing", "t3code/abcd1234"])(
+  "checks out the existing branch %s without creating or renaming one",
+  (baseRef) =>
+    Effect.gen(function* () {
+      const harness = makeHarness();
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const threads = yield* ThreadManagement.ThreadManagementService;
+        const launched = yield* launches.launch(
+          launchInput({
+            command: `command:launch:existing:${baseRef}`,
+            thread: `thread:launch:existing:${baseRef}`,
+            message: "Continue the feature",
+            workspace: { type: "worktree", baseRef, createBranch: false },
+          }),
+        );
+        assert.equal(launched.projection.thread.branch, baseRef);
+        // The run starts only after preparation, which is where a rename would be forked.
+        yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+          Stream.filter(
+            (stored) =>
+              stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+          ),
+          Stream.runHead,
+        );
+        assert.deepEqual(
+          harness.createWorktree.mock.calls.map(([input]) => input),
+          [{ cwd: "/repo", refName: baseRef, path: null }],
+        );
+        assert.equal(harness.resolveWorktreeBase.mock.calls[0]?.[0].startFromRemote, null);
+        const projection = yield* threads.getThreadProjection(launched.threadId);
+        assert.equal(projection.thread.branch, baseRef);
+        assert.equal(projection.thread.worktreePath, "/repo-worktrees/feature");
+        assert.equal(harness.generateBranchName.mock.calls.length, 0);
+        assert.equal(harness.renameBranch.mock.calls.length, 0);
+      }).pipe(Effect.provide(harness.layer));
+    }),
+);
+
+it.effect("checks out a branch still held by a deleted worktree git has not pruned", () =>
+  Effect.gen(function* () {
+    // listRefs already reports the branch free, but git refuses it until a prune.
+    let staleWorktreeRegistered = true;
+    const harness = makeHarness({
+      pruneWorktrees: () =>
+        Effect.sync(() => {
+          staleWorktreeRegistered = false;
+        }),
+      createWorktree: (input) =>
+        staleWorktreeRegistered
+          ? Effect.fail(new Error(`'${input.refName}' is already used by a worktree`) as never)
+          : Effect.succeed({
+              worktree: { path: "/repo-worktrees/feature", refName: input.refName, headSha: "abc" },
+            } as never),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:existing:stale-worktree",
+          thread: "thread:launch:existing:stale-worktree",
+          message: "Continue the feature",
+          workspace: { type: "worktree", baseRef: "feature/existing", createBranch: false },
+        }),
+      );
+      const settled = yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+        Stream.map((stored) =>
+          stored.event.type === "run.updated" ? stored.event.payload.status : null,
+        ),
+        Stream.filter((status) => status === "starting" || status === "failed"),
+        Stream.runHead,
+      );
+      assert.equal(Option.getOrNull(settled), "starting");
+      const projection = yield* threads.getThreadProjection(launched.threadId);
+      assert.equal(projection.thread.worktreePath, "/repo-worktrees/feature");
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect.each([
+  {
+    reason: "a remote-only ref",
+    workspace: { baseRef: "origin/feature" },
+    message: /"origin\/feature" is not a local branch/u,
+  },
+  {
+    reason: "a partial branch name",
+    workspace: { baseRef: "feature" },
+    message: /"feature" is not a local branch/u,
+  },
+  {
+    reason: "a branch checked out elsewhere",
+    workspace: { baseRef: "main" },
+    message: /"main" is already checked out at \/repo\./u,
+  },
+  {
+    reason: "a new branch name",
+    workspace: { baseRef: "feature/existing", branch: "feature/new" },
+    message: /cannot also name a new branch/u,
+  },
+  {
+    reason: "start from origin",
+    workspace: { baseRef: "feature/existing", startFromOrigin: true },
+    message: /cannot also name a new branch or start from a remote/u,
+  },
+  {
+    reason: "start from upstream",
+    workspace: { baseRef: "feature/existing", startFromRemote: "upstream" as const },
+    message: /cannot also name a new branch or start from a remote/u,
+  },
+])("rejects checking out $reason before creating the thread", ({ reason, workspace, message }) =>
+  Effect.gen(function* () {
+    const harness = makeHarness();
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const error = yield* launches
+        .launch(
+          launchInput({
+            command: `command:launch:reject:${reason}`,
+            thread: `thread:launch:reject:${reason}`,
+            message: "Continue the feature",
+            workspace: { type: "worktree", createBranch: false, ...workspace },
+          }),
+        )
+        .pipe(Effect.flip);
+      assert.equal(error._tag, "ThreadLaunchWorkspaceError");
+      assert.match(error.message, message);
+      assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
+      assert.equal(harness.createWorktree.mock.calls.length, 0);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("replays an existing-branch launch after its worktree holds the branch", () =>
+  Effect.gen(function* () {
+    let checkedOutAt: string | null = null;
+    const harness = makeHarness({
+      createWorktree: (input) =>
+        Effect.sync(() => {
+          checkedOutAt = "/repo-worktrees/feature";
+          return {
+            worktree: { path: checkedOutAt, refName: input.refName, headSha: "abc" },
+          } as never;
+        }),
+      listRefs: (input) => {
+        const refs = [
+          {
+            name: "feature/existing",
+            current: false,
+            isDefault: false,
+            worktreePath: checkedOutAt,
+          },
+        ].filter((ref) => ref.name === input.query);
+        return Effect.succeed({
+          refs,
+          isRepo: true,
+          hasPrimaryRemote: true,
+          nextCursor: null,
+          totalCount: refs.length,
+        });
+      },
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const threads = yield* ThreadManagement.ThreadManagementService;
+      const input = launchInput({
+        command: "command:launch:existing:retry",
+        thread: "thread:launch:existing:retry",
+        message: "Continue the feature",
+        workspace: { type: "worktree", baseRef: "feature/existing", createBranch: false },
+      });
+      const first = yield* launches.launch(input);
+      yield* threads.streamStoredEventsFrom({ threadId: first.threadId }).pipe(
+        Stream.filter(
+          (stored) =>
+            stored.event.type === "run.updated" && stored.event.payload.status === "starting",
+        ),
+        Stream.runHead,
+      );
+      const retry = yield* launches.launch(input);
+      assert.isTrue(retry.resumed);
+      assert.equal(retry.threadId, first.threadId);
+      assert.equal(harness.createWorktree.mock.calls.length, 1);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("tracks the existing branch while its worktree is checked out", () =>
+  Effect.gen(function* () {
+    const checkoutStarted = yield* Deferred.make<void>();
+    const harness = makeHarness({
+      createWorktree: () =>
+        Deferred.succeed(checkoutStarted, undefined).pipe(Effect.andThen(Effect.never)),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:existing:tracked",
+          thread: "thread:launch:existing:tracked",
+          message: "Continue the feature",
+          workspace: { type: "worktree", baseRef: "feature/existing", createBranch: false },
+        }),
+      );
+      yield* Deferred.await(checkoutStarted);
+      assert.equal((yield* tracker.get(launched.threadId))?.branch, "feature/existing");
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect.each([
+  {
+    name: "legacy origin flag",
+    workspace: { startFromOrigin: true },
+    startFromRemote: "origin",
+    baseRef: "remote-main-sha",
+    fetch: { status: "done", detail: "origin/main at remote-" },
+  },
+  {
+    name: "upstream remote",
+    workspace: { startFromRemote: "upstream" },
+    startFromRemote: "upstream",
+    baseRef: "remote-main-sha",
+    fetch: { status: "done", detail: "upstream/main at remote-" },
+  },
+  {
+    name: "local ref despite the origin flag",
+    workspace: { startFromRemote: null, startFromOrigin: true },
+    startFromRemote: null,
+    baseRef: "main",
+    fetch: { status: "skipped", detail: null },
+  },
+] as const)("starts a new worktree from the $name", (scenario) =>
+  Effect.gen(function* () {
+    const harness = makeHarness();
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: `command:launch:remote:${scenario.name}`,
+          thread: `thread:launch:remote:${scenario.name}`,
+          message: "Start the feature",
+          workspace: { type: "worktree", baseRef: "main", ...scenario.workspace },
+        }),
+      );
+      yield* awaitRunStatus(launched.threadId, "starting");
+      assert.deepEqual(harness.resolveWorktreeBase.mock.calls[0]?.[0], {
+        cwd: "/repo",
+        baseBranch: "main",
+        startFromRemote: scenario.startFromRemote,
+      });
+      assert.equal(harness.createWorktree.mock.calls[0]?.[0].refName, scenario.baseRef);
+      assert.deepEqual(yield* fetchStage(launched.threadId), scenario.fetch);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("reports a missing origin branch as a fetch warning and starts from the local base", () =>
+  Effect.gen(function* () {
+    const detail = "origin/dev not found, using local branch";
+    const harness = makeHarness({
+      resolveWorktreeBase: (input) =>
+        Effect.succeed({ baseRef: input.baseBranch, fetchStatus: "warning", fetchDetail: detail }),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:origin-warning",
+          thread: "thread:launch:origin-warning",
+          message: "Start from origin",
+          workspace: { type: "worktree", baseRef: "origin/dev", startFromOrigin: true },
+        }),
+      );
+      yield* awaitRunStatus(launched.threadId, "starting");
+      assert.deepEqual(yield* fetchStage(launched.threadId), { status: "warning", detail });
+      assert.deepInclude(harness.createWorktree.mock.calls[0]?.[0], {
+        refName: "origin/dev",
+        baseRefName: "origin/dev",
+      });
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("fails preparation with the reason an upstream base could not be fetched", () => {
+  const detail = "Cannot start from upstream: upstream/main was not found.";
+  const harness = makeHarness({
+    resolveWorktreeBase: (input) =>
+      Effect.fail(
+        new GitCommandError({
+          operation: "GitWorkflowService.resolveWorktreeBase",
+          command: "git",
+          cwd: input.cwd,
+          detail,
+        }),
+      ),
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:upstream-missing-branch",
+        thread: "thread:launch:upstream-missing-branch",
+        message: "Start from upstream",
+        workspace: { type: "worktree", baseRef: "main", startFromRemote: "upstream" },
+      }),
+    );
+    yield* awaitRunStatus(launched.threadId, "failed");
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.include(
+      projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+      detail,
+    );
+    assert.equal(projection.thread.worktreePath, null);
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("rejects starting from upstream before creating the thread when it is missing", () => {
+  const harness = makeHarness({ remoteExists: () => Effect.succeed(false) });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const error = yield* launches
+      .launch(
+        launchInput({
+          command: "command:launch:upstream-missing-remote",
+          thread: "thread:launch:upstream-missing-remote",
+          message: "Start from upstream",
+          workspace: { type: "worktree", baseRef: "main", startFromRemote: "upstream" },
+        }),
+      )
+      .pipe(Effect.flip);
+    assert.equal(error._tag, "ThreadLaunchWorkspaceError");
+    assert.equal(
+      error.message,
+      "Cannot start from upstream: the upstream remote is not configured.",
+    );
+    assert.deepEqual(harness.remoteExists.mock.calls[0]?.[0], {
+      cwd: "/repo",
+      remoteName: "upstream",
+    });
+    assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
+    assert.equal(harness.resolveWorktreeBase.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("replays an upstream launch without checking the remote again", () =>
+  Effect.gen(function* () {
+    let upstreamConfigured = true;
+    const harness = makeHarness({ remoteExists: () => Effect.succeed(upstreamConfigured) });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const input = launchInput({
+        command: "command:launch:upstream-retry",
+        thread: "thread:launch:upstream-retry",
+        message: "Start from upstream",
+        workspace: { type: "worktree", baseRef: "main", startFromRemote: "upstream" },
+      });
+      const first = yield* launches.launch(input);
+      yield* awaitRunStatus(first.threadId, "starting");
+      upstreamConfigured = false;
+      const retry = yield* launches.launch(input);
+      assert.isTrue(retry.resumed);
+      assert.equal(retry.threadId, first.threadId);
+      assert.equal(harness.remoteExists.mock.calls.length, 1);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("shows the fetch diagnosis when preparing a worktree from origin fails", () => {
   const detail =
     "Git could not authenticate with the remote. Check Git credentials or SSH access on the server, then retry.";
   const harness = makeHarness({
-    fetchRemote: () =>
+    resolveWorktreeBase: () =>
       Effect.fail(
         new GitCommandError({
           operation: "GitVcsDriver.fetchRemote",
@@ -1399,7 +1836,7 @@ it.effect("rejects a server-allocated launch replay with a mismatching thread id
       })
       .pipe(Effect.flip);
     assert.notEqual(first.threadId, ThreadId.make("thread:launch:allocated-mismatch"));
-    assert.equal(failed._tag, "ThreadLaunchError");
+    assert(failed._tag === "ThreadLaunchError");
     assert.equal(failed.operation, "create-thread");
     assert.include(String(failed.cause), "cannot be replayed");
   }).pipe(Effect.provide(harness.layer));
@@ -1421,7 +1858,7 @@ it.effect("rejects a server-allocated launch receipt from another project", () =
         projectId: otherProjectId,
       })
       .pipe(Effect.flip);
-    assert.equal(failed._tag, "ThreadLaunchError");
+    assert(failed._tag === "ThreadLaunchError");
     assert.equal(failed.operation, "resolve-project");
     assert.equal(failed.threadId, first.threadId);
     assert.equal(failed.cause, "Project identity changed.");
@@ -1445,7 +1882,7 @@ it.effect("rejects a server-allocated launch retry after the thread is deleted",
       threadId: first.threadId,
     });
     const failed = yield* launches.launch(rest).pipe(Effect.flip);
-    assert.equal(failed._tag, "ThreadLaunchError");
+    assert(failed._tag === "ThreadLaunchError");
     assert.equal(failed.operation, "create-thread");
     assert.equal(failed.threadId, first.threadId);
     assert.equal(failed.cause, "Thread not found.");
@@ -1486,7 +1923,7 @@ it.effect("does not treat an unrelated accepted command receipt as a launch", ()
       message: "Should not become a launch",
     });
     const failed = yield* launches.launch(rest).pipe(Effect.flip);
-    assert.equal(failed._tag, "ThreadLaunchError");
+    assert(failed._tag === "ThreadLaunchError");
     assert.equal(failed.operation, "create-thread");
     assert.include(String(failed.cause), "cannot be replayed");
     const projection = yield* threads.getThreadProjection(threadId);
@@ -1531,7 +1968,7 @@ it.effect("bounds concurrent first launches to one thread per command", () =>
           continue;
         }
         const error = Cause.findErrorOption(result.cause).pipe(Option.getOrThrow);
-        assert.equal(error._tag, "ThreadLaunchError");
+        assert(error._tag === "ThreadLaunchError");
         assert.equal(error.operation, "create-thread");
         assert.include(String(error.cause), "cannot be replayed");
         const retried = yield* launches.launch(rest);
@@ -1841,6 +2278,13 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
       projectId: ProjectId.make("missing-project"),
     }).pipe(Effect.flip);
     assert.equal(missingProject._tag, "ThreadLaunchError");
+    assert.equal((yield* claimedFiles).length, 1);
+    const rejectedWorkspace = yield* ThreadMessageIntake.launchThread({
+      ...input,
+      commandId: CommandId.make("intake-rejected-workspace"),
+      workspaceStrategy: { type: "worktree", baseRef: "origin/feature", createBranch: false },
+    }).pipe(Effect.flip);
+    assert.equal(rejectedWorkspace._tag, "ThreadLaunchWorkspaceError");
     assert.equal((yield* claimedFiles).length, 1);
     const missingThread = yield* ThreadMessageIntake.dispatchCommand({
       type: "message.dispatch",

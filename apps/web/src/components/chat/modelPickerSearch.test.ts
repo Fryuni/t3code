@@ -8,6 +8,7 @@ describe("buildModelPickerSearchText", () => {
       buildModelPickerSearchText({
         driverKind: "opencode",
         providerDisplayName: "opencode",
+        slug: "claude-opus-4.7",
         name: "Claude Opus 4.7",
         subProvider: "GitHub Copilot",
       }),
@@ -22,6 +23,7 @@ describe("scoreModelPickerSearch", () => {
         {
           driverKind: "opencode",
           providerDisplayName: "opencode",
+          slug: "claude-opus-4.7",
           name: "Claude Opus 4.7",
           subProvider: "GitHub Copilot",
         },
@@ -36,6 +38,7 @@ describe("scoreModelPickerSearch", () => {
         {
           driverKind: "codex",
           providerDisplayName: "codex",
+          slug: "gpt-5-codex",
           name: "GPT-5 Codex",
         },
         "coplt op",
@@ -48,6 +51,7 @@ describe("scoreModelPickerSearch", () => {
       {
         driverKind: "opencode",
         providerDisplayName: "opencode",
+        slug: "claude-opus-4.7",
         name: "Claude Opus 4.7",
         subProvider: "GitHub Copilot",
       },
@@ -57,6 +61,7 @@ describe("scoreModelPickerSearch", () => {
       {
         driverKind: "opencode",
         providerDisplayName: "opencode",
+        slug: "claude-opus-4.7",
         name: "Claude Opus 4.7",
         subProvider: "GitHub Copilot",
       },
@@ -73,6 +78,7 @@ describe("scoreModelPickerSearch", () => {
       {
         driverKind: "claudeAgent",
         providerDisplayName: "Claude",
+        slug: "claude-opus-4.7",
         name: "Claude Opus 4.7",
         isFavorite: true,
       },
@@ -82,6 +88,7 @@ describe("scoreModelPickerSearch", () => {
       {
         driverKind: "cursor",
         providerDisplayName: "Cursor",
+        slug: "opus-4.5",
         name: "Opus 4.5",
       },
       "opu",
@@ -97,6 +104,7 @@ describe("scoreModelPickerSearch", () => {
       {
         driverKind: "claudeAgent",
         providerDisplayName: "Claude",
+        slug: "claude-opus-4.7",
         name: "Claude Opus 4.7",
         isFavorite: true,
       },
@@ -106,6 +114,7 @@ describe("scoreModelPickerSearch", () => {
       {
         driverKind: "cursor",
         providerDisplayName: "Cursor",
+        slug: "opus-4.7",
         name: "Opus 4.7",
       },
       "opus 4.7",
@@ -122,9 +131,35 @@ describe("scoreModelPickerSearch", () => {
         {
           driverKind: "codex",
           providerDisplayName: "Codex Personal",
+          slug: "gpt-5-codex",
           name: "GPT-5 Codex",
         },
         "personal",
+      ),
+    ).not.toBeNull();
+  });
+
+  it("matches provider qualifiers derived from model slugs", () => {
+    expect(
+      scoreModelPickerSearch(
+        {
+          driverKind: "opencode",
+          providerDisplayName: "OpenCode",
+          slug: "azure.glm-5.3-Flash",
+          name: "glm-5.3-Flash",
+        },
+        "azure",
+      ),
+    ).not.toBeNull();
+    expect(
+      scoreModelPickerSearch(
+        {
+          driverKind: "opencode",
+          providerDisplayName: "OpenCode",
+          slug: "loem/upstream/model",
+          name: "model",
+        },
+        "upstream",
       ),
     ).not.toBeNull();
   });

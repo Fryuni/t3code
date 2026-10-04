@@ -1,14 +1,27 @@
 # Working with threads
 
 Use a new thread for a separate task. Choose **New worktree** when its code changes
-need a separate branch and working directory.
+need a separate working directory.
 
 ## Start a thread
 
 On web and desktop, a new thread keeps the current project and carries your model
 and mode selections, unless the destination project has its own model default.
-Its branch and workspace mode come from your configured defaults. To continue in
-an existing worktree, use **New thread in this worktree** from the branch toolbar.
+Its branch and workspace mode come from your configured defaults. To continue on
+the same branch or worktree, use **New thread on _branch_** from the command
+palette or from the thread's menu: right-click the thread in the sidebar, or click
+its title in the chat header. On mobile, long-press the thread.
+
+To work on an existing branch in a new directory, choose **New worktree**, open
+the branch selector, and turn off **Create new branch**. Select a local branch
+that is not already checked out; **Start from origin** applies only when creating
+a new branch.
+
+In a repository with remotes named `origin` and `upstream`, the branch selector
+offers **Off**, **origin**, and **upstream** under **Start from remote**. Choose
+**upstream** to start a new worktree from the latest matching branch on upstream
+instead of your fork. If that branch is missing on upstream, the thread fails to
+start. Starting from origin falls back to your local branch when origin lacks it.
 
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
@@ -33,8 +46,9 @@ directory itself sits inside a Git checkout.
 
 In a desktop browser or the desktop app, press `Cmd+Enter` on macOS or `Ctrl+Enter`
 on Windows and Linux to start a new thread and immediately open another draft. The
-next draft keeps the workspace mode and base branch you selected. With **New
-worktree**, each background submission creates its own worktree.
+next draft keeps the workspace mode you selected. With **New worktree**, each
+background submission creates its own worktree, and the next draft keeps the base
+branch only when **Create new branch** is on.
 
 To send the same prompt to several models on web or desktop, **Shift-click** models
 in a new thread's model picker to add or remove them. A regular click returns to a

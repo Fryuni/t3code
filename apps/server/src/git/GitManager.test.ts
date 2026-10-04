@@ -23,6 +23,7 @@ import type {
   GitActionProgressEvent,
   GitPreparePullRequestThreadInput,
   ModelSelection,
+  SourceControlProviderInfo,
 } from "@t3tools/contracts";
 
 import {
@@ -666,6 +667,7 @@ function preparePullRequestThread(
 function makeManager(input?: {
   ghScenario?: FakeGhScenario;
   sourceControlProvider?: SourceControlProvider["Service"];
+  hostingProvider?: SourceControlProviderInfo;
   textGeneration?: Partial<FakeGitTextGeneration>;
   serverSettings?: Parameters<typeof ServerSettings.layerTest>[0];
   setupScriptRunner?: ProjectSetupScriptRunner.ProjectSetupScriptRunner["Service"];
@@ -719,7 +721,14 @@ function makeManager(input?: {
         SourceControlProviderRegistry.SourceControlProviderRegistry.of({
           resolveLink: (input) => provider.resolveLink?.(input),
           get: () => Effect.succeed(provider),
-          resolveHandle: () => Effect.succeed({ provider, context: null }),
+          resolveHandle: ({ context }) =>
+            Effect.succeed({
+              provider,
+              context:
+                context && input?.hostingProvider
+                  ? { ...context, provider: input.hostingProvider }
+                  : null,
+            }),
           resolve: () => Effect.succeed(provider),
           discover: Effect.succeed([]),
         }),
@@ -769,6 +778,48 @@ const GitManagerTestLayer = GitVcsDriver.layer.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
+  it.effect("local status reports configured remotes before their branches have been fetched", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* Effect.forEach(["origin", "upstream", "mirror"], (remoteName) =>
+        Effect.gen(function* () {
+          const remote = yield* createBareRemote();
+          yield* runGit(repoDir, ["remote", "add", remoteName, remote]);
+        }),
+      );
+      const { manager } = yield* makeManager();
+
+      const local = yield* manager.localStatus({ cwd: repoDir });
+      const status = yield* manager.status({ cwd: repoDir });
+
+      expect(local.remoteNames).toEqual(["mirror", "origin", "upstream"]);
+      expect(status.remoteNames).toEqual(local.remoteNames);
+      expect(local.hasPrimaryRemote).toBe(true);
+    }),
+  );
+
+  it.effect("status reports the discovered Forgejo web instance for a separate SSH host", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* runGit(repoDir, [
+        "remote",
+        "add",
+        "origin",
+        "ssh://git@ssh.example.test:2222/Owner/Repo.git",
+      ]);
+      const hostingProvider = {
+        kind: "forgejo",
+        name: "Forgejo",
+        baseUrl: "https://git.example.test:8443",
+      } as const;
+      const { manager } = yield* makeManager({ hostingProvider });
+      const status = yield* manager.status({ cwd: repoDir });
+      expect(status.sourceControlProvider).toEqual(hostingProvider);
+    }),
+  );
+
   it.effect("status includes draft PR metadata when branch already has a draft PR", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
@@ -1758,6 +1809,9 @@ it.layer(GitManagerTestLayer)("GitManager", (it) => {
       "gitlab.example.com/group/subgroup/repository",
     ],
     ["https://bitbucket.org/team/repository/pull-requests/42", "bitbucket.org/team/repository"],
+    ["https://git.example.test/Owner/Repo/pulls/42", "git.example.test/owner/repo"],
+    ["https://git.example.test/Forge/Owner/Repo/pulls/42", "git.example.test/Forge/owner/repo"],
+    ["https://git.example.test:8443/Owner/Repo/pulls/42/files", "git.example.test:8443/owner/repo"],
     [
       "https://dev.azure.com/org/project/_git/repository/pullrequest/42",
       "dev.azure.com/org/project/_git/repository",

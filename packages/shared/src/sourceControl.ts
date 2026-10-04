@@ -299,7 +299,37 @@ export function sourceControlRepositorySelector(
   return identity.owner && identity.name ? `${identity.owner}/${identity.name}` : null;
 }
 
-export function canonicalRepositoryKey(key: string): string {
+/**
+ * A repository path folded the way its host folds it, so two spellings of one repository
+ * compare equal and two repositories never do.
+ *
+ * GitHub, GitLab, Bitbucket, and Azure fold the whole path. Forgejo folds owner and name, but
+ * an instance can be served below a mount path (`https://example.com/forgejo`), and that
+ * prefix belongs to whatever proxy serves it, where case can distinguish two instances on one
+ * host. Without a kind, or with one that might still turn out to be Forgejo, only the last two
+ * segments fold — the part every host folds — and the rest is trusted as written.
+ */
+export function normalizeSourceControlRepository(repository: string, kind?: string | null): string {
+  if (kind != null && kind !== "unknown" && kind !== "forgejo")
+    return repository.trim().toLowerCase();
+  const segments = repository.trim().split("/");
+  return segments
+    .map((segment, index) => (index >= segments.length - 2 ? segment.toLowerCase() : segment))
+    .join("/");
+}
+
+/**
+ * The comparison form of a `host/repository` key: host folded, the repository folded per
+ * `normalizeSourceControlRepository`, and Azure's SSH and legacy hosts rewritten to the web
+ * spelling. A Forgejo host keeps its port, since instances on one hostname can differ by it.
+ */
+export function canonicalRepositoryKey(key: string, kind?: string | null): string {
+  const separator = key.indexOf("/");
+  if (separator >= 0) {
+    const host = key.slice(0, separator).toLowerCase();
+    const provider = isAzureDevOpsHost(host) ? "azure-devops" : kind;
+    key = `${host}/${normalizeSourceControlRepository(key.slice(separator + 1), provider)}`;
+  }
   return key
     .replace(
       /^(?:ssh\.dev\.azure\.com|vs-ssh\.visualstudio\.com)\/v3\/([^/]+)\/([^/]+)\/([^/]+)$/u,

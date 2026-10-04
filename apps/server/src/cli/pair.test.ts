@@ -29,6 +29,7 @@ import {
   resolveDirectPairingBaseUrl,
   resolveTailscaleLocalTarget,
 } from "./pair.ts";
+import { renderTerminalQrCode } from "../startupAccess.ts";
 
 import packageJson from "../../package.json" with { type: "json" };
 
@@ -43,6 +44,16 @@ const baseState = {
 } as const satisfies PersistedServerRuntimeState;
 
 describe("pair base URL selection", () => {
+  it("pairs through the public URL while the server remains bound to loopback", () => {
+    const state = {
+      ...baseState,
+      host: "127.0.0.1",
+      publicUrl: "https://t3.example.com/",
+      devUrl: "http://localhost:5733/",
+    };
+    expect(resolveDirectPairingBaseUrl(state)).toBe("https://t3.example.com/");
+  });
+
   it("pairs through the dev web origin when the server fronts a dev server", () => {
     expect(resolveDirectPairingBaseUrl({ ...baseState, devUrl: "http://localhost:5733/" })).toBe(
       "http://localhost:5733/",
@@ -144,6 +155,35 @@ const withDescriptorServer = <A, E, R>(run: (origin: string) => Effect.Effect<A,
   );
 
 describe("t3 pair", () => {
+  it.effect("uses the recorded public URL for the link and QR while probing the local server", () =>
+    withDescriptorServer((origin) =>
+      Effect.gen(function* () {
+        const baseDir = NodeFS.mkdtempSync(NodePath.join(NodeOS.tmpdir(), "t3-pair-proxy-test-"));
+        const state = yield* makePersistedServerRuntimeState({
+          config: {
+            host: "127.0.0.1",
+            devUrl: undefined,
+            publicUrl: new URL("https://t3.example.com:8443"),
+          },
+          port: Number(new URL(origin).port),
+        });
+        assert.equal(state.origin, origin);
+        yield* persistServerRuntimeState({
+          path: NodePath.join(baseDir, "userdata", "server-runtime.json"),
+          state,
+        });
+
+        const output = yield* captureStdout(runCli(["pair", "--base-dir", baseDir]));
+        const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
+        assert.isString(token);
+        const pairingUrl = `https://t3.example.com:8443/pair#token=${token}`;
+        assert.include(output, `Pairing URL: ${pairingUrl}`);
+        assert.include(output, renderTerminalQrCode(pairingUrl));
+        assert.notInclude(output, "only reachable from this machine");
+      }),
+    ).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("mints a token and prints a QR pairing URL for a live server", () =>
     withDescriptorServer((origin) =>
       Effect.gen(function* () {

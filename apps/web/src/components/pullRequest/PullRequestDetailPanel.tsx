@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import { useAtomValue } from "@effect/atom-react";
 import { usePullRequestStack } from "~/state/usePullRequestStack";
@@ -499,7 +500,8 @@ export function PullRequestDetailPanel({
   const pullRequestKey = `${reference.projectId}:${reference.host ?? ""}:${reference.repository}#${reference.number}`;
   const matchingListEntry =
     listEntry?.projectId === reference.projectId &&
-    listEntry.repository.toLowerCase() === reference.repository.toLowerCase() &&
+    normalizeSourceControlRepository(listEntry.repository) ===
+      normalizeSourceControlRepository(reference.repository) &&
     (reference.host === undefined ||
       listEntry.host.toLowerCase() === reference.host.toLowerCase()) &&
     listEntry.number === reference.number

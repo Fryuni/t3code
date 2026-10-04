@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, onTestFinished, vi } from "vite-plus/test";
 
 import type { ReviewRenderableLineRow } from "./reviewModel";
 import {
@@ -48,6 +48,13 @@ describe("highlightSourceFile", () => {
   });
 
   it("initializes source and snippet highlighting without a warmup", async () => {
+    // The cold first line compiles the grammar inside Shiki's 500ms per-line tokenize budget,
+    // and a slow runner overruns it, leaving the rest of the line as one token. Freeze the
+    // clock so this checks initialization rather than runner speed.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     vi.resetModules();
     const highlighter = await import("./shikiReviewHighlighter");
     const source = "const answer: number = 42;";

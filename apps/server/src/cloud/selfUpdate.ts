@@ -20,11 +20,14 @@ import * as Layer from "effect/Layer";
 import * as Path from "effect/Path";
 import { HttpClient } from "effect/unstable/http";
 
-import { CLI_RELEASE_BASE_URL_ENV } from "@t3tools/shared/cliRelease";
+import { CLI_RELEASE_BASE_URL_ENV, CLI_RELEASE_LATEST_URL } from "@t3tools/shared/cliRelease";
+import { compareSemverVersions } from "@t3tools/shared/semver";
 
+import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import * as ProcessRunner from "../processRunner.ts";
+import { resolveLatestReleaseVersion } from "./latestRelease.ts";
 import {
   ensurePinnedRuntimeInstalled,
   pinnedRuntimeCommand,
@@ -169,7 +172,9 @@ export const withRunningThreadContinuation = Effect.fn(
   });
 });
 
-export const make = Effect.fn("cloud.server_self_update.make")(function* () {
+export const make = Effect.fn("cloud.server_self_update.make")(function* (
+  latestReleaseUrl: string | undefined = CLI_RELEASE_LATEST_URL,
+) {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const desktopAppUpdate = yield* DesktopAppUpdate.DesktopAppUpdate;
   const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
@@ -213,9 +218,27 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* () {
       );
     }
 
-    const targetVersion = input.targetVersion.trim();
+    // Clients ask for upstream versions, which a fork never publishes, so a
+    // fork build moves to its own repository's latest release instead, and
+    // never backwards: the client's "server is behind" check no longer bounds
+    // the target.
+    const targetVersion =
+      latestReleaseUrl === undefined
+        ? input.targetVersion.trim()
+        : yield* resolveLatestReleaseVersion(latestReleaseUrl).pipe(
+            Effect.provideService(HttpClient.HttpClient, httpClient),
+            Effect.mapError((error) => failWith(error.reason, error)),
+          );
     if (!isExactServiceVersion(targetVersion)) {
       return yield* failWith(`'${targetVersion}' is not an exact t3 version.`);
+    }
+    if (
+      latestReleaseUrl !== undefined &&
+      compareSemverVersions(targetVersion, packageJson.version) <= 0
+    ) {
+      return yield* failWith(
+        `This server already runs the latest release, ${packageJson.version}.`,
+      );
     }
     if (yield* Ref.getAndSet(inFlight, true)) {
       return yield* failWith("A server update is already in progress.");

@@ -1,7 +1,7 @@
 import { useNavigation } from "@react-navigation/native";
 import { SettingsRow } from "./components/SettingsRow";
 import { ScreenScrollView as ScrollView } from "../../components/ScreenScrollView";
-import { AppText as Text } from "../../components/AppText";
+import { AppText as Text, AppTextInput } from "../../components/AppText";
 import {
   type ResponseStreamingMode,
   type ServerSettings,
@@ -9,7 +9,7 @@ import {
   type ThreadEnvMode,
   type WorktreeSubmodules,
   PROJECT_SCOPED_SERVER_SETTING_KEYS,
-  type ProjectScopedServerSettingKey,
+  type ProjectSettingsOverrides,
 } from "@t3tools/contracts";
 import { useRef, useState } from "react";
 import { View } from "react-native";
@@ -30,6 +30,7 @@ import { SettingsSwitchRow } from "./components/SettingsSwitchRow";
 import { SettingsProjectOverridesSection } from "./components/SettingsProjectOverridesSection";
 import { useSettingsEnvironmentFilter } from "./settings-environment-filter";
 import {
+  planMobileProjectOverridePatch,
   planMobileScopedSettingsClear,
   planMobileScopedSettingsPatch,
   resolveMobileSettingsTargets,
@@ -46,10 +47,11 @@ const PAGE_TITLES: Record<SettingsPage, string> = {
   maintenance: "Maintenance",
 };
 
-const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly ProjectScopedServerSettingKey[]> = {
+const PAGE_PROJECT_KEYS: Record<SettingsPage, readonly (keyof ProjectSettingsOverrides)[]> = {
   "new-threads": ["defaultThreadEnvMode", "worktreeSubmodules", "defaultRuntimeMode"],
   "source-control": [
     "defaultAutoPull",
+    "defaultThreadBaseBranch",
     "newWorktreesStartFromOrigin",
     "branchNamingMode",
     "branchNamePrefix",
@@ -163,9 +165,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     label: "environment settings update",
     reportFailure: true,
   });
-  const write = (patch: ServerSettingsPatch) => {
-    if (writeInFlight.current || !hasConnectedSelection) return;
-    const writes = planMobileScopedSettingsPatch(targets, projectSelected, patch);
+  const persist = (writes: ReturnType<typeof planMobileScopedSettingsClear>) => {
     if (writes.length === 0) return;
     writeInFlight.current = true;
     setPendingTargets(targets);
@@ -180,22 +180,21 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       setPendingWrites((count) => count - 1);
     });
   };
+  const write = (patch: ServerSettingsPatch) => {
+    if (writeInFlight.current || !hasConnectedSelection) return;
+    persist(planMobileScopedSettingsPatch(targets, projectSelected, patch));
+  };
   const clearProjectOverrides = () => {
     if (writeInFlight.current) return;
-    const writes = planMobileScopedSettingsClear(targets, PAGE_PROJECT_KEYS[props.page]);
-    if (writes.length === 0) return;
-    writeInFlight.current = true;
-    setPendingTargets(targets);
-    setPendingWrites((count) => count + 1);
-    void Promise.allSettled(
-      writes.map((entry) =>
-        updateSettings({ environmentId: entry.environmentId, input: { patch: entry.patch } }),
-      ),
-    ).finally(() => {
-      writeInFlight.current = false;
-      setPendingTargets(null);
-      setPendingWrites((count) => count - 1);
-    });
+    persist(planMobileScopedSettingsClear(targets, PAGE_PROJECT_KEYS[props.page]));
+  };
+  const writeDefaultBaseBranch = (branch: string | null) => {
+    if (writeInFlight.current) return;
+    persist(
+      branch === null
+        ? planMobileScopedSettingsClear(targets, ["defaultThreadBaseBranch"])
+        : planMobileProjectOverridePatch(targets, { defaultThreadBaseBranch: branch }),
+    );
   };
   const supportsProjectOverrides = targets.every(
     (target) =>
@@ -240,7 +239,9 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                 <SettingsProjectOverridesSection
                   projectLabel={selectedProject?.label ?? "Unavailable project"}
                   hasOverrides={targets.some((target) =>
-                    PAGE_PROJECT_KEYS[props.page].some((key) => target.sources[key] === "project"),
+                    PAGE_PROJECT_KEYS[props.page].some(
+                      (key) => target.overrides[key] !== undefined,
+                    ),
                   )}
                   supportsOverrides={supportsProjectOverrides}
                   pending={pendingWrites > 0}
@@ -345,14 +346,36 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                     />
                   </SettingsSection>
                   <SettingsSection title="Worktrees">
-                    <SettingsSwitchRow
-                      icon="arrow.triangle.branch"
-                      label="Start from origin"
-                      subtitle="Base new worktrees on the remote branch."
-                      value={uniform("newWorktreesStartFromOrigin")}
-                      disabled={disabledFor("newWorktreesStartFromOrigin")}
-                      onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
-                    />
+                    {projectSelected ? (
+                      <DefaultBaseBranchField
+                        key={targets
+                          .map(
+                            (target) => `${target.environment.environmentId}:${target.projectId}`,
+                          )
+                          .join(",")}
+                        value={
+                          displayTargets.every(
+                            (target) =>
+                              target.overrides.defaultThreadBaseBranch ===
+                              reference.overrides.defaultThreadBaseBranch,
+                          )
+                            ? (reference.overrides.defaultThreadBaseBranch ?? "")
+                            : null
+                        }
+                        disabled={disabled}
+                        onChange={writeDefaultBaseBranch}
+                      />
+                    ) : null}
+                    <View className={projectSelected ? "border-t border-border-subtle" : undefined}>
+                      <SettingsSwitchRow
+                        icon="arrow.triangle.branch"
+                        label="Start from origin"
+                        subtitle="Base new worktrees on the remote branch."
+                        value={uniform("newWorktreesStartFromOrigin")}
+                        disabled={disabledFor("newWorktreesStartFromOrigin")}
+                        onValueChange={(value) => write({ newWorktreesStartFromOrigin: value })}
+                      />
+                    </View>
                   </SettingsSection>
                 </>
               ) : null}
@@ -454,6 +477,47 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
         </ScrollView>
       </SettingsScreen>
     </>
+  );
+}
+
+/**
+ * Project-only text field; `value` is null when the selected checkouts disagree. Key it on the
+ * selected targets so text typed for one project is never saved to the next one picked.
+ */
+function DefaultBaseBranchField(props: {
+  readonly value: string | null;
+  readonly disabled: boolean;
+  readonly onChange: (branch: string | null) => void;
+}) {
+  const edited = useRef(false);
+  return (
+    <View className="gap-2 p-4">
+      <View className="android:gap-1">
+        <Text className="text-lg text-foreground android:text-base">Default base branch</Text>
+        <Text className="text-sm text-foreground-muted">
+          New worktree threads start from this branch. Leave it empty to use the repository default.
+        </Text>
+      </View>
+      <AppTextInput
+        key={props.value}
+        accessibilityLabel="Default base branch"
+        onChangeText={() => {
+          edited.current = true;
+        }}
+        defaultValue={props.value ?? ""}
+        placeholder={props.value === null ? "Mixed" : "Repository default"}
+        editable={!props.disabled}
+        autoCapitalize="none"
+        autoCorrect={false}
+        className="min-h-10 rounded-xl px-3 py-2 text-base text-foreground"
+        onEndEditing={(event) => {
+          const value = event.nativeEvent.text.trim();
+          if (!props.disabled && edited.current && value !== props.value)
+            props.onChange(value.length > 0 ? value : null);
+          edited.current = false;
+        }}
+      />
+    </View>
   );
 }
 

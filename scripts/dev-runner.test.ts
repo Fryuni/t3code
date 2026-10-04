@@ -287,6 +287,26 @@ it.layer(NodeServices.layer)("dev-runner", (it) => {
       }),
     );
 
+    it.effect("does not inherit the parent server's public URL", () =>
+      Effect.gen(function* () {
+        const env = yield* createDevRunnerEnv({
+          mode: "dev",
+          baseEnv: { T3CODE_PUBLIC_URL: "https://t3.example.com" },
+          serverOffset: 0,
+          webOffset: 0,
+          t3Home: undefined,
+          browser: undefined,
+          autoBootstrapProjectFromCwd: undefined,
+          logWebSocketEvents: undefined,
+          host: undefined,
+          port: undefined,
+          devUrl: undefined,
+        });
+
+        assert.equal(env.T3CODE_PUBLIC_URL, undefined);
+      }),
+    );
+
     it.effect("does not force websocket logging on in dev mode when unset", () =>
       Effect.gen(function* () {
         const env = yield* createDevRunnerEnv({

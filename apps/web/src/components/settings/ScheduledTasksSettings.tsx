@@ -11,7 +11,6 @@ import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } fro
 import type {
   EnvironmentId,
   ModelSelection,
-  OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ProjectId,
   ScheduledTask,
   ScheduledTaskId,
@@ -46,6 +45,7 @@ import { WorktreeBaseBranchPicker } from "../WorktreeBaseBranchPicker";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { useSettingsScope } from "./SettingsScopeContext";
 import {
+  draftToWorkspaceStrategy,
   matchesScheduledTaskScope,
   scheduledTaskDefaultModel,
   taskToDraft,
@@ -106,7 +106,7 @@ const EMPTY_DRAFT: DraftState = {
   threadId: "",
   workspaceMode: "worktree",
   baseRef: "main",
-  startFromOrigin: true,
+  startFromRemote: "origin",
   existingWorktreePath: "",
   modelKey: "",
   runtimeMode: "full-access",
@@ -585,16 +585,7 @@ function ScheduledTaskEditorDialog({
       draft.baseModelSelection.model === selection.model
         ? draft.baseModelSelection
         : selection;
-    const workspaceStrategy: OrchestrationV2ThreadLaunchWorkspaceStrategy =
-      draft.workspaceMode === "root"
-        ? { type: "root" }
-        : draft.workspaceMode === "existing_worktree"
-          ? { type: "existing_worktree", worktreePath: draft.existingWorktreePath.trim() }
-          : {
-              type: "worktree",
-              baseRef: draft.baseRef.trim() || "main",
-              startFromOrigin: draft.startFromOrigin,
-            };
+    const workspaceStrategy = draftToWorkspaceStrategy(draft);
     const input: ScheduledTaskUpsertInput = {
       ...(draft.editingId ? { id: draft.editingId as ScheduledTaskId, requireExisting: true } : {}),
       title: draft.title.trim(),
@@ -658,7 +649,7 @@ function ScheduledTaskEditorDialog({
                     modelKey: "",
                     baseModelSelection: null,
                     baseRef: "main",
-                    startFromOrigin: true,
+                    startFromRemote: "origin",
                     existingWorktreePath: "",
                   }));
                 }}
@@ -759,9 +750,9 @@ function ScheduledTaskEditorDialog({
                   cwd={selectedProject?.workspaceRoot ?? null}
                   value={draft.baseRef}
                   onValueChange={(baseRef) => setDraft((current) => ({ ...current, baseRef }))}
-                  startFromOrigin={draft.startFromOrigin}
-                  onStartFromOriginChange={(startFromOrigin) =>
-                    setDraft((current) => ({ ...current, startFromOrigin }))
+                  startFromRemote={draft.startFromRemote}
+                  onStartFromRemoteChange={(startFromRemote) =>
+                    setDraft((current) => ({ ...current, startFromRemote }))
                   }
                   disabled={saving || !connected}
                 />

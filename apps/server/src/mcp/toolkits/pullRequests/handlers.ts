@@ -12,6 +12,7 @@ import {
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { changeRequestUrlFor, parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import {
   normalizeThreadPullRequestKey,
   resolveThreadPullRequestChains,
@@ -88,7 +89,10 @@ const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
   if (host === undefined) {
     return yield* new PullRequestHostRequiredError({});
   }
-  const repository = input.repository.toLowerCase();
+  const repository = normalizeSourceControlRepository(
+    input.repository,
+    host === projectHost.host ? projectHost.kind : undefined,
+  );
   const url =
     changeRequestUrlFor(
       // The project's kind only describes its own host; another host gets no URL guess.
@@ -97,6 +101,7 @@ const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
       repository,
       input.number,
       project?.repositoryIdentity?.locator.remoteUrl,
+      project?.repositoryIdentity?.webUrl,
     ) ?? `https://${host}/${repository}/pull/${input.number}`;
   return {
     ...normalizeThreadPullRequestKey({ host, repository, number: input.number, url }),

@@ -8,6 +8,7 @@ import { describe, expect, it } from "vite-plus/test";
 
 import type { SettingsTarget } from "./settings-environment-filter";
 import {
+  planMobileProjectOverridePatch,
   planMobileScopedSettingsClear,
   planMobileScopedSettingsPatch,
   resolveMobileSettingsTargets,
@@ -160,5 +161,53 @@ describe("mobile project settings scope", () => {
     expect(
       planMobileScopedSettingsPatch(targets, true, { enableProviderUpdateChecks: false }),
     ).toEqual([]);
+  });
+
+  it("saves and clears the project-only base branch without dropping sibling overrides", () => {
+    const settings: ServerSettings = {
+      ...DEFAULT_SERVER_SETTINGS,
+      projectSettingsOverrides: {
+        [firstProject]: { defaultAutoPull: true, defaultThreadBaseBranch: "dev" },
+      },
+    };
+    const targets = resolveMobileSettingsTargets(
+      [environment(firstId, settings)],
+      [{ environmentId: firstId, id: firstProject }],
+    );
+
+    expect(targets[0]?.overrides.defaultThreadBaseBranch).toBe("dev");
+    expect(planMobileProjectOverridePatch(targets, { defaultThreadBaseBranch: "release" })).toEqual(
+      [
+        {
+          environmentId: firstId,
+          patch: {
+            projectSettingsOverrides: {
+              [firstProject]: { defaultAutoPull: true, defaultThreadBaseBranch: "release" },
+            },
+          },
+        },
+      ],
+    );
+    expect(planMobileScopedSettingsClear(targets, ["defaultThreadBaseBranch"])).toEqual([
+      {
+        environmentId: firstId,
+        patch: { projectSettingsOverrides: { [firstProject]: { defaultAutoPull: true } } },
+      },
+    ]);
+  });
+
+  it("does not write the project-only base branch to servers without project overrides", () => {
+    const legacy = {
+      environmentId: firstId,
+      serverConfig: {
+        settings: DEFAULT_SERVER_SETTINGS,
+        environment: { capabilities: { projectSettingsOverrides: false } },
+      },
+    } as SettingsTarget;
+    const targets = resolveMobileSettingsTargets(
+      [legacy],
+      [{ environmentId: firstId, id: firstProject }],
+    );
+    expect(planMobileProjectOverridePatch(targets, { defaultThreadBaseBranch: "dev" })).toEqual([]);
   });
 });

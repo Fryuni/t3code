@@ -6,6 +6,7 @@ import {
   buildBrowseGroups,
   buildCommandPaletteProjectMetadata,
   buildCommandPaletteRows,
+  buildNewThreadOnBranchActionItem,
   buildProjectActionItems,
   buildThreadActionItems,
   buildLinkedThreadActionItems,
@@ -363,6 +364,70 @@ describe("buildProjectActionItems", () => {
       expect.arrayContaining(["t3dotgg/fleet", "fleet", "/Users/theo/Code/p/fleet"]),
     );
     expect(iconTitles).toEqual(["fleet"]);
+  });
+});
+
+describe("buildNewThreadOnBranchActionItem", () => {
+  const remoteEnvironmentId = EnvironmentId.make("environment-build-box");
+  const build = (
+    thread: Thread | null,
+    startNewThread: Parameters<typeof buildNewThreadOnBranchActionItem>[0]["startNewThread"],
+  ) =>
+    buildNewThreadOnBranchActionItem({
+      thread,
+      icon: null,
+      renderTitle: (branch) => branch,
+      startNewThread,
+    });
+
+  it("is not offered without an active thread on a branch", () => {
+    const startNewThread = vi.fn(async () => null);
+    expect(build(null, startNewThread)).toBeNull();
+    expect(build(makeThread({ branch: null }), startNewThread)).toBeNull();
+  });
+
+  it.each([
+    {
+      checkout: "its worktree",
+      worktreePath: "/worktrees/feat-menu",
+      envMode: "worktree" as const,
+    },
+    { checkout: "the local checkout", worktreePath: null, envMode: "local" as const },
+  ])(
+    "is found by branch name and starts the new thread on $checkout",
+    async ({ worktreePath, envMode }) => {
+      const startNewThread = vi.fn(async () => null);
+      const item = build(
+        makeThread({ environmentId: remoteEnvironmentId, branch: "feat/menu", worktreePath }),
+        startNewThread,
+      );
+      const [group] = filterCommandPaletteGroups({
+        activeGroups: [{ value: "actions", label: "Actions", items: item ? [item] : [] }],
+        query: "feat/menu",
+        isInSubmenu: false,
+        projectSearchItems: [],
+        threadSearchItems: [],
+      });
+      const found = group?.items[0];
+      if (found?.kind !== "action") throw new Error("Expected the branch action");
+
+      await found.run();
+
+      expect(startNewThread).toHaveBeenCalledWith(
+        { environmentId: remoteEnvironmentId, projectId: PROJECT_ID },
+        { branch: "feat/menu", worktreePath, envMode, startFromRemote: null },
+      );
+    },
+  );
+
+  it("rejects when the thread cannot start so the palette reports it", async () => {
+    const item = build(
+      makeThread({ branch: "feat/menu" }),
+      vi.fn(async () => {
+        throw new Error("project is gone");
+      }),
+    );
+    await expect(item?.run()).rejects.toThrow("project is gone");
   });
 });
 

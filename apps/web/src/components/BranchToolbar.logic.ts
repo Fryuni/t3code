@@ -3,10 +3,11 @@ import type {
   EnvironmentMachineKind,
   VcsRef,
   ProjectId,
+  WorktreeStartRemote,
   WorktreeSubmodules,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { sanitizeNewRefName } from "@t3tools/shared/git";
+import { deriveLocalBranchNameFromRemoteRef, sanitizeNewRefName } from "@t3tools/shared/git";
 import { toSortableTimestamp } from "../lib/threadSort";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -212,12 +213,49 @@ export function resolveBranchToolbarValue(input: {
   activeWorktreePath: string | null;
   activeThreadBranch: string | null;
   currentGitBranch: string | null;
+  createNewBranch?: boolean;
 }): string | null {
   const { envMode, activeWorktreePath, activeThreadBranch, currentGitBranch } = input;
   if (envMode === "worktree" && !activeWorktreePath) {
-    return activeThreadBranch ?? currentGitBranch;
+    return activeThreadBranch ?? (input.createNewBranch === false ? null : currentGitBranch);
   }
   return currentGitBranch ?? activeThreadBranch;
+}
+
+/**
+ * The branch a new worktree's base defaults to: the project's default base branch, else the repo
+ * default, else the checked-out branch. The project's branch is kept even when the loaded refs do
+ * not list it, so a missing branch fails visibly instead of silently starting elsewhere.
+ * Null while checking out an existing branch, since these defaults are usually checked out already
+ * and the user has to pick a free one.
+ */
+export function resolveWorktreeBaseBranchCandidate(input: {
+  createNewBranch: boolean;
+  isInitialBranchesLoadPending: boolean;
+  projectDefaultBranch: string | undefined;
+  defaultBranchName: string | null;
+  currentGitBranch: string | null;
+}): string | null {
+  if (!input.createNewBranch || input.isInitialBranchesLoadPending) return null;
+  return input.projectDefaultBranch ?? input.defaultBranchName ?? input.currentGitBranch;
+}
+
+/** The selected ref, preferring a local branch over a remote ref with the same name. */
+export function resolveSelectedBranchRef(input: {
+  branchName: string | null;
+  listedRefs: ReadonlyArray<VcsRef>;
+  queriedRefs: ReadonlyArray<VcsRef>;
+}): VcsRef | null {
+  if (input.branchName === null) return null;
+  const matches = (ref: VcsRef) => ref.name === input.branchName;
+  const matchesLocal = (ref: VcsRef) => matches(ref) && ref.isRemote !== true;
+  return (
+    input.listedRefs.find(matchesLocal) ??
+    input.queriedRefs.find(matchesLocal) ??
+    input.listedRefs.find(matches) ??
+    input.queriedRefs.find(matches) ??
+    null
+  );
 }
 
 export function resolveBranchTriggerLabel(input: {
@@ -225,24 +263,34 @@ export function resolveBranchTriggerLabel(input: {
   effectiveEnvMode: EnvMode;
   resolvedActiveBranch: string | null;
   resolvedActiveBranchIsRemote: boolean | null;
-  startFromOrigin: boolean;
+  resolvedActiveBranchRemoteName?: string | null;
+  startFromRemote: WorktreeStartRemote;
+  createNewBranch?: boolean;
 }): string {
   const {
     activeWorktreePath,
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    startFromOrigin,
+    resolvedActiveBranchRemoteName,
+    startFromRemote,
+    createNewBranch = true,
   } = input;
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
-  if (effectiveEnvMode === "worktree" && !activeWorktreePath) {
-    const baseRef =
-      startFromOrigin && resolvedActiveBranchIsRemote === false
-        ? `origin/${resolvedActiveBranch}`
-        : resolvedActiveBranch;
-    return `From ${baseRef}`;
+  if (effectiveEnvMode === "worktree" && !activeWorktreePath && createNewBranch) {
+    // Until the ref is known to be local or remote, the selected name is shown as is.
+    if (startFromRemote === null || resolvedActiveBranchIsRemote === null) {
+      return `From ${resolvedActiveBranch}`;
+    }
+    const branchName = !resolvedActiveBranchIsRemote
+      ? resolvedActiveBranch
+      : resolvedActiveBranchRemoteName &&
+          resolvedActiveBranch.startsWith(`${resolvedActiveBranchRemoteName}/`)
+        ? resolvedActiveBranch.slice(resolvedActiveBranchRemoteName.length + 1)
+        : deriveLocalBranchNameFromRemoteRef(resolvedActiveBranch);
+    return `From ${startFromRemote}/${branchName}`;
   }
   return resolvedActiveBranch;
 }

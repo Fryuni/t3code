@@ -336,6 +336,9 @@ export function createDevRunnerEnv({
     // (serviceLauncherClient.ts resolveStartup).
     delete output.T3_SERVICE_LAUNCHER_CONTEXT;
     delete output.T3_BOOT_SERVICE_UNIT;
+    // Likewise, a parent server's proxy origin would make this dev server
+    // advertise the parent's address and use its remote cookie naming.
+    delete output.T3CODE_PUBLIC_URL;
 
     if (!isDesktopMode) {
       output.T3CODE_PORT = String(serverPort);

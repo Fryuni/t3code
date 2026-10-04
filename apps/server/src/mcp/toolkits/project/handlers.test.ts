@@ -263,3 +263,64 @@ it.effect("starts a project from just a title when workspaceRoot is omitted", ()
     expect(named).toEqual(["Pinball Stats"]);
   }),
 );
+
+it.effect("reports a rejected existing-branch launch as an invalid request", () =>
+  Effect.gen(function* () {
+    const sourceThreadId = ThreadId.make("source-thread");
+    const projectId = ProjectId.make("project");
+    const providerInstanceId = ProviderInstanceId.make("codex");
+    const caller = {
+      id: sourceThreadId,
+      projectId,
+      providerInstanceId,
+      modelSelection: { instanceId: providerInstanceId, model: "gpt-5" },
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      activeRunId: "active-run",
+      archivedAt: null,
+      deletedAt: null,
+    } as OrchestrationV2ThreadShell;
+    const message =
+      'Branch "main" is already checked out at /repo. Select another branch, or enable Create new branch.';
+    const dependencies = Layer.mergeAll(
+      NodeCrypto.layer,
+      Layer.succeed(McpInvocationContext.McpInvocationContext, {
+        environmentId: EnvironmentId.make("environment"),
+        threadId: sourceThreadId,
+        providerSessionId: "session",
+        providerInstanceId,
+        issuedAt: 0,
+        capabilities: new Set(["orchestration" as const]),
+      }),
+      Layer.mock(ThreadManagement.ThreadManagementService)({
+        getThreadShell: () => Effect.succeed(caller),
+      }),
+      Layer.mock(ThreadLaunch.ThreadLaunchService)({
+        launch: (input) =>
+          Effect.fail(
+            new ThreadLaunch.ThreadLaunchWorkspaceError({
+              commandId: input.commandId,
+              projectId,
+              message,
+            }),
+          ),
+      }),
+      Layer.mock(Project.ProjectService)({}),
+      Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
+      NodeServices.layer,
+      ServerConfig.layerTest(process.cwd(), { prefix: "t3-existing-branch-launch-" }).pipe(
+        Layer.provide(NodeServices.layer),
+      ),
+    );
+    const toolkit = yield* ProjectToolkit.pipe(
+      Effect.provide(ProjectHandlersLive.pipe(Layer.provide(dependencies))),
+    );
+    const result = yield* toolkit
+      .handle("t3_thread_launch", {
+        title: "Continue",
+        workspaceStrategy: { type: "worktree", baseRef: "main", createBranch: false },
+      })
+      .pipe(Stream.unwrap, Stream.runCollect, Effect.provide(dependencies));
+    expect(result.at(-1)?.result).toMatchObject({ code: "invalid_request", message });
+  }),
+);

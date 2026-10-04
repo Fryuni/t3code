@@ -1,6 +1,6 @@
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import type { EnvironmentId, ThreadId } from "@t3tools/contracts";
+import type { EnvironmentId, ThreadId, WorktreeStartRemote } from "@t3tools/contracts";
 import {
   ChevronDownIcon,
   FolderGit2Icon,
@@ -80,8 +80,10 @@ interface BranchToolbarProps {
   envMode: EnvMode;
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
-  startFromOrigin: boolean;
-  onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  createNewBranch: boolean;
+  onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
+  startFromRemote: WorktreeStartRemote;
+  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
   autoEnvironmentLabel?: string | undefined;
   onAutoEnvironment?: (() => void) | undefined;
   envLocked: boolean;
@@ -511,8 +513,10 @@ export const BranchToolbar = memo(function BranchToolbar({
   envMode,
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
-  startFromOrigin,
-  onStartFromOriginChange,
+  createNewBranch,
+  onCreateNewBranchChange,
+  startFromRemote,
+  onStartFromRemoteChange,
   autoEnvironmentLabel,
   onAutoEnvironment,
   envLocked,
@@ -630,6 +634,7 @@ export const BranchToolbar = memo(function BranchToolbar({
         {panelSection !== "workspace" ? (
           <BranchToolbarBranchSelector
             displayMode="panel"
+            forceNewWorktree={forceNewWorktree}
             className="w-full"
             environmentId={environmentId}
             threadId={threadId}
@@ -638,8 +643,10 @@ export const BranchToolbar = memo(function BranchToolbar({
             effectiveEnvModeOverride={effectiveEnvMode}
             {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
             {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-            startFromOrigin={startFromOrigin}
-            onStartFromOriginChange={onStartFromOriginChange}
+            createNewBranch={createNewBranch}
+            onCreateNewBranchChange={onCreateNewBranchChange}
+            startFromRemote={startFromRemote}
+            onStartFromRemoteChange={onStartFromRemoteChange}
             {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
             {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
           />
@@ -748,8 +755,10 @@ export const BranchToolbar = memo(function BranchToolbar({
           effectiveEnvModeOverride={effectiveEnvMode}
           {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
           {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-          startFromOrigin={startFromOrigin}
-          onStartFromOriginChange={onStartFromOriginChange}
+          createNewBranch={createNewBranch}
+          onCreateNewBranchChange={onCreateNewBranchChange}
+          startFromRemote={startFromRemote}
+          onStartFromRemoteChange={onStartFromRemoteChange}
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
           {...(onComposerFocusRequest ? { onComposerFocusRequest } : {})}
         />

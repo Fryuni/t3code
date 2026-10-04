@@ -59,6 +59,7 @@ import {
   editDraft,
   scheduledTaskDefaultModel,
   scheduleFromDraft,
+  scheduledTaskWorkspaceStrategy,
   type ScheduledTaskDraft as Draft,
 } from "./scheduledTaskDraft";
 import { settingsTargetsForProject } from "./settings-environment-filter.logic";
@@ -610,16 +611,7 @@ function TaskForm({
       schedule,
       enabled: draft.enabled,
       threadId: draft.task?.threadId ?? null,
-      workspaceStrategy:
-        draft.workspace === "root"
-          ? { type: "root" }
-          : draft.workspace === "existing_worktree"
-            ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
-            : {
-                type: "worktree",
-                baseRef: draft.baseRef.trim() || "main",
-                startFromOrigin: draft.startFromOrigin,
-              },
+      workspaceStrategy: scheduledTaskWorkspaceStrategy(draft),
       runtimeMode: draft.runtimeMode,
       interactionMode: draft.task?.interactionMode ?? "default",
       creationSource: draft.task?.creationSource ?? "mobile",
@@ -770,7 +762,7 @@ function TaskForm({
             label="Base branch"
             value={resolveNewTaskBranchLabel({
               branchName: draft.baseRef,
-              startFromOrigin: draft.startFromOrigin,
+              startFromRemote: draft.startFromRemote,
               workspaceMode: "worktree",
             })}
             borderTop

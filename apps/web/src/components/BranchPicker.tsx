@@ -1,5 +1,6 @@
-import type { VcsRef } from "@t3tools/contracts";
+import type { VcsRef, WorktreeStartRemote } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
+import { GitBranchIcon } from "lucide-react";
 import {
   useCallback,
   useEffect,
@@ -16,6 +17,7 @@ import { cn } from "../lib/utils";
 import { shouldLoadNextBranchPageAfterScroll } from "../state/paginatedBranches";
 import { RefreshIcon } from "./ui/refresh-icon";
 import { Switch } from "./ui/switch";
+import { Toggle, ToggleGroup } from "./ui/toggle-group";
 import { getVirtualizedScrollFadeClassName } from "./ui/scroll-area";
 import {
   Combobox,
@@ -43,7 +45,8 @@ export function BranchPicker({
   isFetchingNextPage,
   onLoadNext,
   statusText,
-  originControl,
+  createBranchControl,
+  remoteControl,
   popupProps,
   renderItem,
   getItemType,
@@ -62,14 +65,33 @@ export function BranchPicker({
   isFetchingNextPage: boolean;
   onLoadNext: () => void;
   statusText: string | null;
-  originControl?: { checked: boolean; onCheckedChange: (checked: boolean) => void } | undefined;
+  createBranchControl?:
+    | {
+        checked: boolean;
+        disabled: boolean;
+        tooltip: string;
+        onCheckedChange: (checked: boolean) => void;
+      }
+    | undefined;
+  /**
+   * Where a new worktree starts. Off, origin, and upstream when `upstreamAvailable`, otherwise
+   * an origin switch. A saved upstream choice stays visible, disabled, until the user changes it.
+   */
+  remoteControl?:
+    | {
+        value: WorktreeStartRemote;
+        upstreamAvailable: boolean;
+        onChange: (value: WorktreeStartRemote) => void;
+      }
+    | undefined;
   popupProps: Omit<ComponentProps<typeof ComboboxPopup>, "children">;
   renderItem: (value: string, index: number) => ReactNode;
   getItemType?: ((value: string) => string) | undefined;
   children: ReactNode;
 }) {
   const highlightedValueRef = useRef<string | null>(null);
-  const startFromOriginSwitchId = useId();
+  const startFromRemoteControlId = useId();
+  const createBranchSwitchId = useId();
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
   const previousBranchListScrollTopRef = useRef<number | null>(null);
   const handleOpenChange = useCallback(
@@ -224,12 +246,74 @@ export function BranchPicker({
               />
             </ComboboxListVirtualized>
           </div>
-          {originControl ? (
+          {createBranchControl ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <label
-                    htmlFor={startFromOriginSwitchId}
+                    htmlFor={createBranchSwitchId}
+                    className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
+                  >
+                    <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
+                      <GitBranchIcon aria-hidden="true" className="size-3 shrink-0" />
+                      <span className="truncate">Create new branch</span>
+                    </span>
+                    <Switch
+                      id={createBranchSwitchId}
+                      checked={createBranchControl.checked}
+                      disabled={createBranchControl.disabled}
+                      size="sm"
+                      aria-label="Create new branch for worktree"
+                      onCheckedChange={(checked) =>
+                        createBranchControl.onCheckedChange(Boolean(checked))
+                      }
+                    />
+                  </label>
+                }
+              />
+              <TooltipPopup side="top" className="max-w-72 whitespace-normal">
+                {createBranchControl.tooltip}
+              </TooltipPopup>
+            </Tooltip>
+          ) : null}
+          {remoteControl &&
+          (remoteControl.upstreamAvailable || remoteControl.value === "upstream") ? (
+            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-xs">
+              <span
+                id={startFromRemoteControlId}
+                className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground"
+              >
+                <RefreshIcon aria-hidden="true" className="size-3 shrink-0" />
+                <span className="truncate">Start from remote</span>
+              </span>
+              <ToggleGroup
+                aria-labelledby={startFromRemoteControlId}
+                value={[remoteControl.value ?? "off"]}
+                onValueChange={(values) => {
+                  const remote = values[0];
+                  if (remote === "off" || remote === "origin" || remote === "upstream") {
+                    remoteControl.onChange(remote === "off" ? null : remote);
+                  }
+                }}
+              >
+                <Toggle value="off">Off</Toggle>
+                <Toggle value="origin">origin</Toggle>
+                <Toggle value="upstream" disabled={!remoteControl.upstreamAvailable}>
+                  upstream
+                </Toggle>
+              </ToggleGroup>
+              <span className="basis-full text-muted-foreground">
+                {remoteControl.upstreamAvailable
+                  ? "Start from the latest matching remote branch, or turn off to use the selected ref."
+                  : "The upstream choice requires remotes named origin and upstream. Choose another source to continue."}
+              </span>
+            </div>
+          ) : remoteControl ? (
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <label
+                    htmlFor={startFromRemoteControlId}
                     className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
@@ -237,11 +321,13 @@ export function BranchPicker({
                       <span className="truncate">Start from origin</span>
                     </span>
                     <Switch
-                      id={startFromOriginSwitchId}
-                      checked={originControl.checked}
+                      id={startFromRemoteControlId}
+                      checked={remoteControl.value === "origin"}
                       size="sm"
                       aria-label="Start worktree from origin"
-                      onCheckedChange={(checked) => originControl.onCheckedChange(Boolean(checked))}
+                      onCheckedChange={(checked) =>
+                        remoteControl.onChange(checked ? "origin" : null)
+                      }
                     />
                   </label>
                 }
@@ -264,6 +350,7 @@ export function BranchPickerRefItem({
   projectCwd: activeProjectCwd,
   index,
   value,
+  disabled,
   onClick,
   onContextMenu,
 }: {
@@ -271,6 +358,7 @@ export function BranchPickerRefItem({
   projectCwd: string | null;
   index: number;
   value?: string;
+  disabled?: boolean;
   onClick: ComponentProps<typeof ComboboxItem>["onClick"];
   onContextMenu?: ComponentProps<typeof ComboboxItem>["onContextMenu"];
 }) {
@@ -292,6 +380,7 @@ export function BranchPickerRefItem({
       key={itemValue}
       index={index}
       value={value ?? itemValue}
+      disabled={disabled ?? false}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >

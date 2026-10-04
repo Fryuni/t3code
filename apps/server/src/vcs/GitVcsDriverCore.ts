@@ -87,7 +87,7 @@ const LIST_REFS_SNAPSHOT_CACHE_TTL = Duration.minutes(2);
 const LIST_REFS_REFRESH_COALESCE_TTL = Duration.seconds(5);
 const LIST_REFS_REFRESH_FAILURE_COOLDOWN = Duration.seconds(30);
 const STATUS_DEFAULT_BRANCH_CACHE_TTL = Duration.minutes(5);
-const STATUS_ORIGIN_EXISTS_CACHE_TTL = Duration.minutes(5);
+const STATUS_REMOTE_NAMES_CACHE_TTL = Duration.minutes(5);
 const STATUS_UPSTREAM_REFRESH_ENV = Object.freeze({
   GCM_INTERACTIVE: "never",
   GIT_ASKPASS: "",
@@ -255,8 +255,20 @@ function filterBranchesForListQuery(
     return refs;
   }
 
+  // Exact names lead, local before remote, so the ref a picker selects for a
+  // typed name is the same one its label describes.
   const normalizedQuery = query.toLowerCase();
-  return refs.filter((refName) => refName.name.toLowerCase().includes(normalizedQuery));
+  const exactLocalMatches: Array<VcsRef> = [];
+  const exactRemoteMatches: Array<VcsRef> = [];
+  const partialMatches: Array<VcsRef> = [];
+  for (const ref of refs) {
+    if (ref.name === query) {
+      (ref.isRemote ? exactRemoteMatches : exactLocalMatches).push(ref);
+    } else if (ref.name.toLowerCase().includes(normalizedQuery)) {
+      partialMatches.push(ref);
+    }
+  }
+  return [...exactLocalMatches, ...exactRemoteMatches, ...partialMatches];
 }
 
 function paginateBranches(input: {
@@ -1294,23 +1306,22 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       }),
     },
   );
-  const originExistsCache = yield* Cache.makeWith(
+  const remoteNamesCache = yield* Cache.makeWith(
     (gitCommonDir: string) =>
       Effect.gen(function* () {
         const path = yield* Path.Path;
         const fetchCwd =
           path.basename(gitCommonDir) === ".git" ? path.dirname(gitCommonDir) : gitCommonDir;
-        return yield* executeGit(
-          "GitVcsDriver.statusDetails.originExists",
-          fetchCwd,
-          ["--git-dir", gitCommonDir, "remote", "get-url", "origin"],
-          { allowNonZeroExit: true },
-        ).pipe(Effect.map((result) => result.exitCode === 0));
+        return yield* runGitStdout("GitVcsDriver.statusDetails.remoteNames", fetchCwd, [
+          "--git-dir",
+          gitCommonDir,
+          "remote",
+        ]).pipe(Effect.map(parseRemoteNamesInGitOrder));
       }),
     {
       capacity: 2_048,
       timeToLive: Exit.match({
-        onSuccess: () => STATUS_ORIGIN_EXISTS_CACHE_TTL,
+        onSuccess: () => STATUS_REMOTE_NAMES_CACHE_TTL,
         onFailure: () => Duration.zero,
       }),
     },
@@ -1322,7 +1333,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       );
       const cacheKey = repositoryPaths?.gitCommonDir ?? normalizeRepositoryPathsCacheKey(cwd);
       yield* Cache.invalidate(defaultBranchCache, cacheKey);
-      yield* Cache.invalidate(originExistsCache, cacheKey);
+      yield* Cache.invalidate(remoteNamesCache, cacheKey);
     });
 
   const resolveGitCommonDir = Effect.fn("resolveGitCommonDir")(function* (cwd: string) {
@@ -1805,7 +1816,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.catchTags({ GitCommandError: () => Effect.succeed(null) }),
     );
     const statusCacheKey = repositoryPaths?.gitCommonDir;
-    const [numstatStdout, defaultBranch, hasPrimaryRemote] = yield* Effect.all(
+    const [numstatStdout, defaultBranch, remoteNames] = yield* Effect.all(
       [
         executeGitWithStableDiagnostics(
           "GitVcsDriver.statusDetails.numstat",
@@ -1865,9 +1876,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         statusCacheKey
           ? Cache.get(defaultBranchCache, statusCacheKey).pipe(Effect.orElseSucceed(() => null))
           : resolveDefaultBranchName(cwd, "origin").pipe(Effect.orElseSucceed(() => null)),
-        statusCacheKey
-          ? Cache.get(originExistsCache, statusCacheKey).pipe(Effect.orElseSucceed(() => false))
-          : originRemoteExists(cwd).pipe(Effect.orElseSucceed(() => false)),
+        (statusCacheKey ? Cache.get(remoteNamesCache, statusCacheKey) : listRemoteNames(cwd)).pipe(
+          Effect.orElseSucceed((): ReadonlyArray<string> => []),
+        ),
       ],
       { concurrency: "unbounded" },
     );
@@ -1957,7 +1968,8 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
 
     return {
       isRepo: true,
-      hasOriginRemote: hasPrimaryRemote,
+      hasOriginRemote: remoteNames.includes("origin"),
+      remoteNames,
       isDefaultBranch,
       branch: refName,
       upstreamRef,
@@ -2013,6 +2025,7 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
       Effect.map((details) => ({
         isRepo: details.isRepo,
         hasPrimaryRemote: details.hasOriginRemote,
+        ...(details.remoteNames === undefined ? {} : { remoteNames: details.remoteNames }),
         isDefaultRef: details.isDefaultBranch,
         refName: details.branch,
         hasWorkingTreeChanges: details.hasWorkingTreeChanges,
@@ -3479,11 +3492,10 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
         { ...options, allowNonZeroExit: true },
       );
       if (result.exitCode === 0) return;
-      if (
-        result.stderr
-          .split(/\r?\n/)
-          .includes(`fatal: couldn't find remote ref refs/heads/${branch}`)
-      ) {
+      const missingBranch = result.stderr
+        .split(/\r?\n/)
+        .includes(`fatal: couldn't find remote ref refs/heads/${branch}`);
+      if (missingBranch && input.requireBranch !== true) {
         return yield* fetchAll.pipe(Effect.asVoid);
       }
       return yield* new GitCommandError({
@@ -3492,7 +3504,9 @@ export const makeGitVcsDriverCore = Effect.fn("makeGitVcsDriverCore")(function* 
           cwd: input.cwd,
           args: scopedArgs,
         }),
-        detail: fetchFailureDetail(result.stderr) ?? options.fallbackErrorDetail,
+        detail: missingBranch
+          ? `${input.remoteName}/${branch} was not found.`
+          : (fetchFailureDetail(result.stderr) ?? options.fallbackErrorDetail),
         ...(result.exitCode === null ? {} : { exitCode: result.exitCode }),
         stdoutLength: result.stdout.length,
         stderrLength: result.stderr.length,

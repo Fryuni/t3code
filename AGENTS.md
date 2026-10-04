@@ -161,3 +161,17 @@ Architecture and its constraints: `docs/internals/overview.md`. Glossary: `docs/
 
 - Don't verify with browsers or computer use unless the user explicitly agrees or requests it.
 - Security is important, but should not be over-indexed on, especially for dev mode/maintainer-only features.
+
+## Agent skills
+
+### Issue tracker
+
+Issues and specs live as GitHub issues on `Fryuni/t3code`. Always pass `--repo Fryuni/t3code` to `gh`, since `upstream` also points at a `t3code`. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+The five canonical triage roles, as GitHub labels named verbatim. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context: `CONTEXT.md` and `docs/adr/` at the repo root, created lazily. See `docs/agents/domain.md`.

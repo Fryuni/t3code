@@ -4,6 +4,7 @@ import type {
   ProjectScript,
   ResolvedKeybindingsConfig,
   ThreadId,
+  WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { AlertTriangleIcon, XIcon } from "lucide-react";
 
@@ -61,8 +62,10 @@ export interface ThreadDetailsPanelProps extends Pick<
   envMode: EnvMode;
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (branch: string | null) => void;
-  startFromOrigin: boolean;
-  onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  createNewBranch: boolean;
+  onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
+  startFromRemote: WorktreeStartRemote;
+  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest: () => void;
   onOpenChanges?: () => void;
@@ -96,8 +99,10 @@ export function ThreadDetailsPanel(props: ThreadDetailsPanelProps) {
     threadId: props.threadId,
     ...(props.draftId ? { draftId: props.draftId } : {}),
     onEnvModeChange: props.onEnvModeChange,
-    startFromOrigin: props.startFromOrigin,
-    onStartFromOriginChange: props.onStartFromOriginChange,
+    createNewBranch: props.createNewBranch,
+    onCreateNewBranchChange: props.onCreateNewBranchChange,
+    startFromRemote: props.startFromRemote,
+    onStartFromRemoteChange: props.onStartFromRemoteChange,
     envMode: props.envMode,
     ...(props.activeThreadBranchOverride !== undefined
       ? { activeThreadBranchOverride: props.activeThreadBranchOverride }

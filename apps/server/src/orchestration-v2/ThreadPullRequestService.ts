@@ -1,5 +1,6 @@
 import {
   canonicalRepositoryKey,
+  normalizeSourceControlRepository,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
 import {
@@ -44,7 +45,8 @@ function samePullRequest(
   if (left == null || right === null) return left == null && right === null;
   return (
     left.projectId === right.projectId &&
-    left.repository.toLowerCase() === right.repository.toLowerCase() &&
+    normalizeSourceControlRepository(left.repository) ===
+      normalizeSourceControlRepository(right.repository) &&
     left.number === right.number &&
     left.url === right.url
   );

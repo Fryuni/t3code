@@ -619,6 +619,14 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     }),
   );
 
+  const publishMergeOf = (repository: string) =>
+    PubSub.publish(mergedPullRequests, {
+      projectId: PROJECT_ID,
+      repository,
+      number: 42,
+      mergedAt: NOW,
+    });
+
   return {
     activation,
     snapshots,
@@ -633,12 +641,8 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     closedIdle,
     publishEvent: (event: OrchestrationV2DomainEvent) => PubSub.publish(domainEvents, event),
     updateSettings,
-    publishMerge: PubSub.publish(mergedPullRequests, {
-      projectId: PROJECT_ID,
-      repository: "owner/repository",
-      number: 42,
-      mergedAt: NOW,
-    }),
+    publishMerge: publishMergeOf("owner/repository"),
+    publishMergeOf,
     layer: ThreadSettlementService.layer.pipe(Layer.provide(dependencies)),
   };
 });
@@ -961,6 +965,49 @@ describe("ThreadSettlementServiceV2 worker", () => {
         }).pipe(Effect.provide(fixture.layer));
       }),
     ),
+  );
+
+  it.effect(
+    "a merge does not settle a thread linked to a case-distinct Forgejo instance path",
+    () =>
+      Effect.scoped(
+        Effect.gen(function* () {
+          yield* TestClock.setTime(Date.parse(NOW));
+          const mergedThreadSettled = yield* Deferred.make<void>();
+          const linkedTo = (id: string, repository: string) =>
+            makeThread(id, {
+              latestUserMessageAt: DateTime.makeUnsafe("2026-08-27T00:00:00.000Z"),
+              linkedPullRequest: {
+                projectId: PROJECT_ID,
+                repository,
+                number: 42,
+                url: `https://example.test/${repository}/pulls/42`,
+              },
+            });
+          const fixture = yield* makeHarness({
+            snapshot: makeSnapshot([
+              linkedTo("upper-instance", "Forge/owner/repository"),
+              linkedTo("lower-instance", "forge/owner/repository"),
+            ]),
+            pullRequestSummary: (input) =>
+              Effect.succeed(makePullRequestSummary({ ...input, state: "open" })),
+            onDispatch: () => Deferred.succeed(mergedThreadSettled, undefined),
+          });
+
+          yield* Effect.gen(function* () {
+            const reactor = yield* ThreadSettlementService.ThreadSettlementServiceV2;
+            yield* startHarness(reactor, fixture.activation, fixture.snapshotReads);
+            yield* fixture.publishMergeOf("Forge/owner/repository");
+            yield* Deferred.await(mergedThreadSettled);
+            yield* reactor.drain;
+
+            assert.deepStrictEqual(
+              (yield* Ref.get(fixture.commands)).map((command) => command.threadId),
+              [ThreadId.make("upper-instance")],
+            );
+          }).pipe(Effect.provide(fixture.layer));
+        }),
+      ),
   );
 
   it.effect("looks up the branch pull request from a thread's live worktree", () =>

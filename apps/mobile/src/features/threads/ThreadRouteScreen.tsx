@@ -924,7 +924,7 @@ function ThreadRouteContent(
           workspaceMode: "local",
           branch: null,
           worktreePath: null,
-          startFromOrigin: false,
+          startFromRemote: null,
           worktreeBranchName: "",
         }),
       });

@@ -221,6 +221,8 @@ const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
+  /** Configured remote names, so clients can offer remotes such as `upstream` for new worktrees. */
+  remoteNames: Schema.optional(Schema.Array(TrimmedNonEmptyStringSchema)),
   isDefaultRef: Schema.Boolean,
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
   hasWorkingTreeChanges: Schema.Boolean,

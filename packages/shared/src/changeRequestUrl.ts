@@ -1,19 +1,32 @@
-import type { RepositoryIdentity, ThreadLinkedPullRequest } from "@t3tools/contracts";
-import { canonicalRepositoryKey } from "./sourceControl.ts";
+import {
+  pullRequestHostOf,
+  type RepositoryIdentity,
+  type SourceControlProviderKind,
+  type ThreadLinkedPullRequest,
+} from "@t3tools/contracts";
+import {
+  canonicalRepositoryKey,
+  normalizeSourceControlRepository,
+  sourceControlRepositorySelector,
+} from "./sourceControl.ts";
 
 /**
  * A change request named the way a thread link names one: the host below which the repository
  * is addressed, the repository path as that host writes it, and the number.
  *
  * The two strings are what `pullRequestHostOf` and the project's `repositoryIdentity` produce
- * from a git remote — lower case, no port, the full path below the host — because links are
- * matched against those. Anything else matches nothing.
+ * from a git remote: the full path below the host, folded the way the host folds it (see
+ * `normalizeSourceControlRepository`).
  */
 export interface ChangeRequestLink {
   readonly host: string;
   readonly repository: string;
   readonly number: number;
-  /** Forgejo's HTTP host and port, separate from the portless repository identity. */
+  /**
+   * The web host and port a Forgejo change request was read from. Only Forgejo links carry it,
+   * so its presence is also what says a link came from an instance whose port and mount path
+   * tell instances apart; `repository` keeps the mount path's case for the same reason.
+   */
   readonly authority?: string;
 }
 
@@ -53,16 +66,16 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
     const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
     if (match) return claim(host, match);
   }
-  // Forgejo and Gitea use /pulls/ on arbitrary self-hosted domains.
-  const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (forgejo) {
-    const link = claim(host, forgejo);
-    return link === null ? null : { ...link, authority: url.host.toLowerCase() };
-  }
   // GitLab, self-hosted included: /{group}/[{subgroup}/...]{repo}/-/merge_requests/{n}. The `/-/`
   // separator is GitLab's own, so the hostname is not asked about.
   const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
   if (gitlab) return claim(host, gitlab);
+  // Forgejo uses /pulls/ on arbitrary instance hosts, optionally below a subpath.
+  const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
+  if (forgejo) {
+    const link = claim(host, forgejo, "forgejo");
+    return link === null ? null : { ...link, authority: url.host.toLowerCase() };
+  }
   // Bitbucket Cloud: /{workspace}/{repo}/pull-requests/{n}
   if (isHostOf(host, "bitbucket.org", "bitbucket")) {
     const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
@@ -77,39 +90,55 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   return null;
 }
 
-function claim(host: string, match: RegExpExecArray | null): ChangeRequestLink | null {
+function claim(
+  host: string,
+  match: RegExpExecArray | null,
+  kind?: string,
+): ChangeRequestLink | null {
   const repository = match?.[1];
   const number = Number(match?.[2]);
   return repository && Number.isSafeInteger(number) && number > 0
-    ? { host, repository: repository.toLowerCase(), number }
+    ? {
+        host,
+        repository:
+          kind === "forgejo"
+            ? normalizeSourceControlRepository(repository, kind)
+            : repository.toLowerCase(),
+        number,
+      }
     : null;
 }
 
-/** The web URL a host writes for a change request; null when the host shape is unknown. */
+/**
+ * The web URL a host writes for a change request; null when its shape is unknown.
+ *
+ * A Forgejo instance's scheme is not part of its identity, so it is read from what the identity
+ * knows about the instance: the resolved `webUrl` first, which an SSH checkout of an HTTP-only
+ * instance has nothing else to offer, then an HTTP remote. Either is trusted only when it names
+ * `host`; otherwise https is assumed.
+ */
 export function changeRequestUrlFor(
   kind: string | null | undefined,
   host: string,
   repository: string,
   number: number,
   remoteUrl?: string,
+  webUrl?: string,
 ): string | null {
   switch (kind) {
     case "github":
       return `https://${host}/${repository}/pull/${number}`;
     case "forgejo": {
-      try {
-        const remote = new URL(remoteUrl ?? "");
-        if (
-          (remote.protocol === "http:" || remote.protocol === "https:") &&
-          (remote.hostname.toLowerCase() === host.toLowerCase() ||
-            remote.host.toLowerCase() === host.toLowerCase())
-        ) {
-          return `${remote.origin}/${repository}/pulls/${number}`;
-        }
-      } catch {
-        // SSH remotes do not specify the server's web origin.
-      }
-      return `https://${host}/${repository}/pulls/${number}`;
+      const origin =
+        [webUrl, remoteUrl]
+          .map(httpUrl)
+          .find(
+            (url) =>
+              url !== null &&
+              (url.hostname.toLowerCase() === host.toLowerCase() ||
+                url.host.toLowerCase() === host.toLowerCase()),
+          )?.origin ?? `https://${host}`;
+      return `${origin}/${repository}/pulls/${number}`;
     }
     case "gitlab":
       return `https://${host}/${repository}/-/merge_requests/${number}`;
@@ -186,6 +215,77 @@ export function pullRequestCandidateUrlFromReferenceAutolink(targetUrl: string):
   return url.toString();
 }
 
+function httpUrl(value: string | null | undefined): URL | null {
+  try {
+    const url = new URL(value ?? "");
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+const trimSlashes = (path: string) => path.replace(/^\/+|\/+$/g, "");
+
+/**
+ * Whether a link was read from the instance an identity's repository lives on: the same host,
+ * and for Forgejo the same web port and mount path.
+ *
+ * A Forgejo link carries its web authority. An identity that knows its own — the resolved
+ * `webUrl` first, else an HTTP remote — compares it, so two instances on one hostname stay
+ * apart; the canonical key cannot say, since it drops the scheme and an SSH remote names a
+ * clone host. One that only knows an SSH clone host compares hostnames: the port and mount are
+ * the login's to resolve, and refusing every link would be worse than trusting the host. Links
+ * from other providers carry no authority and their identities record no port, so hostnames
+ * decide.
+ */
+export function changeRequestLinkOnRepositoryInstance(
+  link: Pick<ChangeRequestLink, "host" | "repository" | "authority">,
+  identity: RepositoryIdentity | null | undefined,
+): boolean {
+  if (!identity) return false;
+  const kind = identity.provider as SourceControlProviderKind | undefined;
+  if (kind !== "forgejo" || link.authority === undefined) {
+    return pullRequestHostOf(identity, kind ?? "unknown") === link.host.toLowerCase();
+  }
+  const web = httpUrl(identity.webUrl);
+  const known = web ?? httpUrl(identity.locator.remoteUrl);
+  if (known === null) return pullRequestHostOf(identity, kind) === link.host.toLowerCase();
+  if (known.host.toLowerCase() !== link.authority) return false;
+  // Both web and HTTP clone URLs end in owner/name. Everything above those segments is the
+  // instance's mount, including an empty root mount; a nested mount can be another instance.
+  const mount = trimSlashes(known.pathname).split("/").slice(0, -2).join("/");
+  return mount === trimSlashes(link.repository).split("/").slice(0, -2).join("/");
+}
+
+/**
+ * Whether a link names the repository behind an identity. The identity's repository is its
+ * `webUrl` path for Forgejo — the mount path lives there and not in an SSH remote — and its
+ * `displayName` otherwise; Azure compares canonical keys because its SSH and web spellings
+ * share no path. Both sides fold the way the provider folds.
+ */
+export function changeRequestLinkMatchesRepository(
+  link: Pick<ChangeRequestLink, "host" | "repository" | "authority">,
+  identity: RepositoryIdentity | null | undefined,
+): boolean {
+  if (!identity) return false;
+  const kind = identity.provider as SourceControlProviderKind | undefined;
+  if (kind === "azure-devops") {
+    return (
+      canonicalRepositoryKey(identity.canonicalKey) ===
+      canonicalRepositoryKey(`${link.host}/${link.repository}`)
+    );
+  }
+  const web = kind === "forgejo" ? httpUrl(identity.webUrl) : null;
+  const repository =
+    web === null ? sourceControlRepositorySelector(identity) : trimSlashes(web.pathname);
+  return (
+    !!repository &&
+    changeRequestLinkOnRepositoryInstance(link, identity) &&
+    normalizeSourceControlRepository(repository, kind) ===
+      normalizeSourceControlRepository(link.repository, kind)
+  );
+}
+
 /** Match a stored PR without requiring its project to remain available. */
 export function matchesLinkedPullRequestUrl(
   linkedPullRequest: ThreadLinkedPullRequest,
@@ -210,6 +310,7 @@ export function changeRequestRepositoryUrl(targetUrl: string): string | null {
   const url = new URL(targetUrl);
   const repositoryPath =
     /^(.*?)\/-\/merge_requests\/\d+(?:\/|$)/iu.exec(url.pathname)?.[1] ??
+    /^(.*)\/pulls\/\d+(?:\/|$)/iu.exec(url.pathname)?.[1] ??
     /^(.*?)(?:\/pulls?\/\d+|\/-\/merge_requests\/\d+|\/pull-requests\/\d+|\/pullrequest\/\d+)(?:\/|$)/iu.exec(
       url.pathname,
     )?.[1];

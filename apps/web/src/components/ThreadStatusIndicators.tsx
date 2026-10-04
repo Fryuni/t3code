@@ -98,7 +98,8 @@ export function useLinkedThreadPullRequest(
   // touch the cache on every render.
   const reference = useMemo(() => {
     if (fallback == null) return null;
-    const host = parseChangeRequestUrl(fallback.url)?.host;
+    const link = parseChangeRequestUrl(fallback.url);
+    const host = link?.authority ?? link?.host;
     return { ...fallback, ...(host === undefined ? {} : { host }) };
   }, [fallback]);
   const queried = useEnvironmentQuery(

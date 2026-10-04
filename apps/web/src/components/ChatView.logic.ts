@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import * as Option from "effect/Option";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/shell";
 import {
@@ -24,6 +25,7 @@ import {
   type ThreadLinkedPullRequest,
   type RunId,
   type WorktreeSetupSnapshot,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import * as DateTime from "effect/DateTime";
@@ -154,13 +156,13 @@ export function shouldRetargetThreadPullRequestPanel(
   surface: RightPanelSurface | null,
 ): boolean {
   if (previous === null || current === null || surface?.kind !== "pull-request") return false;
-  const previousRepository = previous.repository.toLowerCase();
+  const previousRepository = normalizeSourceControlRepository(previous.repository);
   return (
     (previous.projectId !== current.projectId ||
-      previousRepository !== current.repository.toLowerCase() ||
+      previousRepository !== normalizeSourceControlRepository(current.repository) ||
       previous.number !== current.number) &&
     surface.projectId === previous.projectId &&
-    surface.repository.toLowerCase() === previousRepository &&
+    normalizeSourceControlRepository(surface.repository) === previousRepository &&
     surface.number === previous.number
   );
 }
@@ -834,21 +836,35 @@ export function resolveSendEnvMode(input: {
   return input.isGitRepo ? input.requestedEnvMode : "local";
 }
 
+/** Branch fields for `prepareWorktree`; servers reject a start remote on an existing branch. */
+export function resolvePrepareWorktreeBranchOptions(input: {
+  createNewBranch: boolean;
+  startFromRemote: WorktreeStartRemote;
+}): { createBranch: false } | { startFromRemote: WorktreeStartRemote } {
+  return input.createNewBranch
+    ? { startFromRemote: input.startFromRemote }
+    : { createBranch: false };
+}
+
 export function resolveBackgroundDraftWorkspaceOptions(input: {
   envMode: DraftThreadEnvMode;
   branch: string | null;
-  startFromOrigin: boolean;
+  startFromRemote: WorktreeStartRemote;
+  createNewBranch?: boolean;
 }): {
   envMode: DraftThreadEnvMode;
   branch: string | null;
   worktreePath: null;
-  startFromOrigin: boolean;
+  startFromRemote: WorktreeStartRemote;
+  createNewBranch?: boolean;
 } {
   return {
     envMode: input.envMode,
-    branch: input.branch,
+    // The preceding send has already checked this branch out in its worktree.
+    branch: input.envMode === "worktree" && input.createNewBranch === false ? null : input.branch,
     worktreePath: null,
-    startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+    startFromRemote: input.envMode === "worktree" ? input.startFromRemote : null,
+    ...(input.createNewBranch !== undefined ? { createNewBranch: input.createNewBranch } : {}),
   };
 }
 

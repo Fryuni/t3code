@@ -17,6 +17,7 @@ import { resolveSettingsScope, type SettingsScopeSearch } from "./settingsScope"
 
 import { deriveProviderInstanceEntries } from "../../providerInstances";
 import {
+  draftToWorkspaceStrategy,
   scheduledTaskDefaultModel,
   matchesScheduledTaskScope,
   taskToDraft,
@@ -156,16 +157,33 @@ describe("editing scheduled task branch settings", () => {
   it("keeps an omitted origin flag on the local base branch", () => {
     const draft = taskToDraft(legacyTask);
     expect(draft.baseRef).toBe("release");
-    expect(draft.startFromOrigin).toBe(false);
+    expect(draft.startFromRemote).toBeNull();
   });
 
-  it.each([true, false])("preserves an explicit origin flag of %s", (startFromOrigin) => {
+  it.each([
+    { saved: { startFromOrigin: true }, expected: "origin" },
+    { saved: { startFromOrigin: false }, expected: null },
+    { saved: { startFromRemote: "upstream", startFromOrigin: false }, expected: "upstream" },
+    { saved: { startFromRemote: null, startFromOrigin: true }, expected: null },
+  ] as const)("reads the starting remote saved as $saved", ({ saved, expected }) => {
     const draft = taskToDraft({
       ...legacyTask,
-      workspaceStrategy: { type: "worktree", baseRef: "release", startFromOrigin },
+      workspaceStrategy: { type: "worktree", baseRef: "release", ...saved },
     });
-    expect(draft.startFromOrigin).toBe(startFromOrigin);
+    expect(draft.startFromRemote).toBe(expected);
   });
+
+  it.each(["origin", "upstream", null] as const)(
+    "saves the starting remote %s with the origin flag older servers read",
+    (startFromRemote) => {
+      expect(draftToWorkspaceStrategy({ ...taskToDraft(legacyTask), startFromRemote })).toEqual({
+        type: "worktree",
+        baseRef: "release",
+        startFromRemote,
+        startFromOrigin: startFromRemote === "origin",
+      });
+    },
+  );
 });
 
 describe("scheduled task model defaults", () => {

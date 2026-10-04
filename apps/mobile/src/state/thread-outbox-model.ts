@@ -15,6 +15,8 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
   ThreadId,
+  WorktreeStartRemote,
+  resolveWorktreeStartRemote,
   type ModelSelection as ModelSelectionType,
   type ProjectId as ProjectIdType,
   type ProviderInteractionMode as ProviderInteractionModeType,
@@ -42,7 +44,11 @@ const QueuedThreadCreationSchema = Schema.Struct({
   workspaceMode: Schema.Literals(["local", "worktree"]),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  startFromRemote: Schema.optional(WorktreeStartRemote),
+  // Read-only: entries queued before upstream existed. Decoding folds it into `startFromRemote`.
   startFromOrigin: Schema.optional(Schema.Boolean),
+  // Optional so v3 readers keep decoding; absent creates a branch.
+  createNewBranch: Schema.optional(Schema.Boolean),
 });
 
 export const QueuedThreadMessageSchema = Schema.Struct({
@@ -74,7 +80,8 @@ export interface QueuedThreadCreation {
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
-  readonly startFromOrigin?: boolean;
+  readonly startFromRemote?: WorktreeStartRemote;
+  readonly createNewBranch?: boolean;
 }
 
 export interface QueuedThreadMessage {
@@ -141,7 +148,17 @@ export function encodeQueuedThreadMessage(message: QueuedThreadMessage): unknown
 
 export function decodeQueuedThreadMessage(value: unknown): QueuedThreadMessage {
   const { schemaVersion: _, ...message } = decodeStoredQueuedThreadMessage(value);
-  return message;
+  if (message.creation === undefined) return message;
+  const { startFromOrigin, ...creation } = message.creation;
+  return {
+    ...message,
+    creation: {
+      ...creation,
+      ...(creation.startFromRemote !== undefined || startFromOrigin !== undefined
+        ? { startFromRemote: resolveWorktreeStartRemote({ ...creation, startFromOrigin }) }
+        : {}),
+    },
+  };
 }
 
 export function groupQueuedThreadMessages(

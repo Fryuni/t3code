@@ -1,3 +1,4 @@
+import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 /**
  * A review being written, held until it is sent.
  *
@@ -29,7 +30,7 @@ export function pullRequestReviewKey(reference: PullRequestRef): string {
   return JSON.stringify([
     reference.projectId,
     reference.host?.toLowerCase() ?? null,
-    reference.repository.toLowerCase(),
+    normalizeSourceControlRepository(reference.repository),
     reference.number,
   ]);
 }

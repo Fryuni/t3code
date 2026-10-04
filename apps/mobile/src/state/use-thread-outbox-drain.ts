@@ -505,8 +505,11 @@ export async function restoreRejectedQueuedMessage(
               mode: queuedMessage.creation.workspaceMode,
               branch: queuedMessage.creation.branch,
               worktreePath: queuedMessage.creation.worktreePath,
-              ...(queuedMessage.creation.startFromOrigin !== undefined
-                ? { startFromOrigin: queuedMessage.creation.startFromOrigin }
+              ...(queuedMessage.creation.startFromRemote !== undefined
+                ? { startFromRemote: queuedMessage.creation.startFromRemote }
+                : {}),
+              ...(queuedMessage.creation.createNewBranch !== undefined
+                ? { createNewBranch: queuedMessage.creation.createNewBranch }
                 : {}),
             },
           }
@@ -1028,7 +1031,8 @@ export function useThreadOutboxDrain(): void {
           workspaceMode: creation.workspaceMode,
           branch: creation.branch,
           worktreePath: creation.worktreePath,
-          startFromOrigin: creation.startFromOrigin ?? false,
+          startFromRemote: creation.startFromRemote ?? null,
+          createNewBranch: creation.createNewBranch ?? true,
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
         }),
       });

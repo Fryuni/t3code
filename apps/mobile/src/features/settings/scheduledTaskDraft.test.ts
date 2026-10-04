@@ -15,6 +15,7 @@ import {
   hasScheduledTaskDraftChanges,
   scheduleDraftForTask,
   scheduleFromDraft,
+  scheduledTaskWorkspaceStrategy,
 } from "./scheduledTaskDraft";
 
 describe("scheduleDraftForTask", () => {
@@ -71,7 +72,7 @@ describe("hasScheduledTaskDraftChanges", () => {
       ],
     });
     expect(hasScheduledTaskDraftChanges(initial, { ...initial, baseRef: "release" })).toBe(true);
-    expect(hasScheduledTaskDraftChanges(initial, { ...initial, startFromOrigin: false })).toBe(
+    expect(hasScheduledTaskDraftChanges(initial, { ...initial, startFromRemote: "upstream" })).toBe(
       true,
     );
     expect(
@@ -207,20 +208,39 @@ describe("editing scheduled task branch settings", () => {
   it("keeps an omitted origin flag on the local base branch", () => {
     const draft = editDraft(legacyTask);
     expect(draft.baseRef).toBe("release");
-    expect(draft.startFromOrigin).toBe(false);
+    expect(draft.startFromRemote).toBeNull();
   });
 
-  it.each([true, false])("preserves an explicit origin flag of %s", (startFromOrigin) => {
+  it.each([
+    { saved: { startFromOrigin: true }, expected: "origin" },
+    { saved: { startFromOrigin: false }, expected: null },
+    { saved: { startFromRemote: "upstream", startFromOrigin: false }, expected: "upstream" },
+    { saved: { startFromRemote: null, startFromOrigin: true }, expected: null },
+  ] as const)("reads the starting remote saved as $saved", ({ saved, expected }) => {
     const draft = editDraft({
       ...legacyTask,
-      workspaceStrategy: { type: "worktree", baseRef: "release", startFromOrigin },
+      workspaceStrategy: { type: "worktree", baseRef: "release", ...saved },
     });
-    expect(draft.startFromOrigin).toBe(startFromOrigin);
+    expect(draft.startFromRemote).toBe(expected);
   });
+
+  it.each(["origin", "upstream", null] as const)(
+    "saves the starting remote %s with the origin flag older servers read",
+    (startFromRemote) => {
+      expect(scheduledTaskWorkspaceStrategy({ ...editDraft(legacyTask), startFromRemote })).toEqual(
+        {
+          type: "worktree",
+          baseRef: "release",
+          startFromRemote,
+          startFromOrigin: startFromRemote === "origin",
+        },
+      );
+    },
+  );
 });
 
 it("continues to default newly created tasks to origin", () => {
-  expect(createDraft(null, null).startFromOrigin).toBe(true);
+  expect(createDraft(null, null).startFromRemote).toBe("origin");
 });
 
 describe("scheduled task model defaults", () => {
