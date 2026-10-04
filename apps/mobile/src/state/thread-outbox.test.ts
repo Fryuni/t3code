@@ -12,6 +12,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { AtomRegistry } from "effect/unstable/reactivity";
 import * as RpcClientError from "effect/unstable/rpc/RpcClientError";
@@ -1390,47 +1391,72 @@ describe("thread outbox", () => {
     ).toBe("remove");
   });
 
-  it("round-trips queued creations and gates incomplete ones from sending", () => {
-    const base = queuedMessage({
-      messageId: "message-1",
-      createdAt: "2026-06-08T10:00:01.000Z",
-    });
-    const creationMessage = {
-      ...base,
-      modelSelection: {
-        instanceId: ProviderInstanceId.make("codex"),
-        model: "gpt-5.4",
-      },
+  it.each([null, "origin", "upstream"] satisfies ReadonlyArray<WorktreeStartRemote>)(
+    "round-trips queued creations with remote=%s and gates incomplete ones from sending",
+    (startFromRemote) => {
+      const base = queuedMessage({
+        messageId: "message-1",
+        createdAt: "2026-06-08T10:00:01.000Z",
+      });
+      const creationMessage = {
+        ...base,
+        modelSelection: {
+          instanceId: ProviderInstanceId.make("codex"),
+          model: "gpt-5.4",
+        },
+        creation: {
+          projectId: ProjectId.make("project-1"),
+          workspaceMode: "worktree",
+          branch: "main",
+          worktreePath: null,
+          startFromRemote,
+          createNewBranch: true,
+        },
+      } satisfies QueuedThreadMessage;
+
+      expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(creationMessage))).toEqual(
+        creationMessage,
+      );
+      expect(isQueuedThreadCreationSendable(creationMessage)).toBe(true);
+      expect(
+        isQueuedThreadCreationSendable({
+          ...creationMessage,
+          creation: { ...creationMessage.creation, branch: null },
+        }),
+      ).toBe(false);
+      expect(
+        isQueuedThreadCreationSendable({
+          ...creationMessage,
+          creation: { ...creationMessage.creation, branch: "" },
+        }),
+      ).toBe(false);
+      expect(
+        isQueuedThreadCreationSendable({ ...creationMessage, modelSelection: undefined }),
+      ).toBe(false);
+      expect(isQueuedThreadCreationSendable(base)).toBe(false);
+    },
+  );
+
+  it.each([
+    { stored: { startFromOrigin: true }, expected: "origin" },
+    { stored: { startFromOrigin: false }, expected: null },
+    { stored: { startFromOrigin: true, startFromRemote: null }, expected: null },
+    { stored: { startFromOrigin: true, startFromRemote: "upstream" }, expected: "upstream" },
+    { stored: {}, expected: undefined },
+  ])("reads the queued remote choice stored as $stored", ({ stored, expected }) => {
+    const restored = decodeQueuedThreadMessage({
+      schemaVersion: 3,
+      ...queuedMessage({ messageId: "message-1", createdAt: "2026-06-08T10:00:01.000Z" }),
       creation: {
-        projectId: ProjectId.make("project-1"),
+        projectId: "project-1",
         workspaceMode: "worktree",
         branch: "main",
         worktreePath: null,
-        startFromOrigin: true,
-        createNewBranch: false,
+        ...stored,
       },
-    } satisfies QueuedThreadMessage;
-
-    expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(creationMessage))).toEqual(
-      creationMessage,
-    );
-    expect(isQueuedThreadCreationSendable(creationMessage)).toBe(true);
-    expect(
-      isQueuedThreadCreationSendable({
-        ...creationMessage,
-        creation: { ...creationMessage.creation, branch: null },
-      }),
-    ).toBe(false);
-    expect(
-      isQueuedThreadCreationSendable({
-        ...creationMessage,
-        creation: { ...creationMessage.creation, branch: "" },
-      }),
-    ).toBe(false);
-    expect(isQueuedThreadCreationSendable({ ...creationMessage, modelSelection: undefined })).toBe(
-      false,
-    );
-    expect(isQueuedThreadCreationSendable(base)).toBe(false);
+    });
+    expect(restored.creation?.startFromRemote).toBe(expected);
+    expect(restored.creation).not.toHaveProperty("startFromOrigin");
   });
 
   it("retries transport failures but drops deterministic command failures", () => {

@@ -4,9 +4,12 @@ import {
   ScheduledTaskId,
   type ScheduledTask,
   type ModelSelection,
+  type OrchestrationV2ThreadLaunchWorkspaceStrategy,
   type RuntimeMode,
   type ProviderInteractionMode,
   type ServerSettings,
+  type WorktreeStartRemote,
+  resolveWorktreeStartRemote,
 } from "@t3tools/contracts";
 
 import {
@@ -59,7 +62,7 @@ export interface DraftState {
   readonly threadId: string;
   readonly workspaceMode: WorkspaceMode;
   readonly baseRef: string;
-  readonly startFromOrigin: boolean;
+  readonly startFromRemote: WorktreeStartRemote;
   readonly existingWorktreePath: string;
   readonly modelKey: string;
   /** Not editable in the dialog, but preserved so editing an agent-created task keeps its modes. */
@@ -93,10 +96,10 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     threadId: task.threadId ?? "",
     workspaceMode: task.workspaceStrategy.type,
     baseRef: task.workspaceStrategy.type === "worktree" ? task.workspaceStrategy.baseRef : "main",
-    startFromOrigin:
+    startFromRemote:
       task.workspaceStrategy.type === "worktree"
-        ? (task.workspaceStrategy.startFromOrigin ?? false)
-        : true,
+        ? resolveWorktreeStartRemote(task.workspaceStrategy)
+        : "origin",
     existingWorktreePath:
       task.workspaceStrategy.type === "existing_worktree"
         ? task.workspaceStrategy.worktreePath
@@ -106,6 +109,22 @@ export function taskToDraft(task: ScheduledTask): DraftState {
     interactionMode: task.interactionMode,
     baseModelSelection: task.modelSelection,
   };
+}
+
+/** The strategy a saved task launches with. Servers that only read `startFromOrigin` still get it. */
+export function draftToWorkspaceStrategy(
+  draft: DraftState,
+): OrchestrationV2ThreadLaunchWorkspaceStrategy {
+  return draft.workspaceMode === "root"
+    ? { type: "root" }
+    : draft.workspaceMode === "existing_worktree"
+      ? { type: "existing_worktree", worktreePath: draft.existingWorktreePath.trim() }
+      : {
+          type: "worktree",
+          baseRef: draft.baseRef.trim() || "main",
+          startFromRemote: draft.startFromRemote,
+          startFromOrigin: draft.startFromRemote === "origin",
+        };
 }
 
 /** Use configured defaults before the catalog's advertised default model. */

@@ -1,4 +1,5 @@
-import type { EnvironmentId } from "@t3tools/contracts";
+import { canStartWorktreeFromUpstream } from "@t3tools/client-runtime/state/vcs";
+import type { EnvironmentId, WorktreeStartRemote } from "@t3tools/contracts";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 
@@ -6,7 +7,11 @@ import { usePaginatedBranches } from "../state/queries";
 import { useEnvironmentQuery } from "../state/query";
 import { vcsEnvironment } from "../state/vcs";
 import { BranchPicker, BranchPickerRefItem } from "./BranchPicker";
-import { resolveBranchTriggerLabel, sanitizeNewRefName } from "./BranchToolbar.logic";
+import {
+  resolveBranchTriggerLabel,
+  resolveSelectedBranchRef,
+  sanitizeNewRefName,
+} from "./BranchToolbar.logic";
 import { MiddleTruncate } from "./ui/middle-truncate";
 import { Button } from "./ui/button";
 import { ComboboxTrigger } from "./ui/combobox";
@@ -17,8 +22,8 @@ export function WorktreeBaseBranchPicker({
   cwd,
   value,
   onValueChange,
-  startFromOrigin,
-  onStartFromOriginChange,
+  startFromRemote,
+  onStartFromRemoteChange,
   disabled = false,
   id,
 }: {
@@ -26,8 +31,8 @@ export function WorktreeBaseBranchPicker({
   cwd: string | null;
   value: string;
   onValueChange: (branch: string) => void;
-  startFromOrigin: boolean;
-  onStartFromOriginChange: (checked: boolean) => void;
+  startFromRemote: WorktreeStartRemote;
+  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
   disabled?: boolean;
   id?: string;
 }) {
@@ -43,19 +48,26 @@ export function WorktreeBaseBranchPicker({
     cwd && value
       ? vcsEnvironment.listRefs({
           environmentId,
-          input: { cwd, query: value, limit: 10 },
+          input: { cwd, query: value, limit: 10, includeMatchingRemoteRefs: true },
         })
       : null,
   );
-  const selectedRef =
-    branches.refs.find((branch) => branch.name === value) ??
-    selectedRefQuery.data?.refs.find((branch) => branch.name === value);
+  // Its remote names decide whether the task can start from upstream.
+  const statusQuery = useEnvironmentQuery(
+    cwd ? vcsEnvironment.status({ environmentId, input: { cwd } }) : null,
+  );
+  const selectedRef = resolveSelectedBranchRef({
+    branchName: value || null,
+    listedRefs: branches.refs,
+    queriedRefs: selectedRefQuery.data?.refs ?? [],
+  });
   const label = resolveBranchTriggerLabel({
     activeWorktreePath: null,
     effectiveEnvMode: "worktree",
     resolvedActiveBranch: value || null,
     resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
-    startFromOrigin,
+    resolvedActiveBranchRemoteName: selectedRef?.remoteName ?? null,
+    startFromRemote,
   });
   const branchByName = useMemo(
     () => new Map(branches.refs.map((branch) => [branch.name, branch])),
@@ -94,7 +106,11 @@ export function WorktreeBaseBranchPicker({
       isFetchingNextPage={branches.isFetchingNextPage}
       onLoadNext={branches.loadNext}
       statusText={statusText}
-      originControl={{ checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }}
+      remoteControl={{
+        value: startFromRemote,
+        upstreamAvailable: canStartWorktreeFromUpstream(statusQuery.data?.remoteNames),
+        onChange: onStartFromRemoteChange,
+      }}
       popupProps={{ align: "start", side: "bottom", className: "flex w-80 flex-col" }}
       renderItem={(name, index) => {
         const branch = branchByName.get(name);

@@ -15,6 +15,12 @@ the branch selector, and turn off **Create new branch**. Select a local branch
 that is not already checked out; **Start from origin** applies only when creating
 a new branch.
 
+In a repository with remotes named `origin` and `upstream`, the branch selector
+offers **Off**, **origin**, and **upstream** under **Start from remote**. Choose
+**upstream** to start a new worktree from the latest matching branch on upstream
+instead of your fork. If that branch is missing on upstream, the thread fails to
+start. Starting from origin falls back to your local branch when origin lacks it.
+
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
 

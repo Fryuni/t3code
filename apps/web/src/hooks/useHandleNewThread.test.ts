@@ -259,34 +259,43 @@ describe.each([
         "remote-project",
         projectRef,
         opened!.draftId,
-        expect.objectContaining({ envMode: "worktree", startFromOrigin }),
+        expect.objectContaining({
+          envMode: "worktree",
+          startFromRemote: startFromOrigin ? "origin" : null,
+        }),
       );
       if (draft) {
         expect(testState.draftStore.setDraftThreadContext).toHaveBeenCalledWith(
           draft.draftId,
-          expect.objectContaining({ envMode: "worktree", startFromOrigin }),
+          expect.objectContaining({
+            envMode: "worktree",
+            startFromRemote: startFromOrigin ? "origin" : null,
+          }),
         );
       }
     },
   );
 
-  it.each([true, false])(
-    "preserves an explicit start-from-origin choice of %s",
-    async (startFromOrigin) => {
-      testState.reset(draft, { envMode: "worktree", startFromOrigin: !startFromOrigin });
+  it.each(["origin", "upstream", null] as const)(
+    "preserves an explicit starting remote of %s",
+    async (startFromRemote) => {
+      testState.reset(draft, {
+        envMode: "worktree",
+        startFromOrigin: startFromRemote !== "origin",
+      });
       const openThread = useNewThreadHandler();
       const projectRef = {
         environmentId: "environment-ssh",
         projectId: "project-remote",
       } as never;
 
-      const opened = await openThread(projectRef, { envMode: "worktree", startFromOrigin });
+      const opened = await openThread(projectRef, { envMode: "worktree", startFromRemote });
 
       expect(testState.draftStore.setLogicalProjectDraftThreadId).toHaveBeenCalledWith(
         "remote-project",
         projectRef,
         opened!.draftId,
-        expect.objectContaining({ envMode: "worktree", startFromOrigin }),
+        expect.objectContaining({ envMode: "worktree", startFromRemote }),
       );
     },
   );

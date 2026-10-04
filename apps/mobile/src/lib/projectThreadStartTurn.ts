@@ -8,6 +8,7 @@ import {
   type ProjectId,
   type ProviderInteractionMode,
   type RuntimeMode,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
@@ -31,7 +32,8 @@ export interface ProjectThreadStartTurnSpec {
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
-  readonly startFromOrigin: boolean;
+  /** Ignored when checking out an existing branch, which keeps its current commit. */
+  readonly startFromRemote: WorktreeStartRemote;
   /** False checks out `branch` itself in the new worktree. Absent creates a branch. */
   readonly createNewBranch?: boolean;
   /** Generated temp branch for worktree mode; unused for local mode and existing branches. */
@@ -79,10 +81,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
               baseBranch: spec.branch!,
               ...(spec.createNewBranch === false
                 ? { createBranch: false }
-                : {
-                    branch: spec.worktreeBranchName,
-                    ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
-                  }),
+                : { branch: spec.worktreeBranchName, startFromRemote: spec.startFromRemote }),
             },
             runSetupScript: true,
           }

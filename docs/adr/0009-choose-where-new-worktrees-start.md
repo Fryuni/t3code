@@ -98,10 +98,14 @@ are not divergences: upstream reported both before Orchestrator V2 and V2 droppe
 while its contracts and clients still render them.
 
 Clients detect support through the status `remoteNames`, which servers without this
-change never send, and offer upstream only when it is present. A server without it
-would read `startFromOrigin: false` and start from the local ref. The fork's original
-change also refreshed status with `git fetch --all`; that was not ported, because a
-background fetch of every remote on each stale status poll costs too much on
+change never send, and offer upstream only when it lists both `origin` and `upstream`.
+A server without it would read `startFromOrigin: false` and start from the local ref.
+A saved upstream choice stays selected, with upstream disabled, when those remotes are
+missing, so the user sees it and can change it instead of having it silently dropped.
+Drafts and queued mobile tasks saved with only the boolean are read with
+`resolveWorktreeStartRemote` on load, so no client storage version changes. The fork's
+original change also refreshed status with `git fetch --all`; that was not ported,
+because a background fetch of every remote on each stale status poll costs too much on
 repositories with many or slow remotes, and the launch fetches the chosen remote
 anyway. Branch searches also list an exact local match, then an exact remote match,
 before partial matches, so the ref a picker selects matches the name typed.

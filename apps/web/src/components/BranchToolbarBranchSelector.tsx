@@ -4,7 +4,10 @@ import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePull
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useRightPanelStore } from "../rightPanelStore";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { canCheckoutBranchInNewWorktree } from "@t3tools/client-runtime/state/vcs";
+import {
+  canCheckoutBranchInNewWorktree,
+  canStartWorktreeFromUpstream,
+} from "@t3tools/client-runtime/state/vcs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -15,6 +18,7 @@ import {
   type EnvironmentId,
   type ThreadId,
   type VcsRef,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
@@ -58,6 +62,7 @@ import {
   resolveBranchToolbarValue,
   resolveDraftEnvModeAfterBranchChange,
   resolveEffectiveEnvMode,
+  resolveSelectedBranchRef,
   resolveWorktreeBaseBranchCandidate,
   sanitizeNewRefName,
   shouldIncludeBranchPickerItem,
@@ -94,8 +99,8 @@ interface BranchToolbarBranchSelectorProps {
   createNewBranch: boolean;
   /** Omitted when the server cannot check out an existing branch, which hides the toggle. */
   onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
-  startFromOrigin: boolean;
-  onStartFromOriginChange: (startFromOrigin: boolean) => void;
+  startFromRemote: WorktreeStartRemote;
+  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -118,8 +123,8 @@ export function BranchToolbarBranchSelector({
   onActiveThreadBranchOverrideChange,
   createNewBranch: createNewBranchProp,
   onCreateNewBranchChange,
-  startFromOrigin,
-  onStartFromOriginChange,
+  startFromRemote,
+  onStartFromRemoteChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
@@ -346,8 +351,6 @@ export function BranchToolbarBranchSelector({
     canonicalActiveBranch,
     (_currentBranch: string | null, optimisticBranch: string | null) => optimisticBranch,
   );
-  const listedActiveBranch =
-    resolvedActiveBranch === null ? null : (branchByName.get(resolvedActiveBranch) ?? null);
   const activeBranchRefQuery = useEnvironmentQuery(
     branchCwd !== null && resolvedActiveBranch !== null
       ? vcsEnvironment.listRefs({
@@ -356,20 +359,22 @@ export function BranchToolbarBranchSelector({
             cwd: branchCwd,
             query: resolvedActiveBranch,
             limit: 10,
+            includeMatchingRemoteRefs: true,
           },
         })
       : null,
   );
-  const queriedActiveBranch = activeBranchRefQuery.data?.refs.find(
-    (refName) => refName.name === resolvedActiveBranch,
+  const selectedBranchRef = useMemo(
+    () =>
+      resolveSelectedBranchRef({
+        branchName: resolvedActiveBranch,
+        listedRefs: refs,
+        queriedRefs: activeBranchRefQuery.data?.refs ?? [],
+      }),
+    [resolvedActiveBranch, refs, activeBranchRefQuery.data?.refs],
   );
-  const selectedBranchRef = listedActiveBranch ?? queriedActiveBranch;
   const resolvedActiveBranchIsRemote =
-    listedActiveBranch !== null
-      ? listedActiveBranch.isRemote === true
-      : queriedActiveBranch
-        ? queriedActiveBranch.isRemote === true
-        : null;
+    selectedBranchRef === null ? null : selectedBranchRef.isRemote === true;
   const [isBranchActionPending, startBranchActionTransition] = useTransition();
   const totalBranchCount = branchRefState.data?.totalCount ?? 0;
   const branchStatusText = isInitialBranchesLoadPending
@@ -596,7 +601,8 @@ export function BranchToolbarBranchSelector({
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    startFromOrigin,
+    resolvedActiveBranchRemoteName: selectedBranchRef?.remoteName ?? null,
+    startFromRemote,
     createNewBranch,
   });
 
@@ -738,9 +744,13 @@ export function BranchToolbarBranchSelector({
             }
           : undefined
       }
-      originControl={
+      remoteControl={
         isSelectingWorktreeBase && createNewBranch
-          ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
+          ? {
+              value: startFromRemote,
+              upstreamAvailable: canStartWorktreeFromUpstream(branchStatusQuery.data?.remoteNames),
+              onChange: onStartFromRemoteChange,
+            }
           : undefined
       }
       popupProps={{

@@ -1,4 +1,5 @@
 import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
+import type { WorktreeStartRemote } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 
 type WorkspaceMode = "local" | "worktree";
@@ -60,9 +61,30 @@ export function resolveNewTaskLocalWorkspaceSelection(input: {
   };
 }
 
+/**
+ * The remote of the selected ref, or null for a local branch. A local branch wins over a remote
+ * ref with the same name, and only exact name matches count.
+ */
+export function resolveNewTaskBranchRemoteName(input: {
+  readonly branchName: string | null;
+  readonly branches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
+  readonly queriedBranches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
+}): string | null {
+  const localBranch =
+    input.branches.find((ref) => ref.name === input.branchName && !ref.isRemote) ??
+    input.queriedBranches.find((ref) => ref.name === input.branchName && !ref.isRemote);
+  if (localBranch) return null;
+  const branch =
+    input.branches.find((ref) => ref.name === input.branchName) ??
+    input.queriedBranches.find((ref) => ref.name === input.branchName);
+  return branch?.remoteName ?? null;
+}
+
 export function resolveNewTaskBranchLabel(input: {
   readonly branchName: string | null;
-  readonly startFromOrigin: boolean;
+  /** Remote of the selected ref, whose prefix is replaced by the chosen remote. */
+  readonly branchRemoteName?: string | null;
+  readonly startFromRemote: WorktreeStartRemote;
   readonly createNewBranch?: boolean;
   readonly workspaceMode: WorkspaceMode;
 }): string {
@@ -74,7 +96,14 @@ export function resolveNewTaskBranchLabel(input: {
     return input.branchName;
   }
 
-  const baseRef = input.startFromOrigin ? `origin/${input.branchName}` : input.branchName;
+  const remotePrefix = input.branchRemoteName ? `${input.branchRemoteName}/` : null;
+  const branchName =
+    remotePrefix && input.branchName.startsWith(remotePrefix)
+      ? input.branchName.slice(remotePrefix.length)
+      : input.branchName;
+  const baseRef = input.startFromRemote
+    ? `${input.startFromRemote}/${branchName}`
+    : input.branchName;
   return `From ${baseRef}`;
 }
 

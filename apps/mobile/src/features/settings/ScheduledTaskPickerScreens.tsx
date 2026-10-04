@@ -1,4 +1,5 @@
 import { useNavigation } from "@react-navigation/native";
+import { canStartWorktreeFromUpstream } from "@t3tools/client-runtime/state/vcs";
 import * as Haptics from "expo-haptics";
 import { useMemo, useState } from "react";
 
@@ -7,6 +8,8 @@ import { buildModelOptions, groupByProvider } from "../../lib/modelOptions";
 import { resolveProviderOptionDescriptors } from "../../lib/providerOptions";
 import { useEnvironmentServerConfig, useProjects } from "../../state/entities";
 import { useDebouncedValue, usePaginatedBranches } from "../../state/queries";
+import { useEnvironmentQuery } from "../../state/query";
+import { vcsEnvironment } from "../../state/vcs";
 import { BranchPickerScreen } from "../threads/NewTaskContextPickerScreens";
 import { ThreadSettingsPickerScreen } from "../threads/ThreadSettingsSheet";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -109,6 +112,15 @@ export function ScheduledTaskBranchPickerRouteScreen() {
     cwd: project?.workspaceRoot ?? null,
     query: debouncedQuery,
   });
+  // Its remote names decide whether the task can start from upstream.
+  const status = useEnvironmentQuery(
+    editor && project?.workspaceRoot
+      ? vcsEnvironment.status({
+          environmentId: editor.environmentId,
+          input: { cwd: project.workspaceRoot },
+        })
+      : null,
+  );
   const visibleBranches = branches.refs.filter(
     (branch) => !branch.isRemote && branch.name.toLowerCase().includes(query.trim().toLowerCase()),
   );
@@ -139,16 +151,17 @@ export function ScheduledTaskBranchPickerRouteScreen() {
         navigation.goBack();
       }}
       worktree={{
-        startFromOrigin: editor.draft.startFromOrigin,
-        onChangeStartFromOrigin: (startFromOrigin) =>
+        startFromRemote: editor.draft.startFromRemote,
+        onChangeStartFromRemote: (startFromRemote) =>
           setEditor((current) =>
             current
               ? {
                   ...current,
-                  draft: { ...current.draft, startFromOrigin },
+                  draft: { ...current.draft, startFromRemote },
                 }
               : current,
           ),
+        upstreamAvailable: canStartWorktreeFromUpstream(status.data?.remoteNames),
       }}
     />
   );

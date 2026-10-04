@@ -12,6 +12,8 @@ import {
   ProviderInteractionMode as ProviderInteractionModeSchema,
   ProviderOptionSelection as ProviderOptionSelectionSchema,
   RuntimeMode as RuntimeModeSchema,
+  WorktreeStartRemote,
+  resolveWorktreeStartRemote,
   type EnvironmentId,
   type ModelSelection,
   type ProjectId,
@@ -358,7 +360,7 @@ export interface ComposerDraftWorkspaceSelection {
   readonly mode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
-  readonly startFromOrigin?: boolean;
+  readonly startFromRemote?: WorktreeStartRemote;
   /** False checks out `branch` itself in the new worktree. Absent creates a branch. */
   readonly createNewBranch?: boolean;
 }
@@ -372,6 +374,8 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
   mode: Schema.Literals(["local", "worktree"]),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
+  startFromRemote: Schema.optional(WorktreeStartRemote),
+  // Read-only: drafts saved before upstream existed. Loading folds it into `startFromRemote`.
   startFromOrigin: Schema.optional(Schema.Boolean),
   createNewBranch: Schema.optional(Schema.Boolean),
 });
@@ -539,6 +543,24 @@ function restoreMissingComposerFileReferences(draft: ComposerDraft): ComposerDra
   return changed ? { ...draft, text, context: { version: 1, records } } : draft;
 }
 
+function migrateDraftWorkspaceSelection(
+  draft: ComposerDraft & {
+    readonly workspaceSelection?: ComposerDraftWorkspaceSelection & {
+      readonly startFromOrigin?: boolean;
+    };
+  },
+): ComposerDraft {
+  if (draft.workspaceSelection?.startFromOrigin === undefined) return draft;
+  const { startFromOrigin, ...workspaceSelection } = draft.workspaceSelection;
+  return {
+    ...draft,
+    workspaceSelection: {
+      ...workspaceSelection,
+      startFromRemote: resolveWorktreeStartRemote({ ...workspaceSelection, startFromOrigin }),
+    },
+  };
+}
+
 function normalizeDraft(draft: ComposerDraft | undefined): ComposerDraft {
   if (!draft) {
     return EMPTY_DRAFT;
@@ -608,7 +630,7 @@ export function migrateLegacyNewTaskDraft(
   draft: ComposerDraft,
   now: string,
 ): readonly [key: string, draft: ComposerDraft] {
-  const restored = restoreMissingComposerFileReferences(draft);
+  const restored = restoreMissingComposerFileReferences(migrateDraftWorkspaceSelection(draft));
   const legacy = draft.project === undefined ? parseLegacyNewTaskDraftKey(key) : null;
   if (legacy === null) {
     return [key, restored];
@@ -1200,8 +1222,8 @@ export async function removeDeliveredCloudQueuedMessage(
             editor.workspaceSelection.worktreePath !== message.creation?.worktreePath ||
             (editor.workspaceSelection.createNewBranch ?? true) !==
               (message.creation?.createNewBranch ?? true) ||
-            (editor.workspaceSelection.startFromOrigin ?? false) !==
-              (message.creation?.startFromOrigin ?? false))))
+            (editor.workspaceSelection.startFromRemote ?? null) !==
+              (message.creation?.startFromRemote ?? null))))
     )
       continue;
     const drafts = { ...saved.drafts };

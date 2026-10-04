@@ -4,6 +4,7 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { serializeAssistantCitation } from "@t3tools/shared/assistantCitations";
 import { describe, expect, it } from "vite-plus/test";
@@ -44,7 +45,7 @@ describe("project thread title", () => {
       workspaceMode: "local",
       branch: null,
       worktreePath: null,
-      startFromOrigin: false,
+      startFromRemote: null,
       worktreeBranchName: "unused",
     });
 
@@ -91,7 +92,7 @@ describe("project thread title", () => {
       workspaceMode: "local",
       branch: null,
       worktreePath: null,
-      startFromOrigin: false,
+      startFromRemote: null,
       worktreeBranchName: "unused",
     });
 
@@ -120,7 +121,7 @@ describe("new thread on an existing branch", () => {
         workspaceMode: "local",
         branch: "feature/existing",
         worktreePath,
-        startFromOrigin: false,
+        startFromRemote: null,
         worktreeBranchName: "unused",
       });
 
@@ -137,27 +138,27 @@ describe("new thread on an existing branch", () => {
 });
 
 describe("new worktree branch choice", () => {
-  it.each([
-    {
-      createNewBranch: undefined,
-      prepareWorktree: {
-        projectCwd: "/workspace",
-        baseBranch: "feature/existing",
-        branch: "t3code/new-branch",
-        startFromOrigin: true,
-      },
-    },
-    {
-      createNewBranch: false,
-      prepareWorktree: {
-        projectCwd: "/workspace",
-        baseBranch: "feature/existing",
-        createBranch: false,
-      },
-    },
-  ])(
-    "prepares the worktree for createNewBranch=$createNewBranch",
-    ({ createNewBranch, prepareWorktree }) => {
+  it.each(
+    [undefined, true, false].flatMap((createNewBranch) =>
+      ([null, "origin", "upstream"] satisfies ReadonlyArray<WorktreeStartRemote>).map(
+        (startFromRemote) => ({
+          createNewBranch,
+          startFromRemote,
+          prepareWorktree:
+            createNewBranch === false
+              ? { projectCwd: "/workspace", baseBranch: "feature/existing", createBranch: false }
+              : {
+                  projectCwd: "/workspace",
+                  baseBranch: "feature/existing",
+                  branch: "t3code/new-branch",
+                  startFromRemote,
+                },
+        }),
+      ),
+    ),
+  )(
+    "prepares the worktree for createNewBranch=$createNewBranch and remote=$startFromRemote",
+    ({ createNewBranch, startFromRemote, prepareWorktree }) => {
       const input = buildProjectThreadStartTurnInput({
         projectId: ProjectId.make("project"),
         projectCwd: "/workspace",
@@ -173,7 +174,7 @@ describe("new worktree branch choice", () => {
         workspaceMode: "worktree",
         branch: "feature/existing",
         worktreePath: null,
-        startFromOrigin: true,
+        startFromRemote,
         ...(createNewBranch === undefined ? {} : { createNewBranch }),
         worktreeBranchName: "t3code/new-branch",
       });

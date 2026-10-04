@@ -39,6 +39,7 @@ import {
   ENVIRONMENT_RECONNECT_WARNING_GRACE_MS,
   getAntigravitySendBlockReason,
   resolveBackgroundDraftWorkspaceOptions,
+  resolvePrepareWorktreeBranchOptions,
   resolveComposerInteractionMode,
   restorePlanFollowUpComposer,
   resolveComposerProviderSelection,
@@ -1690,22 +1691,49 @@ describe("resolveComposerInteractionMode", () => {
   });
 });
 
+describe("resolvePrepareWorktreeBranchOptions", () => {
+  it.each(["origin", "upstream", null] as const)(
+    "starts a new branch from remote %s",
+    (startFromRemote) => {
+      expect(
+        resolvePrepareWorktreeBranchOptions({ createNewBranch: true, startFromRemote }),
+      ).toEqual({ startFromRemote });
+    },
+  );
+
+  it.each(["origin", "upstream", null] as const)(
+    "never sends start remote %s when reusing an existing branch",
+    (startFromRemote) => {
+      expect(
+        resolvePrepareWorktreeBranchOptions({ createNewBranch: false, startFromRemote }),
+      ).toStrictEqual({ createBranch: false });
+    },
+  );
+});
+
 describe("resolveBackgroundDraftWorkspaceOptions", () => {
-  it.each([true, false])(
-    "keeps New worktree selected and only a reusable base branch (createNewBranch=%s)",
-    (createNewBranch) => {
+  it.each(
+    [true, false].flatMap((createNewBranch) =>
+      (["origin", "upstream", null] as const).map((startFromRemote) => ({
+        createNewBranch,
+        startFromRemote,
+      })),
+    ),
+  )(
+    "keeps New worktree, its starting remote $startFromRemote, and only a reusable base branch (createNewBranch=$createNewBranch)",
+    ({ createNewBranch, startFromRemote }) => {
       expect(
         resolveBackgroundDraftWorkspaceOptions({
           envMode: "worktree",
           branch: "main",
-          startFromOrigin: true,
+          startFromRemote,
           createNewBranch,
         }),
       ).toEqual({
         envMode: "worktree",
         branch: createNewBranch ? "main" : null,
         worktreePath: null,
-        startFromOrigin: true,
+        startFromRemote,
         createNewBranch,
       });
     },
@@ -1716,14 +1744,14 @@ describe("resolveBackgroundDraftWorkspaceOptions", () => {
       resolveBackgroundDraftWorkspaceOptions({
         envMode: "local",
         branch: "feature/existing",
-        startFromOrigin: false,
+        startFromRemote: "upstream",
         createNewBranch: false,
       }),
     ).toEqual({
       envMode: "local",
       branch: "feature/existing",
       worktreePath: null,
-      startFromOrigin: false,
+      startFromRemote: null,
       createNewBranch: false,
     });
   });

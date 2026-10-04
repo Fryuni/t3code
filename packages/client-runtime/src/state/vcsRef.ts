@@ -14,3 +14,14 @@ export function canCheckoutBranchInNewWorktree(
 ): boolean {
   return ref != null && !ref.isRemote && !ref.current && !ref.worktreePath;
 }
+
+/**
+ * Whether a new worktree can start from `upstream`. Only the fork layout, with `origin` as the
+ * fork and `upstream` as the canonical repository, offers it. Servers that cannot start from
+ * upstream never report remote names.
+ */
+export function canStartWorktreeFromUpstream(
+  remoteNames: ReadonlyArray<string> | undefined,
+): boolean {
+  return remoteNames?.includes("origin") === true && remoteNames.includes("upstream");
+}

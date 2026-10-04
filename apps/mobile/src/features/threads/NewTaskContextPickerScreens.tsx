@@ -1,7 +1,11 @@
 import { MaterialListRow } from "../../components/MaterialListRow";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
-import { type EnvironmentId, resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import {
+  type EnvironmentId,
+  resolveEnvironmentMachineKind,
+  type WorktreeStartRemote,
+} from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import { AsyncResult } from "effect/unstable/reactivity";
 import { LegendList } from "@legendapp/list/react-native";
@@ -126,6 +130,12 @@ function SelectionRow(props: {
     </Pressable>
   );
 }
+
+const START_FROM_REMOTE_OPTIONS = [
+  { title: "Off", value: null },
+  { title: "origin", value: "origin" },
+  { title: "upstream", value: "upstream" },
+] as const satisfies ReadonlyArray<{ title: string; value: WorktreeStartRemote }>;
 
 function ToggleRow(props: {
   readonly title: string;
@@ -413,8 +423,9 @@ export function NewTaskBranchPickerRouteScreen() {
       worktree={
         flow.workspaceMode === "worktree"
           ? {
-              startFromOrigin: flow.startFromOrigin,
-              onChangeStartFromOrigin: flow.setStartFromOrigin,
+              startFromRemote: flow.startFromRemote,
+              onChangeStartFromRemote: flow.setStartFromRemote,
+              upstreamAvailable: flow.canStartFromUpstream,
               createNewBranch: flow.createNewBranch,
               onChangeCreateNewBranch: flow.setCreateNewBranch,
             }
@@ -441,8 +452,10 @@ export function BranchPickerScreen(props: {
   readonly selectionDisabled?: boolean;
   readonly onSelect: (branch: VcsRef) => void;
   readonly worktree?: {
-    readonly startFromOrigin: boolean;
-    readonly onChangeStartFromOrigin: (value: boolean) => void;
+    readonly startFromRemote: WorktreeStartRemote;
+    readonly onChangeStartFromRemote: (value: WorktreeStartRemote) => void;
+    /** Offers upstream next to origin. A saved upstream choice stays visible, disabled, without it. */
+    readonly upstreamAvailable: boolean;
     /** Scheduled tasks omit these: a recurring run would find its branch still checked out. */
     readonly createNewBranch?: boolean;
     readonly onChangeCreateNewBranch?: ((value: boolean) => void) | null;
@@ -497,16 +510,17 @@ export function BranchPickerScreen(props: {
     ],
   );
 
-  const branchListHeader = props.worktree ? (
+  const worktree = props.worktree;
+  const branchListHeader = worktree ? (
     <View
       className={cn(
         "mb-3 overflow-hidden",
         Platform.OS === "android" ? "rounded-[28px]" : "rounded-2xl",
       )}
     >
-      {props.worktree.onChangeCreateNewBranch ? (
+      {worktree.onChangeCreateNewBranch ? (
         <ToggleRow
-          onValueChange={props.worktree.onChangeCreateNewBranch}
+          onValueChange={worktree.onChangeCreateNewBranch}
           title="Create new branch"
           value={!checksOutExistingBranch}
         />
@@ -515,11 +529,35 @@ export function BranchPickerScreen(props: {
         <Text className="bg-grouped-card px-4 pb-3 text-sm text-foreground-muted">
           Select a local branch that is not already checked out.
         </Text>
+      ) : worktree.upstreamAvailable || worktree.startFromRemote === "upstream" ? (
+        <>
+          <Text className="bg-grouped-card px-4 pb-2 pt-3 text-sm text-foreground-muted">
+            Start from remote
+          </Text>
+          {START_FROM_REMOTE_OPTIONS.map((option) => (
+            <SelectionRow
+              key={option.title}
+              title={option.title}
+              disabled={option.value === "upstream" && !worktree.upstreamAvailable}
+              selected={worktree.startFromRemote === option.value}
+              isLast={option.value === "upstream" && worktree.upstreamAvailable}
+              onPress={() => {
+                void Haptics.selectionAsync();
+                worktree.onChangeStartFromRemote(option.value);
+              }}
+            />
+          ))}
+          {worktree.upstreamAvailable ? null : (
+            <Text className="bg-grouped-card px-4 py-3 text-sm text-foreground-muted">
+              Starting from upstream requires both origin and upstream remotes.
+            </Text>
+          )}
+        </>
       ) : (
         <ToggleRow
-          onValueChange={props.worktree.onChangeStartFromOrigin}
+          onValueChange={(value) => worktree.onChangeStartFromRemote(value ? "origin" : null)}
           title="Start from origin"
-          value={props.worktree.startFromOrigin}
+          value={worktree.startFromRemote === "origin"}
         />
       )}
     </View>

@@ -734,6 +734,32 @@ describe("thread outbox recovery rollback", () => {
     });
   });
 
+  it.each(["upstream", null] as const)(
+    "restores a rejected worktree task with its starting remote %s",
+    async (startFromRemote) => {
+      const message: QueuedThreadMessage = {
+        ...queuedMessage({ messageId: `message-remote-${startFromRemote}`, text: "continue" }),
+        creation: {
+          projectId: ProjectId.make("project-1"),
+          workspaceMode: "worktree",
+          branch: "main",
+          worktreePath: null,
+          startFromRemote,
+        },
+      };
+      await harness.manager.enqueue(message);
+
+      await expect(restoreRejectedQueuedMessage(message, "upstream not found")).resolves.toBe(
+        "restored",
+      );
+
+      expect(
+        composerDrafts.getComposerDraftSnapshot(`new-task:restored-${message.messageId}`)
+          ?.workspaceSelection,
+      ).toEqual({ mode: "worktree", branch: "main", worktreePath: null, startFromRemote });
+    },
+  );
+
   it("keeps a failed outcome until its thread screen consumes it", async () => {
     const message: QueuedThreadMessage = {
       ...queuedMessage({ messageId: "message-creation-kept", text: "new task text" }),

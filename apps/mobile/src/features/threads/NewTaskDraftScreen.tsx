@@ -674,7 +674,7 @@ export function NewTaskDraftScreen(props: {
               mode: "local",
               branch: props.initialProjectRef.branch,
               worktreePath: props.initialProjectRef.worktreePath ?? null,
-              startFromOrigin: false,
+              startFromRemote: null,
             },
           });
         }
@@ -992,7 +992,8 @@ export function NewTaskDraftScreen(props: {
   });
   const selectedBranchLabel = resolveNewTaskBranchLabel({
     branchName: selectedBranchName,
-    startFromOrigin: flow.startFromOrigin,
+    branchRemoteName: flow.selectedBranchRemoteName,
+    startFromRemote: flow.startFromRemote,
     createNewBranch: flow.createNewBranch,
     workspaceMode: flow.workspaceMode,
   });
