@@ -2,6 +2,7 @@ import {
   CommandId,
   MessageId,
   type ProjectId,
+  resolveWorktreeStartRemote,
   WorktreeMcpFailure,
   type WorktreeMcpContinuationStatus,
   type WorktreeMcpHandoffInput,
@@ -215,22 +216,16 @@ const make = Effect.gen(function* () {
       baseRef = localStatus.refName;
     }
 
-    const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin);
-
-    let worktreeBaseRef = baseRef;
-    if (startFromOrigin) {
-      yield* gitWorkflow
-        .fetchRemote({ cwd: projectCwd, remoteName: "origin" })
-        .pipe(asOperationFailed("Unable to fetch origin"));
-      const resolvedRemoteBase = yield* gitWorkflow
-        .resolveRemoteTrackingCommit({
-          cwd: projectCwd,
-          refName: baseRef,
-          fallbackRemoteName: "origin",
-        })
-        .pipe(asOperationFailed(`Unable to resolve the remote-tracking commit of '${baseRef}'`));
-      worktreeBaseRef = resolvedRemoteBase.commitSha;
-    }
+    const startFromRemote = resolveWorktreeStartRemote(
+      input.startFromRemote === undefined && input.startFromOrigin === undefined
+        ? { startFromOrigin: yield* readDefaultStartFromOrigin }
+        : input,
+    );
+    // Shared with UI launches, so prefixed bases, the origin fallback, and
+    // upstream failures behave the same for agents.
+    const worktreeBase = yield* gitWorkflow
+      .resolveWorktreeBase({ cwd: projectCwd, baseBranch: baseRef, startFromRemote })
+      .pipe(asOperationFailed(`Unable to resolve the worktree base '${baseRef}'`));
 
     const ids = yield* handoffIds(scope);
 
@@ -248,7 +243,7 @@ const make = Effect.gen(function* () {
           gitWorkflow
             .createWorktree({
               cwd: projectCwd,
-              refName: worktreeBaseRef,
+              refName: worktreeBase.baseRef,
               newRefName: input.branch,
               baseRefName: baseRef,
               path: input.path ?? null,
@@ -412,17 +407,21 @@ const make = Effect.gen(function* () {
             );
         }
 
+        const note =
+          continuation.status === "scheduled"
+            ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
+            : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.";
         const result: WorktreeMcpHandoffResult = {
           worktreePath,
           branch: worktree.worktree.refName,
           baseRef,
-          startedFromOrigin: startFromOrigin,
+          startedFromOrigin: startFromRemote === "origin" && worktreeBase.fetchStatus === "done",
           setupScript,
           continuation,
           note:
-            continuation.status === "scheduled"
-              ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
-              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.",
+            worktreeBase.fetchStatus === "warning"
+              ? `${note} Warning: ${worktreeBase.fetchDetail}.`
+              : note,
         };
         return result;
       }),

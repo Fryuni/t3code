@@ -105,7 +105,8 @@ const adapter = {
 interface HarnessOptions {
   readonly managedFolders?: Layer.Layer<ManagedProjectFolders.ManagedProjectFolders>;
   readonly createWorktree?: GitWorkflow.GitWorkflowService["Service"]["createWorktree"];
-  readonly fetchRemote?: GitWorkflow.GitWorkflowService["Service"]["fetchRemote"];
+  readonly resolveWorktreeBase?: GitWorkflow.GitWorkflowService["Service"]["resolveWorktreeBase"];
+  readonly remoteExists?: GitWorkflow.GitWorkflowService["Service"]["remoteExists"];
   readonly renameBranch?: GitWorkflow.GitWorkflowService["Service"]["renameBranch"];
   readonly pruneWorktrees?: GitWorkflow.GitWorkflowService["Service"]["pruneWorktrees"];
   readonly listRefs?: GitWorkflow.GitWorkflowService["Service"]["listRefs"];
@@ -141,6 +142,22 @@ function makeHarness(options: HarnessOptions = {}) {
   const renameBranch = vi.fn(
     options.renameBranch ?? ((input) => Effect.succeed({ branch: input.newBranch })),
   );
+  const resolveWorktreeBase = vi.fn<
+    GitWorkflow.GitWorkflowService["Service"]["resolveWorktreeBase"]
+  >(
+    options.resolveWorktreeBase ??
+      ((input, resolveOptions) =>
+        input.startFromRemote === null
+          ? Effect.succeed({ baseRef: input.baseBranch, fetchStatus: "skipped" })
+          : (resolveOptions?.onFetchStart?.() ?? Effect.void).pipe(
+              Effect.as({
+                baseRef: "remote-main-sha",
+                fetchStatus: "done" as const,
+                fetchDetail: `${input.startFromRemote}/${input.baseBranch} at remote-`,
+              }),
+            )),
+  );
+  const remoteExists = vi.fn(options.remoteExists ?? (() => Effect.succeed(true)));
   const runSetup = vi.fn(
     options.runSetup ?? (() => Effect.succeed({ status: "no-script" as const })),
   );
@@ -189,13 +206,10 @@ function makeHarness(options: HarnessOptions = {}) {
             totalCount: matches.length,
           });
         }),
-      fetchRemote: options.fetchRemote ?? (() => Effect.void),
+      resolveWorktreeBase,
       pruneWorktrees: options.pruneWorktrees ?? (() => Effect.void),
-      remoteExists: () => Effect.succeed(true),
-      remoteBranchExists: () => Effect.succeed(true),
+      remoteExists,
       removeWorktree: () => Effect.void,
-      resolveRemoteTrackingCommit: () =>
-        Effect.succeed({ commitSha: "remote-main-sha", remoteRefName: "origin/main" }),
     }),
     Layer.succeed(ProjectSetupScriptRunner.ProjectSetupScriptRunner, {
       runForThread: runSetup,
@@ -250,6 +264,8 @@ function makeHarness(options: HarnessOptions = {}) {
     ),
     createWorktree,
     renameBranch,
+    resolveWorktreeBase,
+    remoteExists,
     generateBranchName,
     generateThreadTitle,
     runSetup,
@@ -284,6 +300,24 @@ function launchInput(input: {
     creationSource: "web" as const,
   };
 }
+
+const awaitRunStatus = (threadId: ThreadId, status: "starting" | "failed") =>
+  ThreadManagement.ThreadManagementService.use((threads) =>
+    threads.streamStoredEventsFrom({ threadId }).pipe(
+      Stream.filter(
+        (stored) => stored.event.type === "run.updated" && stored.event.payload.status === status,
+      ),
+      Stream.runHead,
+    ),
+  );
+
+const fetchStage = (threadId: ThreadId) =>
+  WorktreeSetupTracker.WorktreeSetupTracker.use((tracker) => tracker.get(threadId)).pipe(
+    Effect.map((snapshot) => {
+      const stage = snapshot?.stages.find((entry) => entry.id === "fetch");
+      return { status: stage?.status, detail: stage?.detail };
+    }),
+  );
 
 function waitUntil<E, R>(predicate: () => Effect.Effect<boolean, E, R>): Effect.Effect<void, E, R> {
   return Effect.gen(function* () {
@@ -1302,6 +1336,7 @@ it.effect.each(["feature/existing", "t3code/abcd1234"])(
           harness.createWorktree.mock.calls.map(([input]) => input),
           [{ cwd: "/repo", refName: baseRef, path: null }],
         );
+        assert.equal(harness.resolveWorktreeBase.mock.calls[0]?.[0].startFromRemote, null);
         const projection = yield* threads.getThreadProjection(launched.threadId);
         assert.equal(projection.thread.branch, baseRef);
         assert.equal(projection.thread.worktreePath, "/repo-worktrees/feature");
@@ -1376,7 +1411,12 @@ it.effect.each([
   {
     reason: "start from origin",
     workspace: { baseRef: "feature/existing", startFromOrigin: true },
-    message: /cannot also name a new branch or start from origin/u,
+    message: /cannot also name a new branch or start from a remote/u,
+  },
+  {
+    reason: "start from upstream",
+    workspace: { baseRef: "feature/existing", startFromRemote: "upstream" as const },
+    message: /cannot also name a new branch or start from a remote/u,
   },
 ])("rejects checking out $reason before creating the thread", ({ reason, workspace, message }) =>
   Effect.gen(function* () {
@@ -1480,11 +1520,172 @@ it.effect("tracks the existing branch while its worktree is checked out", () =>
   }),
 );
 
+it.effect.each([
+  {
+    name: "legacy origin flag",
+    workspace: { startFromOrigin: true },
+    startFromRemote: "origin",
+    baseRef: "remote-main-sha",
+    fetch: { status: "done", detail: "origin/main at remote-" },
+  },
+  {
+    name: "upstream remote",
+    workspace: { startFromRemote: "upstream" },
+    startFromRemote: "upstream",
+    baseRef: "remote-main-sha",
+    fetch: { status: "done", detail: "upstream/main at remote-" },
+  },
+  {
+    name: "local ref despite the origin flag",
+    workspace: { startFromRemote: null, startFromOrigin: true },
+    startFromRemote: null,
+    baseRef: "main",
+    fetch: { status: "skipped", detail: null },
+  },
+] as const)("starts a new worktree from the $name", (scenario) =>
+  Effect.gen(function* () {
+    const harness = makeHarness();
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: `command:launch:remote:${scenario.name}`,
+          thread: `thread:launch:remote:${scenario.name}`,
+          message: "Start the feature",
+          workspace: { type: "worktree", baseRef: "main", ...scenario.workspace },
+        }),
+      );
+      yield* awaitRunStatus(launched.threadId, "starting");
+      assert.deepEqual(harness.resolveWorktreeBase.mock.calls[0]?.[0], {
+        cwd: "/repo",
+        baseBranch: "main",
+        startFromRemote: scenario.startFromRemote,
+      });
+      assert.equal(harness.createWorktree.mock.calls[0]?.[0].refName, scenario.baseRef);
+      assert.deepEqual(yield* fetchStage(launched.threadId), scenario.fetch);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("reports a missing origin branch as a fetch warning and starts from the local base", () =>
+  Effect.gen(function* () {
+    const detail = "origin/dev not found, using local branch";
+    const harness = makeHarness({
+      resolveWorktreeBase: (input) =>
+        Effect.succeed({ baseRef: input.baseBranch, fetchStatus: "warning", fetchDetail: detail }),
+    });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const launched = yield* launches.launch(
+        launchInput({
+          command: "command:launch:origin-warning",
+          thread: "thread:launch:origin-warning",
+          message: "Start from origin",
+          workspace: { type: "worktree", baseRef: "origin/dev", startFromOrigin: true },
+        }),
+      );
+      yield* awaitRunStatus(launched.threadId, "starting");
+      assert.deepEqual(yield* fetchStage(launched.threadId), { status: "warning", detail });
+      assert.deepInclude(harness.createWorktree.mock.calls[0]?.[0], {
+        refName: "origin/dev",
+        baseRefName: "origin/dev",
+      });
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
+it.effect("fails preparation with the reason an upstream base could not be fetched", () => {
+  const detail = "Cannot start from upstream: upstream/main was not found.";
+  const harness = makeHarness({
+    resolveWorktreeBase: (input) =>
+      Effect.fail(
+        new GitCommandError({
+          operation: "GitWorkflowService.resolveWorktreeBase",
+          command: "git",
+          cwd: input.cwd,
+          detail,
+        }),
+      ),
+  });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:upstream-missing-branch",
+        thread: "thread:launch:upstream-missing-branch",
+        message: "Start from upstream",
+        workspace: { type: "worktree", baseRef: "main", startFromRemote: "upstream" },
+      }),
+    );
+    yield* awaitRunStatus(launched.threadId, "failed");
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.include(
+      projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+      detail,
+    );
+    assert.equal(projection.thread.worktreePath, null);
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("rejects starting from upstream before creating the thread when it is missing", () => {
+  const harness = makeHarness({ remoteExists: () => Effect.succeed(false) });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const error = yield* launches
+      .launch(
+        launchInput({
+          command: "command:launch:upstream-missing-remote",
+          thread: "thread:launch:upstream-missing-remote",
+          message: "Start from upstream",
+          workspace: { type: "worktree", baseRef: "main", startFromRemote: "upstream" },
+        }),
+      )
+      .pipe(Effect.flip);
+    assert.equal(error._tag, "ThreadLaunchWorkspaceError");
+    assert.equal(
+      error.message,
+      "Cannot start from upstream: the upstream remote is not configured.",
+    );
+    assert.deepEqual(harness.remoteExists.mock.calls[0]?.[0], {
+      cwd: "/repo",
+      remoteName: "upstream",
+    });
+    assert.isEmpty(yield* threads.listProjectThreads({ projectId, includeSubagents: false }));
+    assert.equal(harness.resolveWorktreeBase.mock.calls.length, 0);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("replays an upstream launch without checking the remote again", () =>
+  Effect.gen(function* () {
+    let upstreamConfigured = true;
+    const harness = makeHarness({ remoteExists: () => Effect.succeed(upstreamConfigured) });
+    yield* Effect.gen(function* () {
+      const launches = yield* ThreadLaunch.ThreadLaunchService;
+      const input = launchInput({
+        command: "command:launch:upstream-retry",
+        thread: "thread:launch:upstream-retry",
+        message: "Start from upstream",
+        workspace: { type: "worktree", baseRef: "main", startFromRemote: "upstream" },
+      });
+      const first = yield* launches.launch(input);
+      yield* awaitRunStatus(first.threadId, "starting");
+      upstreamConfigured = false;
+      const retry = yield* launches.launch(input);
+      assert.isTrue(retry.resumed);
+      assert.equal(retry.threadId, first.threadId);
+      assert.equal(harness.remoteExists.mock.calls.length, 1);
+    }).pipe(Effect.provide(harness.layer));
+  }),
+);
+
 it.effect("shows the fetch diagnosis when preparing a worktree from origin fails", () => {
   const detail =
     "Git could not authenticate with the remote. Check Git credentials or SSH access on the server, then retry.";
   const harness = makeHarness({
-    fetchRemote: () =>
+    resolveWorktreeBase: () =>
       Effect.fail(
         new GitCommandError({
           operation: "GitVcsDriver.fetchRemote",

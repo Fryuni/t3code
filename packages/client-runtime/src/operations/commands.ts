@@ -25,6 +25,7 @@ import {
   type ThreadId,
   type ThreadEnvMode,
   type UploadChatAttachment,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { modelSelectionCommandType } from "@t3tools/shared/model";
 import { derivePendingBackgroundWork } from "@t3tools/shared/orchestrationV2PendingBackgroundWork";
@@ -158,6 +159,8 @@ interface StartThreadBootstrap {
     readonly baseBranch: string;
     readonly branch?: string;
     readonly startFromOrigin?: boolean;
+    /** Overrides `startFromOrigin`, which is still sent for servers that only read the boolean. */
+    readonly startFromRemote?: WorktreeStartRemote;
     /** False checks out `baseBranch` itself instead of creating a branch from it. */
     readonly createBranch?: boolean;
   };
@@ -646,9 +649,14 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
             type: "worktree" as const,
             baseRef: prepareWorktree.baseBranch,
             ...(prepareWorktree.branch === undefined ? {} : { branch: prepareWorktree.branch }),
-            ...(prepareWorktree.startFromOrigin === undefined
-              ? {}
-              : { startFromOrigin: prepareWorktree.startFromOrigin }),
+            ...(prepareWorktree.startFromRemote !== undefined
+              ? {
+                  startFromRemote: prepareWorktree.startFromRemote,
+                  startFromOrigin: prepareWorktree.startFromRemote === "origin",
+                }
+              : prepareWorktree.startFromOrigin === undefined
+                ? {}
+                : { startFromOrigin: prepareWorktree.startFromOrigin }),
             ...(prepareWorktree.createBranch === undefined
               ? {}
               : { createBranch: prepareWorktree.createBranch }),

@@ -338,7 +338,7 @@ it.effect("uses stable diagnostics for every parsed non-repository command", () 
   }).pipe(Effect.provide(layer));
 });
 
-it.effect("invalidates origin remote cache when a driver mutation adds origin", () =>
+it.effect("invalidates the remote names cache when a driver mutation adds a remote", () =>
   Effect.gen(function* () {
     const driver = yield* GitVcsDriver.GitVcsDriver;
     const cwd = yield* makeTmpDir();
@@ -348,11 +348,21 @@ it.effect("invalidates origin remote cache when a driver mutation adds origin", 
 
     const before = yield* driver.statusDetailsLocal(cwd);
     assert.equal(before.hasOriginRemote, false);
+    assert.deepEqual(before.remoteNames, []);
+
+    const upstream = yield* makeTmpDir("git-vcs-driver-upstream-");
+    yield* git(upstream, ["init", "--bare"]);
+    yield* driver.ensureRemote({ cwd, preferredName: "upstream", url: upstream });
+
+    const upstreamOnly = yield* driver.statusDetailsLocal(cwd);
+    assert.equal(upstreamOnly.hasOriginRemote, false);
+    assert.deepEqual(upstreamOnly.remoteNames, ["upstream"]);
 
     yield* driver.ensureRemote({ cwd, preferredName: "origin", url: remote });
 
-    const after = yield* driver.statusDetailsLocal(cwd);
-    assert.equal(after.hasOriginRemote, true);
+    const forkStatus = yield* driver.status({ cwd });
+    assert.equal(forkStatus.hasPrimaryRemote, true);
+    assert.deepEqual(forkStatus.remoteNames, ["origin", "upstream"]);
   }).pipe(Effect.provide(TestLayer)),
 );
 
@@ -2351,6 +2361,46 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("refName operations", () => {
+    it.effect.each([false, true])(
+      "puts an exact queried ref before partial matches with a colliding local ref: %s",
+      (hasCollidingLocalRef) =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          yield* initRepoWithCommit(cwd);
+          const remote = yield* makeTmpDir("git-vcs-driver-fork-");
+          yield* git(remote, ["init", "--bare"]);
+          yield* git(cwd, ["remote", "add", "fork", remote]);
+          yield* git(cwd, ["update-ref", "refs/remotes/fork/topic", "HEAD"]);
+          yield* Effect.forEach(
+            Array.from({ length: 12 }, (_, index) => index),
+            (index) => git(cwd, ["branch", `partial-${index}/fork/topic`]),
+          );
+          if (hasCollidingLocalRef) {
+            yield* git(cwd, ["branch", "fork/topic"]);
+          }
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          const unfiltered = yield* driver.listRefs({ cwd });
+
+          const queried = yield* driver.listRefs({ cwd, query: "fork/topic", limit: 10 });
+
+          assert.equal(queried.refs[0]?.name, "fork/topic");
+          assert.equal(queried.refs[0]?.isRemote, !hasCollidingLocalRef);
+          const exactCount = hasCollidingLocalRef ? 2 : 1;
+          const remoteRef = queried.refs[exactCount - 1];
+          assert.equal(remoteRef?.name, "fork/topic");
+          assert.equal(remoteRef?.remoteName, "fork");
+          assert.equal(queried.totalCount, 12 + exactCount);
+          assert.equal(queried.nextCursor, 10);
+          const partialMatches = unfiltered.refs.filter(
+            (ref) => ref.name !== "fork/topic" && ref.name.includes("fork/topic"),
+          );
+          assert.deepEqual(
+            queried.refs.slice(exactCount),
+            partialMatches.slice(0, 10 - exactCount),
+          );
+        }),
+    );
+
     it.effect("optionally includes remote refs that match local branches", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();
@@ -2993,6 +3043,37 @@ it.layer(TestLayer)("GitVcsDriver core integration", (it) => {
   });
 
   describe("remote operations", () => {
+    it.effect(
+      "fails a required branch fetch instead of using a deleted upstream tracking ref",
+      () =>
+        Effect.gen(function* () {
+          const cwd = yield* makeTmpDir();
+          const remote = yield* makeTmpDir("git-vcs-driver-upstream-");
+          const { initialBranch } = yield* initRepoWithCommit(cwd);
+          yield* git(remote, ["init", "--bare"]);
+          yield* git(cwd, ["remote", "add", "upstream", remote]);
+          yield* git(cwd, ["push", "upstream", `${initialBranch}:feature/deleted`]);
+          const driver = yield* GitVcsDriver.GitVcsDriver;
+          yield* driver.fetchRemote({ cwd, remoteName: "upstream", refName: "feature/deleted" });
+          yield* git(remote, ["update-ref", "-d", "refs/heads/feature/deleted"]);
+
+          const error = yield* driver
+            .fetchRemote({
+              cwd,
+              remoteName: "upstream",
+              refName: "upstream/feature/deleted",
+              requireBranch: true,
+            })
+            .pipe(Effect.flip);
+
+          assert.equal(error.detail, "upstream/feature/deleted was not found.");
+          assert.equal(
+            yield* git(cwd, ["rev-parse", "refs/remotes/upstream/feature/deleted"]),
+            yield* git(cwd, ["rev-parse", "HEAD"]),
+          );
+        }),
+    );
+
     it.effect("explains a real fetch failure for a missing local remote", () =>
       Effect.gen(function* () {
         const cwd = yield* makeTmpDir();

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-04
-- Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21)
+- Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
 - Compared with upstream: `pingdotgg/t3code` at `dab26f582` (2026-10-03), after Orchestrator V2
 
 Upstream bases a new worktree branch on the repository's default branch, or on
@@ -56,5 +56,56 @@ mobile app and app.t3.codes, also erases it whenever it saves another override f
 the same project. Keeping unknown keys on the server would break the
 clear-by-omission writes that remove overrides.
 
-Drop this divergence when upstream lets a project choose the base branch for new
-worktrees.
+## Start from upstream
+
+Upstream can only start a new worktree from the local base or from origin. In a fork,
+origin is the fork and `upstream` is the canonical repository, so starting from the
+latest upstream tip means syncing the fork by hand first.
+
+The worktree [launch strategy](../../packages/contracts/src/orchestrationV2.ts) gains a
+tri-state `startFromRemote`: `"origin"`, `"upstream"`, or null for the local ref. It
+is sent alongside `startFromOrigin` rather than replacing it, because older servers
+strip the unknown key and still read the boolean, so a new client keeps origin
+working against them. When both are present `startFromRemote` wins
+([`resolveWorktreeStartRemote`](../../packages/contracts/src/vcs.ts)). The field is
+optional, so scheduled tasks persisted with only the boolean decode unchanged. The
+`newWorktreesStartFromOrigin` setting stays a boolean: upstream is a per-thread choice,
+not a default. Only those two remote names are recognized. Agents pass
+`startFromRemote` on `t3_thread_launch`'s strategy or to `t3_worktree_handoff`.
+
+[`GitWorkflowService.resolveWorktreeBase`](../../apps/server/src/git/GitWorkflowService.ts)
+owns the fetch for UI launches, `t3_thread_launch`, and `t3_worktree_handoff`, so all
+three treat prefixes and missing refs the same way:
+
+- Origin falls back. "Start from origin" is a stored default applied to every
+  repository, so a missing origin remote is skipped and a missing branch starts from
+  the local base with a `warning` on the fetch stage.
+- Upstream fails. Choosing it is explicit, and silently starting fork work from a
+  stale local branch would be wrong, so a missing remote or branch fails the launch.
+  The fetch requires the branch, so a branch deleted upstream is not served from its
+  stale tracking ref. `ThreadLaunchService` also rejects a missing `upstream` remote
+  before creating the thread, so agents and clients get the error immediately rather
+  than as a failed preparation; a missing branch can only be found by fetching, so it
+  still fails during preparation.
+- A base such as `origin/dev` names the remote branch `dev`
+  ([#38](https://github.com/Fryuni/t3code/pull/38)). Upstream's V2 launch looked up
+  `origin/origin/dev`, missed, and passed the name through instead of the fetched
+  commit. The prefix of any configured remote is stripped only when no local branch
+  has that exact name, because `origin/dev` can be a real local branch.
+
+The fetch stage detail (`<remote>/<branch> at <sha>`) and the origin fallback warning
+are not divergences: upstream reported both before Orchestrator V2 and V2 dropped them
+while its contracts and clients still render them.
+
+Clients detect support through the status `remoteNames`, which servers without this
+change never send, and offer upstream only when it is present. A server without it
+would read `startFromOrigin: false` and start from the local ref. The fork's original
+change also refreshed status with `git fetch --all`; that was not ported, because a
+background fetch of every remote on each stale status poll costs too much on
+repositories with many or slow remotes, and the launch fetches the chosen remote
+anyway. Branch searches also list an exact local match, then an exact remote match,
+before partial matches, so the ref a picker selects matches the name typed.
+
+Drop the default base branch when upstream lets a project choose the base branch for
+new worktrees, and the upstream source when upstream can start a new worktree from a
+remote other than origin.

@@ -778,6 +778,27 @@ const GitManagerTestLayer = GitVcsDriver.layer.pipe(
 );
 
 it.layer(GitManagerTestLayer)("GitManager", (it) => {
+  it.effect("local status reports configured remotes before their branches have been fetched", () =>
+    Effect.gen(function* () {
+      const repoDir = yield* makeTempDir("t3code-git-manager-");
+      yield* initRepo(repoDir);
+      yield* Effect.forEach(["origin", "upstream", "mirror"], (remoteName) =>
+        Effect.gen(function* () {
+          const remote = yield* createBareRemote();
+          yield* runGit(repoDir, ["remote", "add", remoteName, remote]);
+        }),
+      );
+      const { manager } = yield* makeManager();
+
+      const local = yield* manager.localStatus({ cwd: repoDir });
+      const status = yield* manager.status({ cwd: repoDir });
+
+      expect(local.remoteNames).toEqual(["mirror", "origin", "upstream"]);
+      expect(status.remoteNames).toEqual(local.remoteNames);
+      expect(local.hasPrimaryRemote).toBe(true);
+    }),
+  );
+
   it.effect("status reports the discovered Forgejo web instance for a separate SSH host", () =>
     Effect.gen(function* () {
       const repoDir = yield* makeTempDir("t3code-git-manager-");
