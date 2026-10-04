@@ -1,6 +1,6 @@
 import { MaterialListRow } from "../../components/MaterialListRow";
 import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
-import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
+import { resolveEnvironmentMachineKind, type WorktreeStartRemote } from "@t3tools/contracts";
 import { LegendList } from "@legendapp/list/react-native";
 import {
   isAtomCommandInterrupted,
@@ -405,12 +405,47 @@ export function NewTaskBranchPickerRouteScreen() {
           title="Create new branch"
           value={flow.createNewBranch}
         />
-        <ToggleRow
-          disabled={!flow.createNewBranch}
-          onValueChange={flow.setStartFromOrigin}
-          title="Start from origin"
-          value={flow.createNewBranch && flow.startFromOrigin}
-        />
+        {flow.hasOriginAndUpstreamRemotes || flow.startFromRemote === "upstream" ? (
+          <>
+            <Text className="px-4 pb-2 pt-3 text-sm text-muted-foreground">Start from</Text>
+            {(
+              [
+                { title: "Off", value: null },
+                { title: "origin", value: "origin" },
+                { title: "upstream", value: "upstream" },
+              ] satisfies ReadonlyArray<{ title: string; value: WorktreeStartRemote }>
+            ).map((option) => (
+              <SelectionRow
+                key={option.title}
+                title={option.title}
+                disabled={
+                  !flow.createNewBranch ||
+                  (option.value === "upstream" && !flow.hasOriginAndUpstreamRemotes)
+                }
+                selected={(flow.createNewBranch ? flow.startFromRemote : null) === option.value}
+                isLast={option.value === "upstream"}
+                onPress={() => {
+                  void Haptics.selectionAsync();
+                  flow.setStartFromRemote(option.value);
+                }}
+              />
+            ))}
+            {flow.createNewBranch &&
+            flow.startFromRemote === "upstream" &&
+            !flow.hasOriginAndUpstreamRemotes ? (
+              <Text className="px-4 py-2 text-sm text-muted-foreground">
+                Starting from upstream requires both origin and upstream remotes.
+              </Text>
+            ) : null}
+          </>
+        ) : (
+          <ToggleRow
+            disabled={!flow.createNewBranch}
+            onValueChange={(value) => flow.setStartFromRemote(value ? "origin" : null)}
+            title="Start from origin"
+            value={flow.createNewBranch && flow.startFromRemote === "origin"}
+          />
+        )}
         {!flow.createNewBranch ? (
           <Text className="px-4 py-2 text-sm text-muted-foreground">
             Select a local branch that is not already checked out.

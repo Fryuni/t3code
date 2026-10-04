@@ -45,6 +45,7 @@ import {
   RuntimeMode,
   TerminalOpenInput,
   type WorktreeSetupSnapshot,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { type EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
 import {
@@ -285,7 +286,7 @@ import {
   preventRepeatedTerminalCloseShortcut,
   preventTerminalCloseShortcut,
 } from "../lib/terminalCloseShortcut";
-import { resolveNewDraftStartFromOrigin } from "../lib/chatThreadActions";
+import { resolveNewDraftStartFromRemote } from "../lib/chatThreadActions";
 import {
   derivePhysicalProjectKey,
   deriveLogicalProjectKeyFromSettings,
@@ -1772,9 +1773,9 @@ export default function ChatView(props: ChatViewProps) {
     useState<DraftThreadEnvMode | null>(null);
   const [pendingServerThreadBranch, setPendingServerThreadBranch] = useState<string | null>();
   const [
-    pendingServerThreadStartFromOriginByThreadId,
-    setPendingServerThreadStartFromOriginByThreadId,
-  ] = useState<Record<string, boolean>>({});
+    pendingServerThreadStartFromRemoteByThreadId,
+    setPendingServerThreadStartFromRemoteByThreadId,
+  ] = useState<Record<string, WorktreeStartRemote>>({});
   const [
     pendingServerThreadCreateNewBranchByThreadId,
     setPendingServerThreadCreateNewBranchByThreadId,
@@ -5836,12 +5837,18 @@ export default function ChatView(props: ChatViewProps) {
     (isLocalDraftThread
       ? (draftThread?.createNewBranch ?? true)
       : (pendingServerThreadCreateNewBranchByThreadId[activeThread?.id ?? ""] ?? true));
-  const startFromOrigin = isLocalDraftThread
-    ? (draftThread?.startFromOrigin ?? false)
+  const pendingServerThreadStartFromRemote =
+    pendingServerThreadStartFromRemoteByThreadId[activeThread?.id ?? ""];
+  const startFromRemote = isLocalDraftThread
+    ? (draftThread?.startFromRemote ?? null)
     : canOverrideServerThreadEnvMode
-      ? (pendingServerThreadStartFromOriginByThreadId[activeThread?.id ?? ""] ??
-        activeProjectSettings.settings.newWorktreesStartFromOrigin)
-      : false;
+      ? pendingServerThreadStartFromRemote !== undefined
+        ? pendingServerThreadStartFromRemote
+        : resolveNewDraftStartFromRemote({
+            envMode,
+            newWorktreesStartFromOrigin: activeProjectSettings.settings.newWorktreesStartFromOrigin,
+          })
+      : null;
   const sendEnvMode = resolveSendEnvMode({
     requestedEnvMode: envMode,
     isGitRepo,
@@ -8013,7 +8020,8 @@ export default function ChatView(props: ChatViewProps) {
                       baseBranch: activeThreadBranch!,
                       requireWorktree: true,
                       branch: buildTemporaryWorktreeBranchName(randomHex),
-                      ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                      startFromRemote,
+                      startFromOrigin: startFromRemote === "origin",
                     },
                     runSetupScript: true,
                   },
@@ -8353,7 +8361,8 @@ export default function ChatView(props: ChatViewProps) {
                       ...(createNewBranch
                         ? {
                             branch: buildTemporaryWorktreeBranchName(randomHex),
-                            ...(startFromOrigin ? { startFromOrigin: true } : {}),
+                            startFromRemote,
+                            startFromOrigin: startFromRemote === "origin",
                           }
                         : {}),
                     },
@@ -8422,7 +8431,7 @@ export default function ChatView(props: ChatViewProps) {
               resolveBackgroundDraftWorkspaceOptions({
                 envMode: sendEnvMode,
                 branch: activeThreadBranch,
-                startFromOrigin,
+                startFromRemote,
                 createNewBranch,
               }),
             ),
@@ -9307,7 +9316,7 @@ export default function ChatView(props: ChatViewProps) {
       if (isLocalDraftThread) {
         setDraftThreadContext(composerDraftTarget, {
           envMode: mode,
-          startFromOrigin: resolveNewDraftStartFromOrigin({
+          startFromRemote: resolveNewDraftStartFromRemote({
             envMode: mode,
             newWorktreesStartFromOrigin: activeProjectSettings.settings.newWorktreesStartFromOrigin,
           }),
@@ -9380,7 +9389,7 @@ export default function ChatView(props: ChatViewProps) {
     if (sendEnvMode !== "local") {
       // The draft is back; switch it to the project checkout and let the next
       // render resend.
-      setDraftThreadContext(composerDraftTarget, { envMode: "local", startFromOrigin: false });
+      setDraftThreadContext(composerDraftTarget, { envMode: "local", startFromRemote: null });
       return;
     }
     setWorkLocallyResendDraftId(null);
@@ -9404,18 +9413,18 @@ export default function ChatView(props: ChatViewProps) {
     }
   };
 
-  const onStartFromOriginChange = (nextStartFromOrigin: boolean) => {
+  const onStartFromRemoteChange = (nextStartFromRemote: WorktreeStartRemote) => {
     if (canOverrideServerThreadEnvMode && activeThread) {
-      setPendingServerThreadStartFromOriginByThreadId((current) =>
-        current[activeThread.id] === nextStartFromOrigin
+      setPendingServerThreadStartFromRemoteByThreadId((current) =>
+        current[activeThread.id] === nextStartFromRemote
           ? current
-          : { ...current, [activeThread.id]: nextStartFromOrigin },
+          : { ...current, [activeThread.id]: nextStartFromRemote },
       );
       return;
     }
     if (isLocalDraftThread) {
       setDraftThreadContext(composerDraftTarget, {
-        startFromOrigin: nextStartFromOrigin,
+        startFromRemote: nextStartFromRemote,
       });
     }
   };
@@ -10141,8 +10150,8 @@ export default function ChatView(props: ChatViewProps) {
                                 onEnvModeChange={onEnvModeChange}
                                 createNewBranch={createNewBranch}
                                 onCreateNewBranchChange={onCreateNewBranchChange}
-                                startFromOrigin={startFromOrigin}
-                                onStartFromOriginChange={onStartFromOriginChange}
+                                startFromRemote={startFromRemote}
+                                onStartFromRemoteChange={onStartFromRemoteChange}
                                 envMode={envMode}
                                 {...(canOverrideServerThreadEnvMode
                                   ? {

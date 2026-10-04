@@ -1925,7 +1925,7 @@ function OpenCommandPaletteDialog(props: {
               branch: currentThread.branch,
               worktreePath: currentThread.worktreePath,
               envMode: currentThread.worktreePath ? "worktree" : "local",
-              startFromOrigin: false,
+              startFromRemote: null,
             },
           );
         },

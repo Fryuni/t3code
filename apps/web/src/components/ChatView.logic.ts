@@ -19,6 +19,7 @@ import {
   type ThreadId,
   type ThreadLinkedPullRequest,
   type TurnId,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { parseScopedThreadKey } from "@t3tools/client-runtime/environment";
 import { resolveAssetUrl } from "@t3tools/client-runtime/state/assets";
@@ -823,13 +824,13 @@ export function resolveSendEnvMode(input: {
 export function resolveBackgroundDraftWorkspaceOptions(input: {
   envMode: DraftThreadEnvMode;
   branch: string | null;
-  startFromOrigin: boolean;
+  startFromRemote: WorktreeStartRemote;
   createNewBranch?: boolean;
 }): {
   envMode: DraftThreadEnvMode;
   branch: string | null;
   worktreePath: null;
-  startFromOrigin: boolean;
+  startFromRemote: WorktreeStartRemote;
   createNewBranch?: boolean;
 } {
   return {
@@ -838,7 +839,7 @@ export function resolveBackgroundDraftWorkspaceOptions(input: {
     branch: input.envMode === "worktree" && input.createNewBranch === false ? null : input.branch,
     worktreePath: null,
     ...(input.createNewBranch !== undefined ? { createNewBranch: input.createNewBranch } : {}),
-    startFromOrigin: input.envMode === "worktree" && input.startFromOrigin,
+    startFromRemote: input.envMode === "worktree" ? input.startFromRemote : null,
   };
 }
 

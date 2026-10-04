@@ -1311,7 +1311,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       worktreePath: null,
       createdAt: "2026-01-01T00:00:00.000Z",
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
       runtimeMode: "approval-required",
       interactionMode: "plan",
     });
@@ -1329,7 +1329,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       worktreePath: null,
       createdAt: "2026-01-01T00:01:00.000Z",
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
       runtimeMode: "approval-required",
       interactionMode: "plan",
       promotedTo: null,
@@ -1350,7 +1350,7 @@ describe("composerDraftStore project draft thread mapping", () => {
         threadId,
         branch: "main",
         envMode: "worktree",
-        startFromOrigin: true,
+        startFromRemote: "origin",
       });
       const sentDraft = store.getDraftSession(draftId)!;
       markPromotedDraftThreadByRef(threadRef);
@@ -1372,7 +1372,7 @@ describe("composerDraftStore project draft thread mapping", () => {
         promotedTo: null,
         branch: "main",
         envMode: "worktree",
-        startFromOrigin: true,
+        startFromRemote: "origin",
       });
       expect(store.getComposerDraft(draftId)?.prompt).toBe("Retry the first task");
     },
@@ -1710,19 +1710,70 @@ describe("composerDraftStore project draft thread mapping", () => {
     }
   });
 
-  it("stores the start-from-origin choice with the draft thread", () => {
-    const store = useComposerDraftStore.getState();
-    store.setProjectDraftThreadId(projectRef, draftId, {
-      threadId,
-      envMode: "worktree",
-      startFromOrigin: true,
+  it.each(["origin", "upstream", null] as const)(
+    "persists the selected starting remote %s through draft edits and rehydration",
+    async (startFromRemote) => {
+      vi.useFakeTimers();
+      try {
+        const store = useComposerDraftStore.getState();
+        store.setProjectDraftThreadId(projectRef, draftId, {
+          threadId,
+          envMode: "worktree",
+          startFromRemote: "origin",
+        });
+        store.setDraftThreadContext(draftId, { startFromRemote });
+        store.setDraftThreadContext(draftId, { branch: "main" });
+        await vi.advanceTimersByTimeAsync(300);
+        resetComposerDraftStore();
+        await useComposerDraftStore.persist.rehydrate();
+        expect(useComposerDraftStore.getState().getDraftThread(draftId)).toMatchObject({
+          envMode: "worktree",
+          branch: "main",
+          startFromRemote,
+        });
+      } finally {
+        vi.useRealTimers();
+      }
+    },
+  );
+
+  it.each([
+    [{ startFromOrigin: true }, "origin"],
+    [{ startFromOrigin: false }, null],
+    [{}, null],
+    [{ startFromOrigin: true, startFromRemote: null }, null],
+    [{ startFromOrigin: true, startFromRemote: "upstream" }, "upstream"],
+  ] as const)("migrates the saved starting remote from %j", async (savedChoice, expectedRemote) => {
+    const options = useComposerDraftStore.persist.getOptions();
+    const migrated = await options.migrate?.(
+      {
+        draftsByThreadKey: {},
+        draftThreadsByThreadKey: {
+          [draftId]: {
+            threadId,
+            environmentId: TEST_ENVIRONMENT_ID,
+            projectId,
+            logicalProjectKey: scopedProjectKey(projectRef),
+            createdAt: "2026-01-01T00:00:00.000Z",
+            runtimeMode: "full-access",
+            interactionMode: "default",
+            branch: "main",
+            worktreePath: null,
+            envMode: "worktree",
+            ...savedChoice,
+          },
+        },
+        logicalProjectDraftThreadKeyByLogicalProjectKey: {
+          [scopedProjectKey(projectRef)]: draftId,
+        },
+      },
+      9,
+    );
+    const hydrated = options.merge?.(migrated, useComposerDraftStore.getInitialState());
+    expect(hydrated?.draftThreadsByThreadKey[draftId]).toMatchObject({
+      startFromRemote: expectedRemote,
     });
-
-    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.startFromOrigin).toBe(true);
-
-    store.setDraftThreadContext(draftId, { startFromOrigin: false });
-
-    expect(useComposerDraftStore.getState().getDraftThread(draftId)?.startFromOrigin).toBe(false);
+    expect(hydrated?.draftThreadsByThreadKey[draftId]).not.toHaveProperty("startFromOrigin");
   });
 
   it("preserves existing branch and worktree when setProjectDraftThreadId receives undefined", () => {
@@ -1785,7 +1836,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: "feature/local-only",
       worktreePath: "/tmp/local-worktree",
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
     });
 
     store.setLogicalProjectDraftThreadId(scopedProjectKey(projectRef), remoteProjectRef, draftId, {
@@ -1798,7 +1849,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: null,
       worktreePath: null,
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
     });
   });
 
@@ -1890,7 +1941,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: "feature/local-only",
       worktreePath: "/tmp/local-worktree",
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
     });
 
     store.setDraftThreadContext(draftId, {
@@ -1903,7 +1954,7 @@ describe("composerDraftStore project draft thread mapping", () => {
       branch: null,
       worktreePath: null,
       envMode: "worktree",
-      startFromOrigin: true,
+      startFromRemote: "origin",
     });
   });
 });
@@ -2472,7 +2523,7 @@ describe("composerDraftStore model seed migration", () => {
     branch: null,
     worktreePath: null,
     envMode: "local",
-    startFromOrigin: false,
+    startFromRemote: null,
     promotedTo: null,
   });
 

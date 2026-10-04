@@ -505,8 +505,8 @@ export async function restoreRejectedQueuedMessage(
               branch: queuedMessage.creation.branch,
               worktreePath: queuedMessage.creation.worktreePath,
               createNewBranch: queuedMessage.creation.createNewBranch ?? true,
-              ...(queuedMessage.creation.startFromOrigin !== undefined
-                ? { startFromOrigin: queuedMessage.creation.startFromOrigin }
+              ...(queuedMessage.creation.startFromRemote !== undefined
+                ? { startFromRemote: queuedMessage.creation.startFromRemote }
                 : {}),
             },
           }
@@ -1038,7 +1038,7 @@ export function useThreadOutboxDrain(): void {
           workspaceMode: creation.workspaceMode,
           branch: creation.branch,
           worktreePath: creation.worktreePath,
-          startFromOrigin: creation.startFromOrigin ?? false,
+          startFromRemote: creation.startFromRemote ?? null,
           createNewBranch: creation.createNewBranch ?? true,
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
         }),

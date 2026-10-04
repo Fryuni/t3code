@@ -13,7 +13,10 @@ an existing worktree, use **New thread in this worktree** from the branch toolba
 To work on an existing branch in a new directory, choose **New worktree**, open
 the branch selector, and turn off **Create new branch**. Select a local branch
 that is not already checked out. **Start from origin** applies only when creating
-a new branch; using an existing branch keeps its current commit.
+a new branch; using an existing branch keeps its current commit. If the repository
+has remotes named `origin` and `upstream`, choose **Off**, **origin**, or **upstream**
+under **Start from remote**. Off uses the selected ref. Choosing a remote fetches
+its latest matching branch; upstream requires that branch to exist on upstream.
 
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.

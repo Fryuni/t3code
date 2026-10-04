@@ -7,6 +7,7 @@ import {
   type ProjectId,
   type ProviderInteractionMode,
   type RuntimeMode,
+  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { assistantCitationsToPlainText } from "@t3tools/shared/assistantCitations";
 
@@ -39,7 +40,7 @@ export interface ProjectThreadStartTurnSpec {
   readonly workspaceMode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
-  readonly startFromOrigin: boolean;
+  readonly startFromRemote: WorktreeStartRemote;
   readonly createNewBranch?: boolean;
   /** Generated temp branch for worktree mode; unused for local mode. */
   readonly worktreeBranchName: string;
@@ -86,7 +87,8 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
               ...(spec.createNewBranch !== false
                 ? {
                     branch: spec.worktreeBranchName,
-                    ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
+                    startFromRemote: spec.startFromRemote,
+                    startFromOrigin: spec.startFromRemote === "origin",
                   }
                 : {}),
             },

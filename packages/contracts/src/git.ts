@@ -214,6 +214,7 @@ const VcsStatusLocalShape = {
   isRepo: Schema.Boolean,
   sourceControlProvider: Schema.optional(SourceControlProviderInfo),
   hasPrimaryRemote: Schema.Boolean,
+  remoteNames: Schema.optional(Schema.Array(TrimmedNonEmptyStringSchema)),
   isDefaultRef: Schema.Boolean,
   refName: Schema.NullOr(TrimmedNonEmptyStringSchema),
   hasWorkingTreeChanges: Schema.Boolean,
