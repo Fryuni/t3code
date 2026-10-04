@@ -313,7 +313,7 @@ const resolveAutoBootstrapWelcomeTargets = Effect.gen(function* () {
   } satisfies AutoBootstrapWelcomeTargets;
 });
 
-const resolveStartupBrowserTarget = Effect.gen(function* () {
+export const resolveStartupBrowserTarget = Effect.gen(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const serverAuth = yield* EnvironmentAuth.EnvironmentAuth;
   const localUrl = `http://localhost:${serverConfig.port}`;
@@ -324,7 +324,7 @@ const resolveStartupBrowserTarget = Effect.gen(function* () {
   const baseTarget = serverConfig.devUrl?.toString() ?? bindUrl;
   return serverConfig.mode === "desktop"
     ? baseTarget
-    : yield* serverAuth.issueStartupPairingUrl(baseTarget);
+    : yield* serverAuth.issueStartupPairingUrl(serverConfig.publicUrl?.toString() ?? baseTarget);
 });
 
 const maybeOpenBrowser = (target: string) =>

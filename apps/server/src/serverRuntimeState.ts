@@ -15,8 +15,9 @@ export const PersistedServerRuntimeState = Schema.Struct({
   port: Schema.Int,
   origin: Schema.String,
   // Present when the server fronts a dev web server (VITE_DEV_SERVER_URL).
-  // Dev is single-origin: browsers must pair through this URL, not `origin`.
+  // Dev is single-origin: without a publicUrl, browsers pair here instead of `origin`.
   devUrl: Schema.optional(Schema.String),
+  publicUrl: Schema.optional(Schema.String),
   startedAt: Schema.String,
   /**
    * Set when the boot-service launcher supervises this server. Lets a CLI
@@ -54,7 +55,7 @@ const runtimeOriginForConfig = (
 };
 
 export const makePersistedServerRuntimeState = (input: {
-  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl">;
+  readonly config: Pick<ServerConfig.ServerConfig["Service"], "host" | "devUrl" | "publicUrl">;
   readonly port: number;
   readonly serviceManaged?: boolean;
 }): Effect.Effect<PersistedServerRuntimeState> =>
@@ -65,6 +66,7 @@ export const makePersistedServerRuntimeState = (input: {
     port: input.port,
     origin: runtimeOriginForConfig(input.config, input.port),
     ...(input.config.devUrl ? { devUrl: input.config.devUrl.toString() } : {}),
+    ...(input.config.publicUrl ? { publicUrl: input.config.publicUrl.toString() } : {}),
     startedAt: DateTime.formatIso(now),
     ...(input.serviceManaged ? { serviceManaged: true } : {}),
   }));

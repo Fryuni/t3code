@@ -604,6 +604,11 @@ export function environmentThemeFileHasColors(file: EnvironmentThemeFile): boole
 export const ServerConfig = Schema.Struct({
   environment: ExecutionEnvironmentDescriptor,
   auth: ServerAuthDescriptor,
+  /**
+   * Origin an external reverse proxy serves this environment on
+   * (`--public-url`). Absent unless the server was started with one.
+   */
+  publicUrl: Schema.optionalKey(TrimmedNonEmptyString),
   cwd: TrimmedNonEmptyString,
   keybindingsConfigPath: TrimmedNonEmptyString,
   keybindings: ResolvedKeybindingsConfig,

@@ -1678,6 +1678,7 @@ const makeWsRpcLayer = (
           return {
             environment,
             auth,
+            ...(config.publicUrl ? { publicUrl: config.publicUrl.toString() } : {}),
             cwd: config.cwd,
             keybindingsConfigPath: config.keybindingsConfigPath,
             keybindings: keybindingsConfig.keybindings,

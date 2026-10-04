@@ -8,11 +8,14 @@ import {
 import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
 import * as Exit from "effect/Exit";
+import * as NodeServices from "@effect/platform-node/NodeServices";
 import * as Fiber from "effect/Fiber";
+import * as Layer from "effect/Layer";
 import * as Ref from "effect/Ref";
 
 import * as GitVcsDriver from "./vcs/GitVcsDriver.ts";
 
+import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
 import * as ServerConfig from "./config.ts";
 import * as ServerRuntimeStartup from "./serverRuntimeStartup.ts";
 
@@ -128,6 +131,33 @@ it.effect("resolveWelcomeBase derives cwd and project name from server config", 
       projectName: "startup-project",
     });
   }),
+);
+
+it.effect("opens the startup pairing link on the public URL of a proxied loopback server", () =>
+  Effect.gen(function* () {
+    const config = yield* ServerConfig.ServerConfig;
+    const target = yield* ServerRuntimeStartup.resolveStartupBrowserTarget.pipe(
+      Effect.provideService(ServerConfig.ServerConfig, {
+        ...config,
+        mode: "web",
+        host: "127.0.0.1",
+        port: 3773,
+        devUrl: undefined,
+        publicUrl: new URL("https://t3.example.com:8443"),
+      }),
+    );
+
+    assert.equal(target, "https://t3.example.com:8443/pair#token=PAIRCODE");
+  }).pipe(
+    Effect.provide(
+      Layer.mergeAll(
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-startup-target-test-" }),
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+          issueStartupPairingUrl: (baseUrl) => Effect.succeed(`${baseUrl}pair#token=PAIRCODE`),
+        }),
+      ).pipe(Layer.provide(NodeServices.layer)),
+    ),
+  ),
 );
 
 it.effect("automatic pull only updates enabled, behind, clean default-branch checkouts", () =>

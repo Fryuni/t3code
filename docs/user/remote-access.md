@@ -108,6 +108,34 @@ tailscale serve --https=443 off
 If that port is already in use, choose another with
 `--tailscale-serve-port`. See `t3 pair --help` for other pairing options.
 
+### External reverse proxy
+
+If your own reverse proxy or tunnel handles TLS and routing, keep the server on
+loopback and give it the address other devices use:
+
+```bash
+t3 serve --host 127.0.0.1 --public-url https://t3.example.com
+```
+
+Use an HTTP or HTTPS origin, optionally with a port, without a path, query,
+fragment, or credentials. T3 Code must be served at the root of that address.
+Forward both HTTP and WebSocket requests to the local server. T3 Code does not
+check that the address works.
+
+Startup pairing links, QR codes, `t3 pair`, and links created in **Settings →
+Connections** use this address. `t3 pair --tailscale` still uses the Tailscale
+address. [app.t3.codes](https://app.t3.codes) needs an `https://` address.
+
+You can set `T3CODE_PUBLIC_URL` in the server's environment instead; the flag
+takes precedence. This is how the desktop app picks it up. A desktop app opened
+from the dock, Start menu, or an app launcher does not read variables exported in
+a shell profile, so set it at the operating-system level or start the app from a
+terminal.
+
+Browsers already paired with the server may need to pair again once after you
+first set the address. To change it, restart the server with the new value. To
+stop using it, remove the flag or variable and restart.
+
 ### Hosted web app
 
 [app.t3.codes](https://app.t3.codes) needs an HTTPS endpoint. It connects directly

@@ -135,6 +135,33 @@ it.layer(NodeServices.layer)("SessionStore.layer", (it) => {
     }),
   );
 
+  it.effect("keeps a proxied loopback server's cookies across internal port changes", () =>
+    Effect.gen(function* () {
+      const cookieNames = (port: number) =>
+        Effect.gen(function* () {
+          const sessions = yield* SessionStore.SessionStore;
+          return { current: sessions.cookieName, legacy: sessions.legacyCookieName };
+        }).pipe(
+          Effect.provide(
+            makeSessionStoreLayer({
+              mode: "web",
+              host: "127.0.0.1",
+              port,
+              publicUrl: new URL("https://t3.example.com"),
+            }),
+          ),
+        );
+
+      const first = yield* cookieNames(3773);
+      const restarted = yield* cookieNames(3774);
+
+      expect(restarted.current).toBe(first.current);
+      // Browsers paired while the server was wildcard-bound behind the same
+      // proxy still hold the bare legacy cookie.
+      expect(first.legacy).toBe("t3_session");
+    }),
+  );
+
   it.effect("keeps reusable dev auth local across disk-backed stores and restarts", () =>
     Effect.gen(function* () {
       const fs = yield* FileSystem.FileSystem;

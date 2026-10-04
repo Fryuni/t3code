@@ -20,7 +20,7 @@ import * as NetService from "@t3tools/shared/Net";
 import { DEFAULT_SIGNAL_EXPORT } from "@t3tools/shared/observability";
 import * as OtelEnvironment from "@t3tools/shared/otelEnvironment";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { deriveServerPaths } from "../config.ts";
+import { deriveServerPaths, PublicUrl } from "../config.ts";
 import { resolveServerConfig } from "./config.ts";
 
 const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
@@ -28,6 +28,25 @@ const deriveExplicitServerPaths = (baseDir: string, devUrl: URL | undefined) =>
 
 const encodeDesktopBootstrap = Schema.encodeEffect(Schema.fromJsonString(DesktopBackendBootstrap));
 const encodeUnknownJson = Schema.encodeEffect(Schema.fromJsonString(Schema.Unknown));
+const decodePublicUrl = Schema.decodeUnknownSync(PublicUrl);
+
+it.each(["https://t3.example.com", "http://192.168.1.42:8080/"])(
+  "accepts public origin %s",
+  (value) => expect(decodePublicUrl(value).toString()).toBe(new URL(value).toString()),
+);
+
+it.each([
+  "not a url",
+  "ftp://t3.example.com",
+  "https://user:password@t3.example.com",
+  "https://user@t3.example.com",
+  "https://:password@t3.example.com",
+  "https://t3.example.com/subpath",
+  "https://t3.example.com/?query=value",
+  "https://t3.example.com/#fragment",
+])("rejects unsupported public URL %s", (value) => {
+  expect(() => decodePublicUrl(value)).toThrow();
+});
 
 const makeDesktopBootstrap = (
   overrides: Partial<DesktopBackendBootstrapValue> = {},
@@ -167,6 +186,43 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
     }),
   );
 
+  it.effect("rejects a T3CODE_PUBLIC_URL that is not a bare origin", () =>
+    Effect.gen(function* () {
+      const baseDir = yield* FileSystem.FileSystem.pipe(
+        Effect.flatMap((fs) => fs.makeTempDirectoryScoped({ prefix: "t3-cli-public-url-" })),
+      );
+      const error = yield* resolveServerConfig(
+        {
+          mode: Option.some("web"),
+          port: Option.some(8788),
+          host: Option.some("127.0.0.1"),
+          baseDir: Option.some(baseDir),
+          cwd: Option.none(),
+          devUrl: Option.none(),
+          noBrowser: Option.none(),
+          bootstrapFd: Option.none(),
+          autoBootstrapProjectFromCwd: Option.none(),
+          logWebSocketEvents: Option.none(),
+          tailscaleServeEnabled: Option.none(),
+          tailscaleServePort: Option.none(),
+        },
+        Option.none(),
+      ).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            ConfigProvider.layer(
+              ConfigProvider.fromEnv({ env: { T3CODE_PUBLIC_URL: "https://t3.example.com/t3" } }),
+            ),
+            NetService.layer,
+          ),
+        ),
+        Effect.flip,
+      );
+
+      expect(String(error)).toContain("Public URL must be an HTTP(S) origin");
+    }),
+  );
+
   it.effect("falls back to effect/config values when flags are omitted", () =>
     Effect.gen(function* () {
       const { join } = yield* Path.Path;
@@ -201,6 +257,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_MODE: "desktop",
                   T3CODE_PORT: "4001",
                   T3CODE_HOST: "0.0.0.0",
+                  T3CODE_PUBLIC_URL: "https://t3.example.com",
                   T3CODE_HOME: baseDir,
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
                   T3CODE_DEV_ALLOWED_ORIGINS:
@@ -225,6 +282,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         baseDir,
         ...derivedPaths,
         host: "0.0.0.0",
+        publicUrl: new URL("https://t3.example.com"),
         staticDir: undefined,
         devUrl: new URL("http://127.0.0.1:5173"),
         devAllowedOrigins: ["https://host.example.ts.net", "https://phone.example.ts.net"],
@@ -253,6 +311,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           mode: Option.some("web"),
           port: Option.some(8788),
           host: Option.some("127.0.0.1"),
+          publicUrl: Option.some(new URL("https://proxy.example.com:8443")),
           baseDir: Option.some(baseDir),
           cwd: Option.none(),
           devUrl: Option.some(new URL("http://127.0.0.1:4173")),
@@ -275,6 +334,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
                   T3CODE_PORT: "4001",
                   T3CODE_HOST: "0.0.0.0",
                   T3CODE_HOME: join(NodeOS.tmpdir(), "ignored-base"),
+                  T3CODE_PUBLIC_URL: "https://ignored.example.com",
                   VITE_DEV_SERVER_URL: "http://127.0.0.1:5173",
                   T3CODE_NO_BROWSER: "false",
                   T3CODE_AUTO_BOOTSTRAP_PROJECT_FROM_CWD: "false",
@@ -296,6 +356,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         baseDir,
         ...derivedPaths,
         host: "127.0.0.1",
+        publicUrl: new URL("https://proxy.example.com:8443"),
         staticDir: undefined,
         devUrl: new URL("http://127.0.0.1:4173"),
         noBrowser: true,
