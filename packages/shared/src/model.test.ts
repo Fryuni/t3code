@@ -11,6 +11,7 @@ import {
   formatModelSlugName,
   getProviderOptionCurrentLabel,
   getModelSelectionBooleanOptionValue,
+  getModelProviderLabel,
   getModelSelectionStringOptionValue,
   getProviderOptionDescriptors,
   readCustomModelEntries,
@@ -221,6 +222,124 @@ describe("descriptor helpers", () => {
       }),
     ).toBe(false);
     expect(modelSelectionsEqual(left, { ...reordered, model: "gpt-5.5" })).toBe(false);
+  });
+});
+
+describe("getModelProviderLabel", () => {
+  it("preserves missing slash qualifiers without changing the friendly name", () => {
+    expect(
+      getModelProviderLabel({
+        slug: "upstream/glm-5.3-flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("upstream");
+    expect(
+      getModelProviderLabel({
+        slug: "partner/glm-5.3-flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("partner");
+    expect(
+      getModelProviderLabel({
+        slug: "loem/upstream/glm-5.3-flash",
+        name: "GLM-5.3-Flash",
+        subProvider: "Loem",
+      }),
+    ).toBe("Loem · upstream");
+    expect(
+      getModelProviderLabel({
+        slug: "loem/azure.glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+        subProvider: "Loem",
+      }),
+    ).toBe("Loem · azure");
+  });
+
+  it("tells a bare model apart from the same model behind slash providers", () => {
+    expect(getModelProviderLabel({ slug: "bar", name: "bar" })).toBeUndefined();
+    expect(getModelProviderLabel({ slug: "bar", name: "bar", subProvider: " " })).toBeUndefined();
+    expect(getModelProviderLabel({ slug: "foo/bar", name: "bar" })).toBe("foo");
+    expect(
+      getModelProviderLabel({
+        slug: "openrouter/deepseek/deepseek-v4-flash",
+        name: "DeepSeek V4 Flash",
+      }),
+    ).toBe("openrouter/deepseek");
+  });
+
+  it("keeps ordinary slash providers and avoids duplicating represented prefixes", () => {
+    expect(
+      getModelProviderLabel({
+        slug: "github-copilot/claude-fable-5",
+        name: "Claude Fable 5",
+        subProvider: "GitHub Copilot",
+      }),
+    ).toBe("GitHub Copilot");
+    expect(
+      getModelProviderLabel({
+        slug: "github-copilot.claude-fable-5",
+        name: "Claude Fable 5",
+        subProvider: "GitHub Copilot",
+      }),
+    ).toBe("GitHub Copilot");
+    expect(
+      getModelProviderLabel({
+        slug: "anthropic/claude-fable-5",
+        name: "Claude Fable 5",
+      }),
+    ).toBe("anthropic");
+  });
+
+  it("infers known or name-backed dot qualifiers without treating version dots as prefixes", () => {
+    expect(
+      getModelProviderLabel({
+        slug: "openai.gpt-5.6-sol",
+        name: "Sol",
+      }),
+    ).toBe("openai");
+    expect(
+      getModelProviderLabel({
+        slug: "gpt-5.6-sol",
+        name: "Sol",
+      }),
+    ).toBeUndefined();
+    expect(
+      getModelProviderLabel({
+        slug: "azure.glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("azure");
+    expect(
+      getModelProviderLabel({
+        slug: "azure.glm-5.3-flash",
+        name: "Friendly GLM",
+        shortName: "GLM-5.3-Flash",
+      }),
+    ).toBe("azure");
+    expect(
+      getModelProviderLabel({
+        slug: "azure.glm-5.3-flash",
+        name: "GLM 5.3 Flash",
+      }),
+    ).toBe("azure");
+    expect(
+      getModelProviderLabel({
+        slug: "openai.glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBe("openai");
+    expect(
+      getModelProviderLabel({
+        slug: "glm-5.3-Flash",
+        name: "glm-5.3-Flash",
+      }),
+    ).toBeUndefined();
+    expect(
+      getModelProviderLabel({
+        slug: "glm-5.3-Flash",
+        name: "GLM Flash",
+      }),
+    ).toBeUndefined();
   });
 });
 
