@@ -28,8 +28,10 @@ export const LSOF_LOCAL_HOST_TOKENS: ReadonlySet<string> = new Set([
   "[::1]",
 ]);
 
-// The whole 127.0.0.0/8 block is loopback, not just 127.0.0.1.
-const LOOPBACK_PREFIX_PATTERN = /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\])(?::|\/|$)/i;
+// The whole 127.0.0.0/8 block is loopback, not just 127.0.0.1. The host ends
+// at a port, path, query, fragment or the end of the input.
+const LOOPBACK_PREFIX_PATTERN =
+  /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\])(?:[:/?#]|$)/i;
 
 export function isLoopbackHost(host: string): boolean {
   if (LOOPBACK_HOSTS.has(host)) return true;
