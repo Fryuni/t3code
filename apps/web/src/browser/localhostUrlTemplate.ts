@@ -10,7 +10,7 @@
  */
 import { isLocalLoopbackHost, normalizeHostname } from "@t3tools/shared/hostClassification";
 
-export const LOCALHOST_URL_TEMPLATE_PORT_PLACEHOLDER = "{port}";
+const LOCALHOST_URL_TEMPLATE_PORT_PLACEHOLDER = "{port}";
 
 const SAMPLE_PORT = 5173;
 
@@ -25,7 +25,7 @@ const substitutePort = (template: string, port: number): URL | null => {
 };
 
 /** Loopback as a dev server prints it: localhost, 127.0.0.0/8, ::1, or the 0.0.0.0/:: any-address. */
-export function isLocalhostAddress(hostname: string): boolean {
+function isLocalhostAddress(hostname: string): boolean {
   const normalized = normalizeHostname(hostname);
   return isLocalLoopbackHost(normalized) || normalized === "0.0.0.0" || normalized === "::";
 }
