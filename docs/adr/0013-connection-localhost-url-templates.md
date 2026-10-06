@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-06
+- Tracking: [Fryuni/t3code#54](https://github.com/Fryuni/t3code/pull/54)
 - Compared with upstream: `pingdotgg/t3code` at `dab26f582` (2026-10-03), after Orchestrator V2
 
 Upstream's preview browser runs only in the desktop app, and
