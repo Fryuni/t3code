@@ -4,6 +4,7 @@ import * as Duration from "effect/Duration";
 import * as Schema from "effect/Schema";
 import * as SchemaTransformation from "effect/SchemaTransformation";
 import {
+  EnvironmentId,
   ForwardCompatibleNullable,
   ForwardCompatibleOptional,
   OmittedWhenNull,
@@ -335,6 +336,16 @@ export const ClientSettingsSchema = Schema.Struct({
    */
   browserLinkTarget: BrowserLinkTarget.pipe(
     Schema.withDecodingDefault(Effect.succeed(DEFAULT_BROWSER_LINK_TARGET)),
+  ),
+  /**
+   * Per connection on this device: where that machine's localhost ports are
+   * reachable, as a URL template containing `{port}`. The preview browser
+   * opens a thread's localhost URLs through it instead of the raw address.
+   * Whether a template is usable (has `{port}`, parses as a URL) is checked
+   * where it is entered and where it is applied, not here.
+   */
+  browserLocalhostUrlTemplates: Schema.Record(EnvironmentId, TrimmedNonEmptyString).pipe(
+    Schema.withDecodingDefault(Effect.succeed({})),
   ),
   /**
    * Whether an agent using a preview pops the floating mini player into
@@ -1735,6 +1746,9 @@ export const ClientSettingsPatch = Schema.Struct({
   browserRecordingShowKeyPresses: Schema.optionalKey(Schema.Boolean),
   browserRecordingShowMousePresses: Schema.optionalKey(Schema.Boolean),
   browserLinkTarget: Schema.optionalKey(BrowserLinkTarget),
+  browserLocalhostUrlTemplates: Schema.optionalKey(
+    Schema.Record(EnvironmentId, TrimmedNonEmptyString),
+  ),
   browserAutoShowFloatingPreview: Schema.optionalKey(Schema.Boolean),
   browserProfiles: Schema.optionalKey(Schema.Array(BrowserProfile)),
   browserDefaultProfileId: Schema.optionalKey(BrowserProfileId),

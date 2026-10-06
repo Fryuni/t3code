@@ -171,6 +171,41 @@ running is left alone.
 For Antigravity's Google callback on a remote host, see
 [remote sign-in](./providers-antigravity.md#sign-in-from-a-remote-device).
 
+## Preview localhost through your own proxy
+
+The desktop app's preview browser reaches another machine's local servers only
+when the connection uses a LAN or tailnet address: **Local servers** and pages
+agents open by port load from that address, so the dev server must listen on
+that network. Over SSH or T3 Connect, and for localhost addresses you type or
+follow, `localhost` does not reach the remote machine.
+
+If that machine's ports are already reachable through a VPN or reverse proxy,
+tell the desktop app where. In **Settings → Connections**, open the connection's
+menu, choose **Localhost previews**, and enter a URL with `{port}` where the port
+number goes:
+
+```text
+https://{port}.dev.example.com
+https://proxy.example.com/ports/{port}
+```
+
+A thread on that connection then opens `http://localhost:5173/app?tab=1` as
+`https://5173.dev.example.com/app?tab=1`, or
+`https://proxy.example.com/ports/5173/app?tab=1`. This covers addresses you type,
+**Local servers**, links you open in the preview browser, and pages agents open.
+`127.0.0.1`, `::1`, `0.0.0.0`, and `[::]` count as localhost; an address without a port
+uses 80 for `http` and 443 for `https`.
+
+The template is saved on this device only, so set it on each desktop app that
+should use it. Remove it in the same place to go back to the default behavior.
+
+- Links, redirects, and scripts inside an open page that point at localhost are
+  not rewritten. Open the address again from the address bar to go through the
+  proxy.
+- The page must work when served from the proxy's address. Dev servers that
+  check the `Host` header or only allow localhost origins, such as Vite's
+  `server.allowedHosts`, may need configuring.
+
 ## Manage or revoke access
 
 On the host, **Settings → Connections** lets authorized administrators create

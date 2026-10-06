@@ -49,7 +49,10 @@ import {
 import * as DateTime from "effect/DateTime";
 import * as Option from "effect/Option";
 
+import { saveBrowserLocalhostUrlTemplate } from "../../browser/localhostUrlTemplateSettings";
+import { isElectron } from "../../env";
 import { useCopyToClipboard } from "../../hooks/useCopyToClipboard";
+import { useClientSettings } from "../../hooks/useSettings";
 import { cn } from "../../lib/utils";
 import { isLocalEnvironmentDisabled } from "../../localEnvironment";
 import { formatElapsedDurationLabel, formatExpiresInLabel } from "../../timestampFormat";
@@ -71,6 +74,7 @@ import {
   useRelativeTimeTick,
 } from "./settingsLayout";
 import { LocalEnvironmentSetting } from "./LocalEnvironmentSetting";
+import { LocalhostPreviewUrlDialog } from "./LocalhostPreviewUrlDialog";
 import { searchableSetting } from "./settingsSearch";
 import { EnvironmentIconMenu } from "./EnvironmentIconPicker";
 import {
@@ -1479,7 +1483,7 @@ function savedBackendStatus(environment: EnvironmentPresentation): {
 /**
  * One added machine in the Environments list. The switch is the main action;
  * the update icon appears only when that machine can take an update; the
- * row menu holds the icon override, trace ID, and removal.
+ * row menu holds the icon override, localhost previews, trace ID, and removal.
  */
 function SavedBackendListRow({
   environment,
@@ -1541,10 +1545,18 @@ function SavedBackendListRow({
     environment.serverConfig ??
       (lastDescriptor === undefined ? null : { environment: lastDescriptor }),
   );
+  // The preview browser only exists in the desktop app, so the template is
+  // only shown and edited there.
+  const savedLocalhostUrlTemplate = useClientSettings(
+    (settings) => settings.browserLocalhostUrlTemplates[environmentId],
+  );
+  const localhostUrlTemplate = isElectron ? savedLocalhostUrlTemplate : undefined;
+  const [localhostPreviewDialogOpen, setLocalhostPreviewDialogOpen] = useState(false);
   const subtitleText = [
     environmentTransportLabel(environment),
     resumingServerUpdate ? "Restarting" : status.text,
     enabled && versionMismatch ? serverVersion : null,
+    localhostUrlTemplate === undefined ? null : "Localhost previews",
   ]
     .filter((value): value is string => value !== null)
     .join(" · ");
@@ -1567,7 +1579,7 @@ function SavedBackendListRow({
     versionMismatch
       ? `\nUpdate available: ${versionMismatch.serverVersion} → ${versionMismatch.clientVersion}`
       : ""
-  }`;
+  }${localhostUrlTemplate === undefined ? "" : `\nLocalhost previews: ${localhostUrlTemplate}`}`;
 
   return (
     <EnvironmentRow
@@ -1662,6 +1674,11 @@ function SavedBackendListRow({
             environmentId={environmentId}
             serverConfig={environment.serverConfig}
           />
+          {isElectron ? (
+            <MenuItem onClick={() => setLocalhostPreviewDialogOpen(true)}>
+              Localhost previews…
+            </MenuItem>
+          ) : null}
           {errorTraceId ? (
             <MenuItem onClick={() => copyTraceId(errorTraceId)}>Copy trace ID</MenuItem>
           ) : null}
@@ -1671,6 +1688,13 @@ function SavedBackendListRow({
           </MenuItem>
         </MenuPopup>
       </Menu>
+      {localhostPreviewDialogOpen ? (
+        <LocalhostPreviewUrlDialog
+          environmentId={environmentId}
+          environmentLabel={environment.label}
+          onClose={() => setLocalhostPreviewDialogOpen(false)}
+        />
+      ) : null}
     </EnvironmentRow>
   );
 }
@@ -2540,6 +2564,11 @@ export function ConnectionsSettings() {
       setSavedBackendError(null);
       const result = await removeEnvironment(environmentId);
       setRemovingSavedEnvironmentId(null);
+      if (result._tag === "Success") {
+        // The localhost preview template is this device's setting for the
+        // connection, so it goes with it.
+        void saveBrowserLocalhostUrlTemplate(environmentId, null).catch(() => undefined);
+      }
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         const message = error instanceof Error ? error.message : "Failed to remove backend.";

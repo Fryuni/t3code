@@ -31,8 +31,11 @@ import { PreviewAutomationHosts } from "./PreviewAutomationHosts";
 const mocks = vi.hoisted(() => ({
   getClientSettings: vi.fn<() => Promise<ClientSettings | null>>(),
   setClientSettings: vi.fn(),
-  open: vi.fn(async (_target: { environmentId: EnvironmentId; input: PreviewOpenInput }) =>
-    AsyncResult.success(snapshot),
+  open: vi.fn(
+    async (_target: {
+      environmentId: EnvironmentId;
+      input: PreviewOpenInput;
+    }): Promise<AtomCommandResult<PreviewSessionSnapshot, Error>> => AsyncResult.success(snapshot),
   ),
   list: vi.fn(async () => AsyncResult.success(emptyList)),
   resize: vi.fn(),
@@ -208,6 +211,42 @@ describe("PreviewAutomationHosts open", () => {
     expect(mocks.open).not.toHaveBeenCalled();
     expect(readThreadPreviewState(threadRef).snapshot).toBeNull();
     expect(mocks.setClientSettings).not.toHaveBeenCalled();
+  });
+
+  it("opens a localhost URL through the connection's template saved before launch", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    mocks.getClientSettings.mockResolvedValueOnce({
+      ...savedSettings,
+      browserLocalhostUrlTemplates: { [environmentId]: "https://{port}.devbox.example.dev" },
+    });
+    // Stop right after `preview.open`: the URL it was given is what matters.
+    mocks.open.mockResolvedValueOnce(AsyncResult.failure(Cause.fail(new Error("Open stopped"))));
+    const response = deferred<PreviewAutomationResponse>();
+    mocks.respond.mockImplementationOnce(async ({ input }) => response.resolve(input));
+
+    await act(async () => {
+      appAtomRegistry.set(
+        requestsAtom,
+        AsyncResult.success({
+          ...requestEvent,
+          request: {
+            ...requestEvent.request,
+            input: { open: false, reuseExistingTab: false, url: "http://localhost:5173/app" },
+          },
+        }),
+      );
+      await response.promise;
+    });
+
+    expect(mocks.open).toHaveBeenCalledExactlyOnceWith({
+      environmentId,
+      input: {
+        threadId,
+        url: "https://5173.devbox.example.dev/app",
+        viewport,
+        profileId: "work",
+      },
+    });
   });
 });
 

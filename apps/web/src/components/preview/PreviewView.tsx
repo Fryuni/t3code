@@ -30,7 +30,10 @@ import {
   updatePreviewServerSnapshot,
   useThreadPreviewState,
 } from "~/previewStateStore";
-import { resolveDiscoveredServerUrl } from "~/browser/browserTargetResolver";
+import {
+  resolveDiscoveredServerUrl,
+  resolveExplicitPreviewUrl,
+} from "~/browser/browserTargetResolver";
 import { useEnvironmentHttpBaseUrl } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -213,7 +216,8 @@ export function PreviewView({
     async (next: string) => {
       try {
         const normalized = normalizePreviewUrl(next);
-        if (await navigateToResolvedUrl(normalized)) {
+        const resolved = resolveExplicitPreviewUrl(threadRef.environmentId, normalized);
+        if (await navigateToResolvedUrl(resolved)) {
           recordVisitForThread(threadRef, normalized);
         }
       } catch {
