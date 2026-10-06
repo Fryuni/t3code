@@ -189,15 +189,23 @@ export function PreviewView({
     // threadKey stands in for threadRef, whose identity churns on every thread update.
   }, [environmentHostname, latestHistoryUrl, navTitle, navUrl, threadKey]);
 
+  /**
+   * Opens the URL `resolveUrl` returns once client settings, which hold the
+   * connection's localhost template, have loaded; a cold start may still be
+   * reading them. An open tab navigates without the template if they can't be
+   * read. A new tab needs them for its defaults and reports the read error.
+   */
   const navigateToResolvedUrl = useCallback(
-    async (resolvedUrl: string) => {
+    async (resolveUrl: () => string) => {
       if (runtimeTabId && previewBridge) {
+        await ensureClientSettingsHydrated().catch(() => undefined);
+        const resolvedUrl = resolveUrl();
         // The bridge mirrors the resolved URL back to the server.
         await previewBridge.navigate(runtimeTabId, resolvedUrl);
         rememberPreviewUrl(threadRef, resolvedUrl);
         return true;
       }
-      const result = await openPreviewSession({ openPreview: open, threadRef, url: resolvedUrl });
+      const result = await openPreviewSession({ openPreview: open, threadRef, url: resolveUrl });
       if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
         const error = squashAtomCommandFailure(result);
         if (error instanceof BrowserSettingsReadError) {
@@ -217,11 +225,10 @@ export function PreviewView({
     async (next: string) => {
       try {
         const normalized = normalizePreviewUrl(next);
-        // The connection's localhost template is a client setting, which may
-        // still be loading on a cold start. If it can't be read, open untemplated.
-        await ensureClientSettingsHydrated().catch(() => undefined);
-        const resolved = resolveExplicitPreviewUrl(threadRef.environmentId, normalized);
-        if (await navigateToResolvedUrl(resolved)) {
+        const opened = await navigateToResolvedUrl(() =>
+          resolveExplicitPreviewUrl(threadRef.environmentId, normalized),
+        );
+        if (opened) {
           recordVisitForThread(threadRef, normalized);
         }
       } catch {
@@ -234,9 +241,10 @@ export function PreviewView({
   const handleOpenServerUrl = useCallback(
     async (next: string) => {
       try {
-        await ensureClientSettingsHydrated().catch(() => undefined);
-        const resolved = resolveDiscoveredServerUrl(threadRef.environmentId, next);
-        if (await navigateToResolvedUrl(resolved)) {
+        const opened = await navigateToResolvedUrl(() =>
+          resolveDiscoveredServerUrl(threadRef.environmentId, next),
+        );
+        if (opened) {
           recordVisitForThread(threadRef, next);
         }
       } catch {

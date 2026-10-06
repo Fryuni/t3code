@@ -1,30 +1,22 @@
-import { EnvironmentId, ThreadId, type DiscoveredLocalServer } from "@t3tools/contracts";
-import * as Cause from "effect/Cause";
+import {
+  DEFAULT_CLIENT_SETTINGS,
+  EnvironmentId,
+  ThreadId,
+  type DiscoveredLocalServer,
+  type PreviewSessionSnapshot,
+} from "@t3tools/contracts";
 import { AsyncResult } from "effect/unstable/reactivity";
-import { describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+
+import * as browserDefaults from "~/browser/browserDefaults";
+import { getBrowserDefaults } from "~/browser/browserDefaults";
+import { __setClientSettingsForTests } from "~/hooks/useSettings";
+import { resetPreviewStateForTests } from "~/previewStateStore";
 
 import { openDiscoveredPort } from "./openDiscoveredPort";
 
-const mocks = vi.hoisted(() => ({
-  templates: {} as Record<string, string>,
-  ensureClientSettingsHydrated: vi.fn(async () => undefined),
-  openPreviewSession: vi.fn(),
-}));
-
-vi.mock("~/hooks/useSettings", () => ({
-  getClientSettings: () => ({ browserLocalhostUrlTemplates: mocks.templates }),
-  ensureClientSettingsHydrated: mocks.ensureClientSettingsHydrated,
-}));
-vi.mock("~/state/session", () => ({
-  readPreparedConnection: () => ({ httpBaseUrl: "http://127.0.0.1:41234/" }),
-}));
-vi.mock("./openPreviewSession", () => ({ openPreviewSession: mocks.openPreviewSession }));
-vi.mock("~/browserHistoryStore", () => ({ recordVisitForThread: vi.fn() }));
-vi.mock("~/rightPanelStore", () => ({
-  useRightPanelStore: { getState: () => ({ openBrowser: vi.fn() }) },
-}));
-
 const environmentId = EnvironmentId.make("environment-1");
+const threadRef = { environmentId, threadId: ThreadId.make("thread-1") };
 const port: DiscoveredLocalServer = {
   host: "localhost",
   port: 5173,
@@ -33,25 +25,46 @@ const port: DiscoveredLocalServer = {
   pid: 1234,
   terminal: null,
 };
+const snapshot: PreviewSessionSnapshot = {
+  threadId: threadRef.threadId,
+  tabId: "tab-1",
+  navStatus: { _tag: "Loading", url: "https://5173.devbox.example.dev/app", title: "" },
+  canGoBack: false,
+  canGoForward: false,
+  updatedAt: "2026-10-06T12:00:00.000Z",
+};
+
+beforeEach(() => {
+  resetPreviewStateForTests();
+  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+});
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 describe("openDiscoveredPort", () => {
-  it("opens through a localhost template that finishes loading after the click", async () => {
-    mocks.ensureClientSettingsHydrated.mockImplementationOnce(async () => {
-      mocks.templates = { [environmentId]: "https://{port}.devbox.example.dev" };
-    });
-    // Stop right after the open: the URL it was given is what matters.
-    mocks.openPreviewSession.mockResolvedValueOnce(
-      AsyncResult.failure(Cause.fail(new Error("Open stopped"))),
-    );
+  it("opens through a localhost template that a retried settings read loads", async () => {
+    vi.spyOn(browserDefaults, "resolveBrowserDefaults")
+      .mockRejectedValueOnce(new Error("Settings read failed"))
+      .mockImplementationOnce(async () => {
+        __setClientSettingsForTests({
+          ...DEFAULT_CLIENT_SETTINGS,
+          browserLocalhostUrlTemplates: { [environmentId]: "https://{port}.devbox.example.dev" },
+        });
+        return getBrowserDefaults();
+      });
+    const openPreview = vi.fn(async () => AsyncResult.success(snapshot));
+    const input = { threadRef, port, openPreview };
 
-    await openDiscoveredPort({
-      threadRef: { environmentId, threadId: ThreadId.make("thread-1") },
-      port,
-      openPreview: vi.fn(),
-    });
+    await expect(openDiscoveredPort(input)).resolves.toMatchObject({ _tag: "Failure" });
+    expect(openPreview).not.toHaveBeenCalled();
 
-    expect(mocks.openPreviewSession).toHaveBeenCalledWith(
-      expect.objectContaining({ url: "https://5173.devbox.example.dev/app" }),
+    await expect(openDiscoveredPort(input)).resolves.toMatchObject({ _tag: "Success" });
+    expect(openPreview).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        input: expect.objectContaining({ url: "https://5173.devbox.example.dev/app" }),
+      }),
     );
   });
 });
