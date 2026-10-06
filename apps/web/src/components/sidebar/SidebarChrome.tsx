@@ -4,6 +4,7 @@ import { memo, useCallback } from "react";
 import { Link, useLocation, useNavigate } from "@tanstack/react-router";
 
 import { useEnvironmentIdentificationMode } from "../../hooks/useSettings";
+import { useOpenPullRequestList } from "../../hooks/useOpenPullRequestList";
 import { cn } from "../../lib/utils";
 import { usePullRequestsSupported } from "../../state/environments";
 import { T3Wordmark } from "../T3Wordmark";
@@ -23,7 +24,6 @@ import {
   useSidebar,
 } from "../ui/sidebar";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
-import { readPullRequestListPreferences } from "../pullRequest/pullRequestListPreferences";
 import { isSidebarUtilityPage, useNavigateToMainApp } from "./mainAppLocation";
 import { SidebarThreadUndoNotice } from "./SidebarThreadUndoNotice";
 import { SidebarProviderUpdatePill } from "./SidebarProviderUpdatePill";
@@ -105,22 +105,33 @@ function SidebarUtilityItem({
   icon,
   label,
   onClick,
+  disabled,
+  description,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
+  disabled?: boolean;
+  description?: string | null;
 }) {
+  const button = (
+    <SidebarMenuButton aria-label={label} onClick={onClick} disabled={disabled} size="icon">
+      {icon}
+    </SidebarMenuButton>
+  );
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
-        <TooltipTrigger
-          render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} size="icon">
-              {icon}
-            </SidebarMenuButton>
-          }
-        />
-        <TooltipPopup side="top">{label}</TooltipPopup>
+        {disabled && description ? (
+          <TooltipTrigger
+            render={<span className="inline-flex" tabIndex={0} role="group" aria-label={label} />}
+          >
+            {button}
+          </TooltipTrigger>
+        ) : (
+          <TooltipTrigger render={button} />
+        )}
+        <TooltipPopup side="top">{description ?? label}</TooltipPopup>
       </Tooltip>
     </SidebarMenuItem>
   );
@@ -128,6 +139,11 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
+  const {
+    openPullRequestList,
+    disabled: pullRequestsDisabled,
+    disabledReason: pullRequestsDisabledReason,
+  } = useOpenPullRequestList();
   const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
   const isOnUtilityPage = useLocation({
@@ -141,11 +157,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   }, [isMobile, setOpenMobile]);
   const handlePullRequestsClick = useCallback(() => {
     closeMobileSidebar();
-    void navigate({
-      to: "/pull-requests",
-      search: readPullRequestListPreferences(),
-    });
-  }, [closeMobileSidebar, navigate]);
+    void openPullRequestList();
+  }, [closeMobileSidebar, openPullRequestList]);
   const handleSettingsClick = useCallback(() => {
     closeMobileSidebar();
     void navigate({ to: "/settings" });
@@ -184,6 +197,8 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               icon={<PullRequestGlyph.pullRequest />}
               label="Pull Requests"
               onClick={handlePullRequestsClick}
+              disabled={pullRequestsDisabled}
+              description={pullRequestsDisabledReason}
             />
           ) : null}
           <SidebarUtilityItem

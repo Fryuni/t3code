@@ -219,7 +219,7 @@ import {
 } from "../sidebarProjectGrouping";
 import type { Project } from "../types";
 import { PullRequestGlyph } from "~/components/pullRequest/pullRequestIcons";
-import { readPullRequestListPreferences } from "~/components/pullRequest/pullRequestListPreferences";
+import { useOpenPullRequestList } from "~/hooks/useOpenPullRequestList";
 
 const EMPTY_BROWSE_ENTRIES: FilesystemBrowseResult["entries"] = [];
 
@@ -693,6 +693,11 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
+  const {
+    openPullRequestList,
+    disabled: pullRequestsDisabled,
+    disabledReason: pullRequestsDisabledReason,
+  } = useOpenPullRequestList();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
@@ -2237,9 +2242,11 @@ function OpenCommandPaletteDialog(props: {
       value: "action:pull-requests",
       searchTerms: ["pull requests", "prs", "pr", "github", "review", "merge", "branch"],
       title: "Open pull requests",
+      disabled: pullRequestsDisabled,
+      description: pullRequestsDisabledReason ?? undefined,
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
-        await navigate({ to: "/pull-requests", search: readPullRequestListPreferences() });
+        await openPullRequestList();
       },
     });
   }
