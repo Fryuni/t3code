@@ -33,10 +33,16 @@ describe("normalizePreviewUrl", () => {
     expect(normalizePreviewUrl("127.0.0.2/app")).toBe("http://127.0.0.2/app");
     expect(normalizePreviewUrl("127.0.0.2?x=1")).toBe("http://127.0.0.2/?x=1");
     expect(normalizePreviewUrl("localhost#top")).toBe("http://localhost/#top");
+    expect(normalizePreviewUrl("localhost:3000/callback?redirect_uri=https://example.com")).toBe(
+      "http://localhost:3000/callback?redirect_uri=https://example.com",
+    );
   });
 
   it("treats bare public hosts as https", () => {
     expect(normalizePreviewUrl("example.com")).toBe("https://example.com/");
+    expect(normalizePreviewUrl("example.com/login?next=https://example.org")).toBe(
+      "https://example.com/login?next=https://example.org",
+    );
   });
 
   it("respects explicit schemes", () => {

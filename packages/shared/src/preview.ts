@@ -76,7 +76,8 @@ export function normalizePreviewUrl(rawUrl: string): string {
     throw new PreviewUrlNormalizationError({ inputLength: rawUrl.length, reason: "empty" });
   }
   const useHttp = LOOPBACK_PREFIX_PATTERN.test(trimmed);
-  const candidate = trimmed.includes("://")
+  // Only a scheme at the start counts: a query may carry its own URL.
+  const candidate = /^[A-Za-z][A-Za-z\d+.-]*:\/\//.test(trimmed)
     ? trimmed
     : `${useHttp ? "http" : "https"}://${trimmed}`;
   let parsed: URL;
