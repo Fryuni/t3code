@@ -853,6 +853,16 @@ export const SETTINGS_SEARCH_ITEMS = [
     searchTerms: ["add pair backend host code ssh config agent tunnel saved t3 connect"],
   },
   {
+    id: "localhost-preview-url",
+    title: "Localhost previews",
+    to: "/settings/connections",
+    targetId: "remote-environments",
+    searchTerms: [
+      "preview browser localhost port proxy url template rewrite subdomain dev server remote ssh vpn",
+    ],
+    desktopOnly: true,
+  },
+  {
     id: "load-balancing",
     title: "Load balancing",
     to: "/settings/connections",

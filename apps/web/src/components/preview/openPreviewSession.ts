@@ -23,7 +23,12 @@ interface OpenPreviewSessionInput<E> {
     readonly input: PreviewOpenInput;
   }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
   threadRef: ScopedThreadRef;
-  url?: string;
+  /**
+   * The URL to open, or a function returning it. A function runs after client
+   * settings load, for URLs that depend on them such as a connection's
+   * localhost template.
+   */
+  url?: string | (() => string);
   /** Overrides the configured default; automation passes an explicit size. */
   viewport?: PreviewViewportSetting;
   /** Overrides the configured default profile. */
@@ -41,11 +46,12 @@ export async function openPreviewSession<E>(
   if (defaults instanceof BrowserSettingsReadError) {
     return AsyncResult.failure(Cause.fail(defaults));
   }
+  const url = typeof input.url === "function" ? input.url() : input.url;
   const result = await input.openPreview({
     environmentId: input.threadRef.environmentId,
     input: {
       threadId: input.threadRef.threadId,
-      ...(input.url === undefined ? {} : { url: input.url }),
+      ...(url === undefined ? {} : { url }),
       viewport: input.viewport ?? browserDefaultOpenViewport(defaults),
       profileId: input.profileId ?? browserDefaultOpenProfileId(defaults),
     },
@@ -55,10 +61,10 @@ export async function openPreviewSession<E>(
   }
   const snapshot = result.value;
   applyPreviewServerSnapshot(input.threadRef, snapshot);
-  if (input.url !== undefined) {
+  if (url !== undefined) {
     rememberPreviewUrl(
       input.threadRef,
-      snapshot.navStatus._tag === "Idle" ? input.url : snapshot.navStatus.url,
+      snapshot.navStatus._tag === "Idle" ? url : snapshot.navStatus.url,
     );
   }
   return result;

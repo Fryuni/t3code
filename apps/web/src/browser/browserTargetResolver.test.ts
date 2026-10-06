@@ -2,11 +2,18 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 const readPreparedConnection = vi.fn();
+const settings = vi.hoisted(() => ({
+  browserLocalhostUrlTemplates: {} as Record<string, string>,
+}));
 
 vi.mock("~/state/session", () => ({ readPreparedConnection }));
+vi.mock("~/hooks/useSettings", () => ({ getClientSettings: () => settings }));
 
 describe("browser target resolver", () => {
-  beforeEach(() => readPreparedConnection.mockReset());
+  beforeEach(() => {
+    readPreparedConnection.mockReset();
+    settings.browserLocalhostUrlTemplates = {};
+  });
 
   it("maps environment ports onto a private network host", async () => {
     readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://192.168.1.25:3773" });
@@ -215,6 +222,132 @@ describe("browser target resolver", () => {
   it("leaves malformed input for the normal navigation error path", async () => {
     const { resolveDiscoveredServerUrl } = await import("./browserTargetResolver");
     expect(resolveDiscoveredServerUrl(EnvironmentId.make("environment-1"), "   ")).toBe("   ");
+  });
+
+  describe("with a localhost URL template", () => {
+    const environmentId = EnvironmentId.make("environment-1");
+
+    beforeEach(() => {
+      settings.browserLocalhostUrlTemplates = {
+        [environmentId]: "https://{port}.devbox.example.dev",
+      };
+    });
+
+    it("opens environment ports through the template instead of refusing a relay host", async () => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "https://relay.example.com" });
+      const { resolveBrowserNavigationTarget } = await import("./browserTargetResolver");
+      expect(
+        resolveBrowserNavigationTarget(environmentId, {
+          kind: "environment-port",
+          port: 5173,
+          path: "/app?mode=test#top",
+        }),
+      ).toEqual({
+        requestedUrl: "http://localhost:5173/app?mode=test#top",
+        resolvedUrl: "https://5173.devbox.example.dev/app?mode=test#top",
+        resolutionKind: "localhost-template",
+        environmentId: "environment-1",
+      });
+    });
+
+    it("prefers the template over the SSH loopback mapping", async () => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://127.0.0.1:41234" });
+      const { resolveBrowserNavigationTarget, resolveDiscoveredServerUrl } =
+        await import("./browserTargetResolver");
+      expect(resolveDiscoveredServerUrl(environmentId, "0.0.0.0:3000/app")).toBe(
+        "https://3000.devbox.example.dev/app",
+      );
+      expect(
+        resolveBrowserNavigationTarget(environmentId, { kind: "environment-port", port: 3000 }),
+      ).toMatchObject({
+        requestedUrl: "http://localhost:3000/",
+        resolvedUrl: "https://3000.devbox.example.dev/",
+        resolutionKind: "localhost-template",
+      });
+    });
+
+    it("prefers the template over the private network host mapping", async () => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://192.168.1.25:3773" });
+      const { resolveDiscoveredServerUrl } = await import("./browserTargetResolver");
+      expect(resolveDiscoveredServerUrl(environmentId, "localhost:3000/app")).toBe(
+        "https://3000.devbox.example.dev/app",
+      );
+    });
+
+    it.each([
+      [
+        "http://localhost:5173/dashboard?mode=test#results",
+        "https://5173.devbox.example.dev/dashboard?mode=test#results",
+      ],
+      ["localhost:3000/app", "https://3000.devbox.example.dev/app"],
+      ["127.0.0.2/app", "https://80.devbox.example.dev/app"],
+      ["http://user:p%40ss@127.0.0.1:5999/", "https://user:p%40ss@5999.devbox.example.dev/"],
+    ])("rewrites the explicit localhost URL %s", async (url, resolvedUrl) => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://100.65.180.100:3773" });
+      const { resolveBrowserNavigationTarget, resolveExplicitPreviewUrl } =
+        await import("./browserTargetResolver");
+      expect(resolveBrowserNavigationTarget(environmentId, { kind: "url", url })).toEqual({
+        requestedUrl: url,
+        resolvedUrl,
+        resolutionKind: "localhost-template",
+        environmentId: "environment-1",
+      });
+      expect(resolveExplicitPreviewUrl(environmentId, url)).toBe(resolvedUrl);
+    });
+
+    it("leaves non-localhost explicit URLs untouched", async () => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://100.65.180.100:3773" });
+      const { resolveBrowserNavigationTarget, resolveExplicitPreviewUrl } =
+        await import("./browserTargetResolver");
+      expect(
+        resolveBrowserNavigationTarget(environmentId, {
+          kind: "url",
+          url: "https://example.com/docs",
+        }),
+      ).toMatchObject({ resolvedUrl: "https://example.com/docs", resolutionKind: "direct" });
+      expect(resolveExplicitPreviewUrl(environmentId, "http://192.168.1.5:3000/")).toBe(
+        "http://192.168.1.5:3000/",
+      );
+    });
+
+    it("does not rewrite URLs on the connection's own server", async () => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://127.0.0.1:41234" });
+      const { resolveDiscoveredServerUrl, resolveExplicitPreviewUrl } =
+        await import("./browserTargetResolver");
+      expect(resolveExplicitPreviewUrl(environmentId, "http://127.0.0.1:41234/asset")).toBe(
+        "http://127.0.0.1:41234/asset",
+      );
+      expect(resolveDiscoveredServerUrl(environmentId, "http://127.0.0.1:41234/asset")).toBe(
+        "http://localhost:41234/asset",
+      );
+    });
+
+    it("applies only to the connection it was saved for", async () => {
+      readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://192.168.1.25:3773" });
+      const { resolveBrowserNavigationTarget, resolveExplicitPreviewUrl } =
+        await import("./browserTargetResolver");
+      const otherEnvironmentId = EnvironmentId.make("environment-2");
+      expect(resolveExplicitPreviewUrl(otherEnvironmentId, "http://localhost:5173/")).toBe(
+        "http://localhost:5173/",
+      );
+      expect(
+        resolveBrowserNavigationTarget(otherEnvironmentId, {
+          kind: "environment-port",
+          port: 5173,
+        }),
+      ).toMatchObject({
+        resolvedUrl: "http://192.168.1.25:5173/",
+        resolutionKind: "direct-private-network",
+      });
+    });
+  });
+
+  it("returns explicit preview URLs unchanged without a template", async () => {
+    readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://100.65.180.100:3773" });
+    const { resolveExplicitPreviewUrl } = await import("./browserTargetResolver");
+    for (const url of ["localhost:3000/app", "http://127.0.0.1:5999/", "https://example.com/"]) {
+      expect(resolveExplicitPreviewUrl(EnvironmentId.make("environment-1"), url)).toBe(url);
+    }
   });
 
   it("classifies exact private IPv4 and IPv6 boundaries", async () => {

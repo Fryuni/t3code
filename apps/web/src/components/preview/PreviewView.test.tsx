@@ -37,6 +37,8 @@ const mocks = vi.hoisted(() => ({
   recordingTabIds: new Set<string>(),
   recordingRuntimeTabId: null as string | null,
   recordVisitForThread: vi.fn(),
+  localhostUrlTemplates: {} as Record<string, string>,
+  ensureClientSettingsHydrated: vi.fn(async (): Promise<void> => undefined),
 }));
 
 const EMPTY_HISTORY: never[] = [];
@@ -62,6 +64,18 @@ vi.mock("~/state/session", async (importOriginal) => ({
   ...(await importOriginal<typeof import("~/state/session")>()),
   readPreparedConnection: mocks.readPreparedConnection,
 }));
+
+vi.mock("~/hooks/useSettings", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("~/hooks/useSettings")>();
+  return {
+    ...actual,
+    getClientSettings: () => ({
+      ...actual.getClientSettings(),
+      browserLocalhostUrlTemplates: mocks.localhostUrlTemplates,
+    }),
+    ensureClientSettingsHydrated: mocks.ensureClientSettingsHydrated,
+  };
+});
 
 // Stubbed at the direct dependency rather than letting the real module pull in
 // `useSettings` -> `state/server`, which would drag the whole settings and
@@ -354,6 +368,7 @@ describe("PreviewView navigation", () => {
     mocks.recordingTabIds = new Set();
     mocks.recordingRuntimeTabId = null;
     mocks.recordVisitForThread.mockClear();
+    mocks.localhostUrlTemplates = {};
   });
 
   it("shows the cursor in a replacement browser while the old instance still records", async () => {
@@ -462,6 +477,37 @@ describe("PreviewView navigation", () => {
         "http://localhost:3000/admin",
       );
     });
+  });
+
+  it("opens a typed localhost URL through a template that finishes loading after submit", async () => {
+    mocks.ensureClientSettingsHydrated.mockImplementationOnce(async () => {
+      mocks.localhostUrlTemplates = { "environment-1": "https://{port}.devbox.example.dev" };
+    });
+    renderToStaticMarkup(
+      <PreviewView
+        threadRef={{
+          environmentId: EnvironmentId.make("environment-1"),
+          threadId: ThreadId.make("thread-1"),
+        }}
+        tabId="tab-1"
+        visible
+      />,
+    );
+
+    mocks.submittedUrl?.("localhost:5173/app");
+
+    await vi.waitFor(() =>
+      expect(mocks.navigate).toHaveBeenCalledWith(
+        TEST_RUNTIME_TAB_ID,
+        "https://5173.devbox.example.dev/app",
+      ),
+    );
+    await vi.waitFor(() =>
+      expect(mocks.recordVisitForThread).toHaveBeenCalledWith(
+        expect.objectContaining({ threadId: expect.anything() }),
+        "http://localhost:5173/app",
+      ),
+    );
   });
 
   it("maps an empty-state localhost server onto the WSL host", async () => {

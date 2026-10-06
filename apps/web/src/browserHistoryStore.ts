@@ -7,7 +7,7 @@ import { useShallow } from "zustand/react/shallow";
 import { normalizePreviewUrl } from "@t3tools/shared/preview";
 import { readPreparedConnection } from "~/state/session";
 
-import { isLocalLoopbackHost, normalizeHostname } from "./browser/browserTargetResolver";
+import { isLocalLoopbackHost, normalizeHostname } from "@t3tools/shared/hostClassification";
 import { resolveStorage } from "./lib/storage";
 
 export type BrowserHistoryEntry = { url: string; lastVisitedAt: number; title?: string };

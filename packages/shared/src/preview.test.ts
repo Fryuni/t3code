@@ -30,10 +30,23 @@ describe("normalizePreviewUrl", () => {
   it("treats bare loopback hosts as http", () => {
     expect(normalizePreviewUrl("localhost:5173")).toBe("http://localhost:5173/");
     expect(normalizePreviewUrl("127.0.0.1:3000")).toBe("http://127.0.0.1:3000/");
+    expect(normalizePreviewUrl("127.0.0.2/app")).toBe("http://127.0.0.2/app");
+    expect(normalizePreviewUrl("127.0.0.2?x=1")).toBe("http://127.0.0.2/?x=1");
+    expect(normalizePreviewUrl("localhost#top")).toBe("http://localhost/#top");
+    expect(normalizePreviewUrl("127.1/app")).toBe("http://127.0.0.1/app");
+    expect(normalizePreviewUrl("0x7f000001:3000")).toBe("http://127.0.0.1:3000/");
+    expect(normalizePreviewUrl("[::1]:5173")).toBe("http://[::1]:5173/");
+    expect(normalizePreviewUrl("0.0.0.0:8080")).toBe("http://0.0.0.0:8080/");
+    expect(normalizePreviewUrl("localhost:3000/callback?redirect_uri=https://example.com")).toBe(
+      "http://localhost:3000/callback?redirect_uri=https://example.com",
+    );
   });
 
   it("treats bare public hosts as https", () => {
     expect(normalizePreviewUrl("example.com")).toBe("https://example.com/");
+    expect(normalizePreviewUrl("example.com/login?next=https://example.org")).toBe(
+      "https://example.com/login?next=https://example.org",
+    );
   });
 
   it("respects explicit schemes", () => {

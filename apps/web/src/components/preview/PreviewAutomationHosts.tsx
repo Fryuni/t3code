@@ -58,6 +58,7 @@ import {
 import { runBrowserViewportMutation } from "~/browser/browserViewportActions";
 import { previewRuntimeTabId } from "~/browser/previewRuntimeTabId";
 import { isElectron } from "~/env";
+import { ensureClientSettingsHydrated } from "~/hooks/useSettings";
 import { useEnvironments } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomQueryRunner } from "~/state/use-atom-query-runner";
@@ -435,6 +436,9 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
             return await currentStatus(threadRef, tabId);
           case "open": {
             const input = request.input as PreviewAutomationOpenInput;
+            // A connection's localhost template lives in client settings, and
+            // an agent can ask before they have loaded after launch.
+            if (input.url) await ensureClientSettingsHydrated();
             const resolvedInputUrl = input.url
               ? resolveBrowserNavigationTarget(environmentId, {
                   kind: "url",
@@ -573,6 +577,7 @@ function PreviewAutomationHost(props: { readonly environmentId: EnvironmentId })
           case "navigate": {
             const ready = await requireReadyTab();
             const input = request.input as PreviewAutomationNavigateInput;
+            await ensureClientSettingsHydrated();
             const resolution = resolveBrowserNavigationTarget(
               environmentId,
               input.target ?? {
