@@ -1,12 +1,16 @@
 import { useNavigate } from "@tanstack/react-router";
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 
 import {
   pullRequestListPreferences,
   readPullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
 import { buildProjectGroups, selectProjectGroupingSettings } from "../logicalProject";
-import { useProjects, useServerConfigs } from "../state/entities";
+import {
+  useAllEnvironmentProjectSnapshotsReady,
+  useProjects,
+  useServerConfigs,
+} from "../state/entities";
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { useUiStateStore } from "../uiStateStore";
 import { useClientSettings, useLegacySidebarEnabled } from "./useSettings";
@@ -18,19 +22,32 @@ export function useOpenPullRequestList() {
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
   const legacySidebarEnabled = useLegacySidebarEnabled();
+  const sidebarScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
+  const groups = useMemo(
+    () =>
+      buildProjectGroups({
+        projects,
+        settings: groupingSettings,
+        preferredEnvironmentId: primaryEnvironmentId,
+      }),
+    [projects, groupingSettings, primaryEnvironmentId],
+  );
+  const disabled =
+    !legacySidebarEnabled &&
+    sidebarScopeKey !== null &&
+    !allProjectSnapshotsReady &&
+    !groups.some((group) => group.key === sidebarScopeKey);
 
-  return useCallback(() => {
+  const openPullRequestList = useCallback(() => {
     const scopeKey = legacySidebarEnabled
       ? null
       : useUiStateStore.getState().sidebarProjectScopeKey;
-    const group =
-      scopeKey === null
-        ? undefined
-        : buildProjectGroups({
-            projects,
-            settings: groupingSettings,
-            preferredEnvironmentId: primaryEnvironmentId,
-          }).find((candidate) => candidate.key === scopeKey);
+    const group = scopeKey === null ? undefined : groups.find((group) => group.key === scopeKey);
+    // An incomplete or cached catalog cannot establish that a persisted scope is gone.
+    if (scopeKey !== null && group === undefined && !allProjectSnapshotsReady) {
+      return;
+    }
     const project = group
       ? ([group.representative, ...group.members.map((member) => member.project)].find(
           (candidate) =>
@@ -48,12 +65,7 @@ export function useOpenPullRequestList() {
         host: undefined,
       }),
     });
-  }, [
-    groupingSettings,
-    legacySidebarEnabled,
-    navigate,
-    primaryEnvironmentId,
-    projects,
-    serverConfigs,
-  ]);
+  }, [allProjectSnapshotsReady, groups, legacySidebarEnabled, navigate, serverConfigs]);
+
+  return { openPullRequestList, disabled };
 }
