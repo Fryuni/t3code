@@ -30,6 +30,7 @@ describe("normalizePreviewUrl", () => {
   it("treats bare loopback hosts as http", () => {
     expect(normalizePreviewUrl("localhost:5173")).toBe("http://localhost:5173/");
     expect(normalizePreviewUrl("127.0.0.1:3000")).toBe("http://127.0.0.1:3000/");
+    expect(normalizePreviewUrl("127.0.0.2/app")).toBe("http://127.0.0.2/app");
   });
 
   it("treats bare public hosts as https", () => {

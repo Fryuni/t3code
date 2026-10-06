@@ -280,6 +280,7 @@ describe("browser target resolver", () => {
         "https://5173.devbox.example.dev/dashboard?mode=test#results",
       ],
       ["localhost:3000/app", "https://3000.devbox.example.dev/app"],
+      ["127.0.0.2/app", "https://80.devbox.example.dev/app"],
       ["http://user:p%40ss@127.0.0.1:5999/", "https://user:p%40ss@5999.devbox.example.dev/"],
     ])("rewrites the explicit localhost URL %s", async (url, resolvedUrl) => {
       readPreparedConnection.mockReturnValue({ httpBaseUrl: "http://100.65.180.100:3773" });
