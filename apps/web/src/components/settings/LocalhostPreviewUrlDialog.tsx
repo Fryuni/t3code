@@ -26,8 +26,8 @@ const EXAMPLE_LOCALHOST_URL = new URL("http://localhost:5173/");
 
 /**
  * Edits the address this device opens a connection's localhost URLs through
- * in the preview browser. Mount it only while open: the draft starts from the
- * saved template.
+ * in the preview browser. Mount it only while open, so each opening starts
+ * from the saved template.
  */
 export function LocalhostPreviewUrlDialog({
   environmentId,
@@ -41,7 +41,10 @@ export function LocalhostPreviewUrlDialog({
   const saved = useClientSettings(
     (settings) => settings.browserLocalhostUrlTemplates[environmentId],
   );
-  const [draft, setDraft] = useState(saved ?? "");
+  // Follows the saved template until edited, so a dialog opened while client
+  // settings are still loading shows the template once it arrives.
+  const [edited, setEdited] = useState<string | null>(null);
+  const draft = edited ?? saved ?? "";
   const [pending, setPending] = useState<"save" | "remove" | null>(null);
   const inputId = useId();
   const errorId = useId();
@@ -111,7 +114,7 @@ export function LocalhostPreviewUrlDialog({
               placeholder="https://{port}.example.com"
               aria-invalid={problem !== null}
               aria-describedby={problem !== null ? errorId : undefined}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => setEdited(event.target.value)}
             />
           </div>
           {problem !== null ? (
