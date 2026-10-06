@@ -114,16 +114,23 @@ function SidebarUtilityItem({
   disabled?: boolean;
   description?: string | null;
 }) {
+  const button = (
+    <SidebarMenuButton aria-label={label} onClick={onClick} disabled={disabled} size="icon">
+      {icon}
+    </SidebarMenuButton>
+  );
   return (
     <SidebarMenuItem className="shrink-0">
       <Tooltip>
-        <TooltipTrigger
-          render={
-            <SidebarMenuButton aria-label={label} onClick={onClick} disabled={disabled} size="icon">
-              {icon}
-            </SidebarMenuButton>
-          }
-        />
+        {disabled && description ? (
+          <TooltipTrigger
+            render={<span className="inline-flex" tabIndex={0} role="group" aria-label={label} />}
+          >
+            {button}
+          </TooltipTrigger>
+        ) : (
+          <TooltipTrigger render={button} />
+        )}
         <TooltipPopup side="top">{description ?? label}</TooltipPopup>
       </Tooltip>
     </SidebarMenuItem>

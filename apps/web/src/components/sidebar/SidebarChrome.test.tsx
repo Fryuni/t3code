@@ -15,7 +15,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { type Atom, AtomRegistry } from "effect/unstable/reactivity";
-import { act, type ReactElement, type ReactNode } from "react";
+import { act, cloneElement, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
@@ -66,7 +66,13 @@ vi.mock("../ui/sidebar", () => ({
 }));
 vi.mock("../ui/tooltip", () => ({
   Tooltip: ({ children }: { children: ReactNode }) => children,
-  TooltipTrigger: ({ render }: { render: ReactElement }) => render,
+  TooltipTrigger: ({
+    render,
+    children = render.props.children,
+  }: {
+    render: ReactElement<{ children?: ReactNode }>;
+    children?: ReactNode;
+  }) => cloneElement(render, undefined, children),
   TooltipPopup: () => null,
 }));
 vi.mock("./SidebarUpdatePill", () => ({
@@ -194,7 +200,9 @@ async function openPullRequests() {
 }
 
 function pullRequestsButton() {
-  return renderer!.root.findByProps({ "aria-label": "Pull Requests" });
+  return renderer!.root.find(
+    (node) => node.type === "button" && node.props["aria-label"] === "Pull Requests",
+  );
 }
 
 beforeEach(() => {
