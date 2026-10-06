@@ -28,10 +28,27 @@ export const LSOF_LOCAL_HOST_TOKENS: ReadonlySet<string> = new Set([
   "[::1]",
 ]);
 
-// The whole 127.0.0.0/8 block is loopback, not just 127.0.0.1. The host ends
-// at a port, path, query, fragment or the end of the input.
-const LOOPBACK_PREFIX_PATTERN =
-  /^(?:localhost|127(?:\.\d{1,3}){3}|0\.0\.0\.0|\[::1?\])(?:[:/?#]|$)/i;
+/**
+ * The scheme a bare URL (no `scheme://`) gets: http for a loopback host,
+ * https otherwise. The host is read from the parsed URL, so every spelling
+ * the parser accepts counts: all of 127.0.0.0/8 including shorthand such as
+ * `127.1`, and a host followed directly by a port, path, query or fragment.
+ */
+function bareUrlScheme(bareUrl: string): "http" | "https" {
+  let hostname: string;
+  try {
+    hostname = new URL(`http://${bareUrl}`).hostname;
+  } catch {
+    return "https";
+  }
+  const loopback =
+    hostname === "localhost" ||
+    hostname === "0.0.0.0" ||
+    hostname === "[::1]" ||
+    hostname === "[::]" ||
+    /^127\.\d+\.\d+\.\d+$/.test(hostname);
+  return loopback ? "http" : "https";
+}
 
 export function isLoopbackHost(host: string): boolean {
   if (LOOPBACK_HOSTS.has(host)) return true;
@@ -75,11 +92,10 @@ export function normalizePreviewUrl(rawUrl: string): string {
   if (trimmed.length === 0) {
     throw new PreviewUrlNormalizationError({ inputLength: rawUrl.length, reason: "empty" });
   }
-  const useHttp = LOOPBACK_PREFIX_PATTERN.test(trimmed);
   // Only a scheme at the start counts: a query may carry its own URL.
   const candidate = /^[A-Za-z][A-Za-z\d+.-]*:\/\//.test(trimmed)
     ? trimmed
-    : `${useHttp ? "http" : "https"}://${trimmed}`;
+    : `${bareUrlScheme(trimmed)}://${trimmed}`;
   let parsed: URL;
   try {
     parsed = new URL(candidate);
