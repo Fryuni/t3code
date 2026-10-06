@@ -693,7 +693,11 @@ function OpenCommandPaletteDialog(props: {
 }) {
   const navigate = useNavigate();
   const pathname = useLocation({ select: (location) => location.pathname });
-  const { openPullRequestList, disabled: pullRequestsDisabled } = useOpenPullRequestList();
+  const {
+    openPullRequestList,
+    disabled: pullRequestsDisabled,
+    disabledReason: pullRequestsDisabledReason,
+  } = useOpenPullRequestList();
   const { clearOpenIntent, openIntent, openOverlayMode, setOpen } = props;
   const [query, setQuery] = useState(openIntent?.kind === "search" ? openIntent.query : "");
   const [linkedThreadSearch, setLinkedThreadSearch] = useState(
@@ -2239,7 +2243,7 @@ function OpenCommandPaletteDialog(props: {
       searchTerms: ["pull requests", "prs", "pr", "github", "review", "merge", "branch"],
       title: "Open pull requests",
       disabled: pullRequestsDisabled,
-      description: pullRequestsDisabled ? "Waiting for projects" : undefined,
+      description: pullRequestsDisabledReason ?? undefined,
       icon: <PullRequestGlyph.pullRequest className={ITEM_ICON_CLASS} />,
       run: async () => {
         await openPullRequestList();

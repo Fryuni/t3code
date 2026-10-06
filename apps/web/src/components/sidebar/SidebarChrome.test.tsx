@@ -23,6 +23,9 @@ const state = vi.hoisted(() => ({
   registry: undefined as AtomRegistry.AtomRegistry | undefined,
   projectsAtom: undefined as Atom.Writable<ReadonlyArray<EnvironmentProject>> | undefined,
   snapshotsReadyAtom: undefined as Atom.Writable<boolean> | undefined,
+  serverConfigsAtom: undefined as
+    | Atom.Writable<ReadonlyMap<EnvironmentId, ServerConfig>>
+    | undefined,
 }));
 vi.mock("../../rpc/atomRegistry", () => ({
   get appAtomRegistry() {
@@ -46,6 +49,12 @@ vi.mock("../../state/shell", async (importOriginal) => {
   const { Atom } = await import("effect/unstable/reactivity");
   state.snapshotsReadyAtom = Atom.make(false);
   return { ...original, allEnvironmentProjectSnapshotsReadyAtom: state.snapshotsReadyAtom };
+});
+vi.mock("../../state/server", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../../state/server")>();
+  const { Atom } = await import("effect/unstable/reactivity");
+  state.serverConfigsAtom = Atom.make<ReadonlyMap<EnvironmentId, ServerConfig>>(new Map());
+  return { ...original, environmentServerConfigsAtom: state.serverConfigsAtom };
 });
 vi.mock("../ui/sidebar", () => ({
   SidebarFooter: "footer",
@@ -352,6 +361,63 @@ describe("opening pull requests from the sidebar", () => {
       sort: "updated",
     });
   });
+
+  it.each(["unsupported", "connecting"] as const)(
+    "preserves a selected project while its server is %s, then opens it once capable",
+    async (serverState) => {
+      const current = project("shared-project-id", remote);
+      const scopeKey = `${remote}:${current.workspaceRoot}`;
+      useUiStateStore.getState().setSidebarProjectScopeKey(scopeKey);
+      const configs =
+        serverState === "unsupported" ? [config(local), config(remote, false)] : [config(local)];
+      const router = await mount([project("shared-project-id"), current], configs);
+
+      expect(pullRequestsButton().props.disabled).toBe(true);
+      await openPullRequests();
+      expect(router.state.location.pathname).toBe("/");
+      expect(useUiStateStore.getState().sidebarProjectScopeKey).toBe(scopeKey);
+      expect(readPullRequestListPreferences()).toEqual(savedPreferences);
+
+      await act(() => {
+        useUiStateStore.getState().setSidebarProjectScopeKey(null);
+      });
+      expect(pullRequestsButton().props.disabled).toBe(false);
+      await openPullRequests();
+      expect(router.state.location.pathname).toBe("/pull-requests");
+      expect(router.state.location.search).toEqual({
+        involvement: "reviewing",
+        state: "closed",
+        sort: "updated",
+      });
+
+      await act(() => router.navigate({ to: "/" }));
+      await act(() => {
+        useUiStateStore.getState().setSidebarProjectScopeKey(scopeKey);
+      });
+      expect(pullRequestsButton().props.disabled).toBe(true);
+      await act(() => {
+        state.registry!.set(
+          state.serverConfigsAtom!,
+          new Map([
+            [local, config(local)],
+            [remote, config(remote)],
+          ]),
+        );
+      });
+      expect(pullRequestsButton().props.disabled).toBe(false);
+      expect(router.state.location.pathname).toBe("/");
+      await openPullRequests();
+
+      expect(router.state.location.pathname).toBe("/pull-requests");
+      expect(router.state.location.search).toEqual({
+        involvement: "reviewing",
+        state: "closed",
+        sort: "updated",
+        environmentId: remote,
+        projectId: current.id,
+      });
+    },
+  );
 
   it.each([
     { localSupported: true, projectId: "local-checkout", environmentId: local },

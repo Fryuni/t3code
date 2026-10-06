@@ -106,11 +106,13 @@ function SidebarUtilityItem({
   label,
   onClick,
   disabled,
+  description,
 }: {
   icon: ReactNode;
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  description?: string | null;
 }) {
   return (
     <SidebarMenuItem className="shrink-0">
@@ -122,7 +124,7 @@ function SidebarUtilityItem({
             </SidebarMenuButton>
           }
         />
-        <TooltipPopup side="top">{label}</TooltipPopup>
+        <TooltipPopup side="top">{description ?? label}</TooltipPopup>
       </Tooltip>
     </SidebarMenuItem>
   );
@@ -130,7 +132,11 @@ function SidebarUtilityItem({
 
 export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
   const navigate = useNavigate();
-  const { openPullRequestList, disabled: pullRequestsDisabled } = useOpenPullRequestList();
+  const {
+    openPullRequestList,
+    disabled: pullRequestsDisabled,
+    disabledReason: pullRequestsDisabledReason,
+  } = useOpenPullRequestList();
   const navigateToMainApp = useNavigateToMainApp();
   const { isMobile, setOpenMobile } = useSidebar();
   const isOnUtilityPage = useLocation({
@@ -185,6 +191,7 @@ export const SidebarUtilityMenu = memo(function SidebarUtilityMenu() {
               label="Pull Requests"
               onClick={handlePullRequestsClick}
               disabled={pullRequestsDisabled}
+              description={pullRequestsDisabledReason}
             />
           ) : null}
           <SidebarUtilityItem

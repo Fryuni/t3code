@@ -33,28 +33,37 @@ export function useOpenPullRequestList() {
       }),
     [projects, groupingSettings, primaryEnvironmentId],
   );
-  const disabled =
-    !legacySidebarEnabled &&
-    sidebarScopeKey !== null &&
-    !allProjectSnapshotsReady &&
-    !groups.some((group) => group.key === sidebarScopeKey);
+  const resolveScope = useCallback(
+    (scopeKey: string | null) => {
+      const group = scopeKey === null ? undefined : groups.find((group) => group.key === scopeKey);
+      const project = group
+        ? [group.representative, ...group.members.map((member) => member.project)].find(
+            (candidate) =>
+              serverConfigs.get(candidate.environmentId)?.environment.capabilities.pullRequests ===
+              true,
+          )
+        : undefined;
+      // An incomplete or cached catalog cannot establish that a persisted scope is gone.
+      const disabledReason =
+        scopeKey !== null && group === undefined && !allProjectSnapshotsReady
+          ? "Waiting for projects"
+          : group !== undefined && project === undefined
+            ? "Pull requests unavailable for this project"
+            : null;
+      return { project, disabledReason };
+    },
+    [allProjectSnapshotsReady, groups, serverConfigs],
+  );
+  const { disabledReason } = resolveScope(legacySidebarEnabled ? null : sidebarScopeKey);
 
   const openPullRequestList = useCallback(() => {
     const scopeKey = legacySidebarEnabled
       ? null
       : useUiStateStore.getState().sidebarProjectScopeKey;
-    const group = scopeKey === null ? undefined : groups.find((group) => group.key === scopeKey);
-    // An incomplete or cached catalog cannot establish that a persisted scope is gone.
-    if (scopeKey !== null && group === undefined && !allProjectSnapshotsReady) {
+    const { project, disabledReason } = resolveScope(scopeKey);
+    if (disabledReason !== null) {
       return;
     }
-    const project = group
-      ? ([group.representative, ...group.members.map((member) => member.project)].find(
-          (candidate) =>
-            serverConfigs.get(candidate.environmentId)?.environment.capabilities.pullRequests ===
-            true,
-        ) ?? group.representative)
-      : undefined;
 
     return navigate({
       to: "/pull-requests",
@@ -65,7 +74,7 @@ export function useOpenPullRequestList() {
         host: undefined,
       }),
     });
-  }, [allProjectSnapshotsReady, groups, legacySidebarEnabled, navigate, serverConfigs]);
+  }, [legacySidebarEnabled, navigate, resolveScope]);
 
-  return { openPullRequestList, disabled };
+  return { openPullRequestList, disabled: disabledReason !== null, disabledReason };
 }
