@@ -38,6 +38,7 @@ const mocks = vi.hoisted(() => ({
   recordingRuntimeTabId: null as string | null,
   recordVisitForThread: vi.fn(),
   localhostUrlTemplates: {} as Record<string, string>,
+  ensureClientSettingsHydrated: vi.fn(async (): Promise<void> => undefined),
 }));
 
 const EMPTY_HISTORY: never[] = [];
@@ -72,6 +73,7 @@ vi.mock("~/hooks/useSettings", async (importOriginal) => {
       ...actual.getClientSettings(),
       browserLocalhostUrlTemplates: mocks.localhostUrlTemplates,
     }),
+    ensureClientSettingsHydrated: mocks.ensureClientSettingsHydrated,
   };
 });
 
@@ -477,8 +479,10 @@ describe("PreviewView navigation", () => {
     });
   });
 
-  it("opens a typed localhost URL through the connection's template", async () => {
-    mocks.localhostUrlTemplates = { "environment-1": "https://{port}.devbox.example.dev" };
+  it("opens a typed localhost URL through a template that finishes loading after submit", async () => {
+    mocks.ensureClientSettingsHydrated.mockImplementationOnce(async () => {
+      mocks.localhostUrlTemplates = { "environment-1": "https://{port}.devbox.example.dev" };
+    });
     renderToStaticMarkup(
       <PreviewView
         threadRef={{

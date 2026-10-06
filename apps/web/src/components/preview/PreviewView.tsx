@@ -34,6 +34,7 @@ import {
   resolveDiscoveredServerUrl,
   resolveExplicitPreviewUrl,
 } from "~/browser/browserTargetResolver";
+import { ensureClientSettingsHydrated } from "~/hooks/useSettings";
 import { useEnvironmentHttpBaseUrl } from "~/state/environments";
 import { previewEnvironment } from "~/state/preview";
 import { useAtomCommand } from "~/state/use-atom-command";
@@ -216,6 +217,9 @@ export function PreviewView({
     async (next: string) => {
       try {
         const normalized = normalizePreviewUrl(next);
+        // The connection's localhost template is a client setting, which may
+        // still be loading on a cold start. If it can't be read, open untemplated.
+        await ensureClientSettingsHydrated().catch(() => undefined);
         const resolved = resolveExplicitPreviewUrl(threadRef.environmentId, normalized);
         if (await navigateToResolvedUrl(resolved)) {
           recordVisitForThread(threadRef, normalized);
@@ -230,6 +234,7 @@ export function PreviewView({
   const handleOpenServerUrl = useCallback(
     async (next: string) => {
       try {
+        await ensureClientSettingsHydrated().catch(() => undefined);
         const resolved = resolveDiscoveredServerUrl(threadRef.environmentId, next);
         if (await navigateToResolvedUrl(resolved)) {
           recordVisitForThread(threadRef, next);
