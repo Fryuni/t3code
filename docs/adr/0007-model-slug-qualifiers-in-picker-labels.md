@@ -3,14 +3,16 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `dab26f582` (2026-10-03), after Orchestrator V2
+- Compared with upstream: `pingdotgg/t3code` at `ba0ea3d15` (2026-10-07)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its
-`subProvider`. Providers that route to several vendors, such as OpenCode and Pi,
+`subProvider`. Providers that route to several vendors, such as OpenCode,
 report slugs like `bar`, `foo/bar`, and `openrouter/deepseek/bar`, and catalogs
 can prefix a vendor with a dot, as in `azure.bar`. These models often share a
-display name and carry no `subProvider`. Upstream renders those rows identically,
+display name and carry no `subProvider`. Upstream now sets `subProvider` for Pi's
+discovered models ([pingdotgg/t3code#16661](https://github.com/pingdotgg/t3code/pull/16661)),
+which names only the first slug segment, so deeper routes still need the helper. Upstream renders those rows identically,
 so the user cannot tell which route a selection dispatches to.
 
 The fork derives the secondary label from the slug in one

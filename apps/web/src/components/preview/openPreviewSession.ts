@@ -7,7 +7,7 @@ import type {
 } from "@t3tools/contracts";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
 import * as Cause from "effect/Cause";
-import { AsyncResult } from "effect/unstable/reactivity";
+import { AsyncResult } from "effect/reactivity";
 
 import {
   browserDefaultOpenProfileId,
@@ -15,6 +15,7 @@ import {
   resolveBrowserDefaults,
 } from "~/browser/browserDefaults";
 import { BrowserSettingsReadError } from "~/browser/openFileInPreview";
+import { previewRuntimeFor } from "~/browser/previewRuntime";
 import { applyPreviewServerSnapshot, rememberPreviewUrl } from "~/previewStateStore";
 
 interface OpenPreviewSessionInput<E> {
@@ -23,12 +24,7 @@ interface OpenPreviewSessionInput<E> {
     readonly input: PreviewOpenInput;
   }) => Promise<AtomCommandResult<PreviewSessionSnapshot, E>>;
   threadRef: ScopedThreadRef;
-  /**
-   * The URL to open, or a function returning it. A function runs after client
-   * settings load, for URLs that depend on them such as a connection's
-   * localhost template.
-   */
-  url?: string | (() => string);
+  url?: string;
   /** Overrides the configured default; automation passes an explicit size. */
   viewport?: PreviewViewportSetting;
   /** Overrides the configured default profile. */
@@ -46,14 +42,15 @@ export async function openPreviewSession<E>(
   if (defaults instanceof BrowserSettingsReadError) {
     return AsyncResult.failure(Cause.fail(defaults));
   }
-  const url = typeof input.url === "function" ? input.url() : input.url;
+  const runtime = previewRuntimeFor(input.threadRef.environmentId);
   const result = await input.openPreview({
     environmentId: input.threadRef.environmentId,
     input: {
       threadId: input.threadRef.threadId,
-      ...(url === undefined ? {} : { url }),
+      ...(input.url === undefined ? {} : { url: input.url }),
       viewport: input.viewport ?? browserDefaultOpenViewport(defaults),
       profileId: input.profileId ?? browserDefaultOpenProfileId(defaults),
+      ...(runtime === undefined ? {} : { runtime }),
     },
   });
   if (result._tag === "Failure") {
@@ -61,10 +58,10 @@ export async function openPreviewSession<E>(
   }
   const snapshot = result.value;
   applyPreviewServerSnapshot(input.threadRef, snapshot);
-  if (url !== undefined) {
+  if (input.url !== undefined) {
     rememberPreviewUrl(
       input.threadRef,
-      snapshot.navStatus._tag === "Idle" ? url : snapshot.navStatus.url,
+      snapshot.navStatus._tag === "Idle" ? input.url : snapshot.navStatus.url,
     );
   }
   return result;

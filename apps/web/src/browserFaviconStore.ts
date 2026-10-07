@@ -9,7 +9,7 @@ import { useMemo } from "react";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
-import { normalizeHostname } from "@t3tools/shared/hostClassification";
+import { normalizeHostname } from "~/browser/browserTargetResolver";
 import { useThreadShell } from "~/state/entities";
 import { usePreparedConnection } from "~/state/session";
 

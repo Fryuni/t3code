@@ -16,7 +16,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { AtomRegistry } from "effect/unstable/reactivity";
+import { AtomRegistry } from "effect/reactivity";
 import { act, useLayoutEffect, type MouseEvent } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
