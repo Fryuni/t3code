@@ -14,7 +14,7 @@ import {
   createRouter,
   RouterProvider,
 } from "@tanstack/react-router";
-import { type Atom, AtomRegistry } from "effect/unstable/reactivity";
+import { type Atom, AtomRegistry } from "effect/reactivity";
 import { act, cloneElement, type ReactElement, type ReactNode } from "react";
 import { create, type ReactTestRenderer } from "react-test-renderer";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
@@ -34,7 +34,7 @@ vi.mock("../../rpc/atomRegistry", () => ({
 }));
 vi.mock("../../state/projects", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../state/projects")>();
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   state.projectsAtom = Atom.make<ReadonlyArray<EnvironmentProject>>([]);
   return {
     ...original,
@@ -46,13 +46,13 @@ vi.mock("../../state/projects", async (importOriginal) => {
 });
 vi.mock("../../state/shell", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../state/shell")>();
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   state.snapshotsReadyAtom = Atom.make(false);
   return { ...original, allEnvironmentProjectSnapshotsReadyAtom: state.snapshotsReadyAtom };
 });
 vi.mock("../../state/server", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../state/server")>();
-  const { Atom } = await import("effect/unstable/reactivity");
+  const { Atom } = await import("effect/reactivity");
   state.serverConfigsAtom = Atom.make<ReadonlyMap<EnvironmentId, ServerConfig>>(new Map());
   return { ...original, environmentServerConfigsAtom: state.serverConfigsAtom };
 });
