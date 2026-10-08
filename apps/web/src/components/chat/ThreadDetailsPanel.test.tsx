@@ -75,8 +75,6 @@ describe("ThreadDetailsPanel", () => {
       onStartFromRemoteChange: vi.fn(),
       createNewBranch: true,
       onComposerFocusRequest: vi.fn(),
-      versionMismatch: null,
-      onDismissVersionMismatch: vi.fn(),
       onRunProjectScript: vi.fn(),
       onAddProjectScript: vi.fn() as ThreadDetailsPanelProps["onAddProjectScript"],
       onUpdateProjectScript: vi.fn() as ThreadDetailsPanelProps["onUpdateProjectScript"],
