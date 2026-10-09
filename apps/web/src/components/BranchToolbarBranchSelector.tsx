@@ -204,6 +204,9 @@ export function BranchToolbarBranchSelector({
   // ---------------------------------------------------------------------------
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null, automatic = false) => {
+      // Defaults only seed drafts. A launched thread may still be waiting for
+      // its provisioned workspace metadata to reach this client.
+      if (automatic && hasServerThread) return;
       if (
         !activeThreadId ||
         !activeProject ||
