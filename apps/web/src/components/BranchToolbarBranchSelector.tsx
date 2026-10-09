@@ -204,15 +204,18 @@ export function BranchToolbarBranchSelector({
   // ---------------------------------------------------------------------------
   const setThreadBranch = useCallback(
     (branch: string | null, worktreePath: string | null, automatic = false) => {
-      // Defaults only seed drafts. A launched thread may still be waiting for
-      // its provisioned workspace metadata to reach this client.
-      if (automatic && hasServerThread) return;
       if (
         !activeThreadId ||
         !activeProject ||
         (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
       )
         return;
+      // Defaults can update an empty thread's pending selection, but workspace
+      // metadata belongs to the server once a thread has been launched.
+      if (automatic && hasServerThread) {
+        if (!envLocked) onActiveThreadBranchOverrideChange?.(branch);
+        return;
+      }
       if (serverSession && worktreePath !== activeWorktreePath) {
         void stopThreadSession({
           environmentId,
@@ -252,6 +255,7 @@ export function BranchToolbarBranchSelector({
       serverSession,
       activeWorktreePath,
       hasServerThread,
+      envLocked,
       onActiveThreadBranchOverrideChange,
       setDraftThreadContext,
       draftId,

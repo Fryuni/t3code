@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   updateMetadata: vi.fn().mockResolvedValue(undefined),
   stopSession: vi.fn().mockResolvedValue(undefined),
   setDraftThreadContext: vi.fn(),
+  setBranchOverride: vi.fn(),
 }));
 
 vi.mock("../state/entities", () => ({
@@ -105,6 +106,7 @@ async function render(options: { envLocked: boolean; createNewBranch?: boolean }
         threadId={threadId}
         effectiveEnvModeOverride="worktree"
         envLocked={options.envLocked}
+        onActiveThreadBranchOverrideChange={state.setBranchOverride}
         createNewBranch={options.createNewBranch ?? true}
         startFromRemote={null}
         onStartFromRemoteChange={vi.fn()}
@@ -136,9 +138,10 @@ it("does not reset a launched worktree from its initial unprovisioned shell", as
 
   expect(state.updateMetadata).not.toHaveBeenCalled();
   expect(state.stopSession).not.toHaveBeenCalled();
+  expect(state.setBranchOverride).not.toHaveBeenCalled();
 });
 
-it("does not automatically clear a persisted thread's branch when refs arrive", async () => {
+it("clears an unavailable existing branch in an empty thread's pending selection", async () => {
   state.serverThread = {
     id: threadId,
     environmentId,
@@ -150,6 +153,24 @@ it("does not automatically clear a persisted thread's branch when refs arrive", 
 
   await render({ envLocked: false, createNewBranch: false });
 
+  expect(state.updateMetadata).not.toHaveBeenCalled();
+  expect(state.stopSession).not.toHaveBeenCalled();
+  expect(state.setBranchOverride).toHaveBeenCalledWith(null);
+});
+
+it("defaults an empty thread's pending worktree base without changing its workspace", async () => {
+  state.serverThread = {
+    id: threadId,
+    environmentId,
+    projectId,
+    branch: null,
+    worktreePath: null,
+    runtime: null,
+  };
+
+  await render({ envLocked: false });
+
+  expect(state.setBranchOverride).toHaveBeenCalledWith("main");
   expect(state.updateMetadata).not.toHaveBeenCalled();
   expect(state.stopSession).not.toHaveBeenCalled();
 });
