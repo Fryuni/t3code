@@ -7,6 +7,7 @@ import {
   type OrchestrationV2ThreadShell,
   type ScheduledTask,
   ScheduledTaskId,
+  type ScheduledTaskUpsertInput,
   ProjectId,
   ProviderDriverKind,
   ProviderInstanceId,
@@ -1564,6 +1565,232 @@ describe("OrchestratorMcpService provider resolution", () => {
         }
       }),
   );
+
+  describe("scheduled task provider options", () => {
+    const driver = ProviderDriverKind.make("codex");
+    const parentModelSelection = {
+      instanceId: codexInstanceId,
+      model: "gpt-5.4",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    } as const;
+    // A stored task on a different model than the caller's thread, so a test
+    // can tell which of the two an update inherits from.
+    const storedModelSelection = {
+      instanceId: codexInstanceId,
+      model: "gpt-5.4-mini",
+      options: [{ id: "reasoningEffort", value: "high" }],
+    } as const;
+    const clientScope: McpInvocationScope = {
+      environmentId: EnvironmentId.make("environment:mcp-providers"),
+      requestNamespace: "client:mcp-providers",
+      thread: undefined,
+      client: { sessionId: "options", label: "Claude Code", access: "full-access" },
+      capabilities: new Set(["orchestration"]),
+      issuedAt: 1,
+    };
+    const savedTask = (input: ScheduledTaskUpsertInput): ScheduledTask =>
+      ({
+        ...input,
+        id: ScheduledTaskId.make("scheduled-task:options"),
+        threadId: input.threadId ?? null,
+        createdAt: "2026-10-09T00:00:00.000Z",
+        updatedAt: "2026-10-09T00:00:00.000Z",
+        nextRunAt: null,
+        lastRunAt: null,
+        lastRunStatus: "never",
+        lastRunError: null,
+        runCount: 0,
+      }) as unknown as ScheduledTask;
+    const existingTask = savedTask({
+      title: "Check in",
+      prompt: "check in later",
+      enabled: true,
+      schedule: { type: "interval", everyMs: 3_600_000 },
+      projectId,
+      threadId: null,
+      workspaceStrategy: { type: "root" },
+      modelSelection: storedModelSelection,
+      runtimeMode: "full-access",
+      interactionMode: "default",
+      createdBy: "agent",
+      creationSource: "mcp",
+    });
+    const layerDependencies = (upserts: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>) =>
+      Layer.mergeAll(
+        NodeServices.layer,
+        Layer.mock(ThreadManagementService.ThreadManagementService)({
+          getThreadRecords: () => Effect.succeed(parentProjection([], parentModelSelection)),
+        }),
+        providerRegistryLayer([
+          providerSnapshot({ instanceId: codexInstanceId, driver, model: "gpt-5.4" }),
+        ]),
+        adapterRegistryLayer([codexInstanceId]),
+        Layer.mock(ProjectService.ProjectService)({
+          getById: (id) => Effect.succeedSome({ id, defaultModelSelection: null } as never),
+        }),
+        Layer.mock(SecretRequests.SecretRequests)({}),
+        Layer.mock(ScheduledTaskService.ScheduledTaskService)({
+          list: () => Effect.succeed({ tasks: [existingTask] }),
+          upsert: (input) =>
+            Ref.update(upserts, (all) => [...all, input]).pipe(
+              Effect.as({ task: savedTask(input) }),
+            ),
+        }),
+      );
+
+    it.effect("schedules a task with the options the agent passes on the thread's model", () =>
+      Effect.gen(function* () {
+        const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* service.scheduleTask(scope, {
+            prompt: "check in later",
+            schedule: { type: "interval", everyMs: 3_600_000 },
+            bindToCurrentThread: false,
+            target: { options: [{ id: "reasoningEffort", value: "low" }] },
+          });
+          const saved = yield* Ref.get(upserts);
+          assert.deepEqual(saved[0]?.modelSelection, {
+            instanceId: codexInstanceId,
+            model: "gpt-5.4",
+            options: [{ id: "reasoningEffort", value: "low" }],
+          });
+        }).pipe(
+          Effect.provide(
+            OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies(upserts))),
+          ),
+        );
+      }),
+    );
+
+    it.effect(
+      "schedules with an explicit target for a client whose project has no default model",
+      () =>
+        Effect.gen(function* () {
+          const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+          yield* Effect.gen(function* () {
+            const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+            yield* service.scheduleTask(clientScope, {
+              projectId,
+              prompt: "check in later",
+              schedule: { type: "interval", everyMs: 3_600_000 },
+              bindToCurrentThread: false,
+              target: {
+                providerInstanceId: codexInstanceId,
+                model: "gpt-5.4",
+                options: [{ id: "reasoningEffort", value: "low" }],
+              },
+            });
+            const saved = yield* Ref.get(upserts);
+            assert.deepEqual(saved[0]?.modelSelection, {
+              instanceId: codexInstanceId,
+              model: "gpt-5.4",
+              options: [{ id: "reasoningEffort", value: "low" }],
+            });
+          }).pipe(
+            Effect.provide(
+              OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies(upserts))),
+            ),
+          );
+        }),
+    );
+
+    it.effect("reports a task's provider, model, and options when listing", () =>
+      Effect.gen(function* () {
+        const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          const { tasks } = yield* service.listScheduledTasks(scope, {});
+          assert.deepEqual(
+            tasks.map((task) => ({
+              providerInstanceId: task.providerInstanceId,
+              model: task.model,
+              options: task.options,
+            })),
+            [
+              {
+                providerInstanceId: codexInstanceId,
+                model: "gpt-5.4-mini",
+                options: [{ id: "reasoningEffort", value: "high" }],
+              },
+            ],
+          );
+        }).pipe(
+          Effect.provide(
+            OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies(upserts))),
+          ),
+        );
+      }),
+    );
+
+    it.effect("keeps a task's options when the update omits the target", () =>
+      Effect.gen(function* () {
+        const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* service.updateScheduledTask(scope, {
+            scheduledTaskId: existingTask.id,
+            prompt: "check in sooner",
+          });
+          const saved = yield* Ref.get(upserts);
+          assert.deepEqual(saved[0]?.modelSelection, {
+            instanceId: codexInstanceId,
+            model: "gpt-5.4-mini",
+            options: [{ id: "reasoningEffort", value: "high" }],
+          });
+        }).pipe(
+          Effect.provide(
+            OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies(upserts))),
+          ),
+        );
+      }),
+    );
+
+    it.effect("updates a task's options without changing its model", () =>
+      Effect.gen(function* () {
+        const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* service.updateScheduledTask(scope, {
+            scheduledTaskId: existingTask.id,
+            target: { options: [{ id: "reasoningEffort", value: "low" }] },
+          });
+          const saved = yield* Ref.get(upserts);
+          assert.deepEqual(saved[0]?.modelSelection, {
+            instanceId: codexInstanceId,
+            model: "gpt-5.4-mini",
+            options: [{ id: "reasoningEffort", value: "low" }],
+          });
+        }).pipe(
+          Effect.provide(
+            OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies(upserts))),
+          ),
+        );
+      }),
+    );
+
+    it.effect("resets a task's options to the defaults when the update changes its model", () =>
+      Effect.gen(function* () {
+        const upserts = yield* Ref.make<ReadonlyArray<ScheduledTaskUpsertInput>>([]);
+        yield* Effect.gen(function* () {
+          const service = yield* OrchestratorMcpService.OrchestratorMcpService;
+          yield* service.updateScheduledTask(scope, {
+            scheduledTaskId: existingTask.id,
+            target: { model: "gpt-5.4" },
+          });
+          const saved = yield* Ref.get(upserts);
+          assert.deepEqual(saved[0]?.modelSelection, {
+            instanceId: codexInstanceId,
+            model: "gpt-5.4",
+          });
+        }).pipe(
+          Effect.provide(
+            OrchestratorMcpService.layer.pipe(Layer.provide(layerDependencies(upserts))),
+          ),
+        );
+      }),
+    );
+  });
 
   describe("scheduled tasks at modes above the caller's", () => {
     const projectId = ProjectId.make("project:scheduled");

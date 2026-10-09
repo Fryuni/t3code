@@ -1501,7 +1501,10 @@ describe("orchestrator MCP toolkit", () => {
               schedule: { type: "interval", everyMs: 60_000 },
               // Title is derived from the prompt when omitted.
               title: "wake up in this thread and say hello",
+              providerInstanceId: codexInstanceId,
+              model: codexModel,
             });
+            expect(scheduleCall.structuredContent).not.toHaveProperty("options");
             const scheduledTaskId = (scheduleCall.structuredContent as { scheduledTaskId: string })
               .scheduledTaskId;
             const storedAfterCreate = yield* Ref.get(scheduledStore);
@@ -1532,6 +1535,32 @@ describe("orchestrator MCP toolkit", () => {
               scheduledTaskId,
               enabled: false,
             });
+
+            // target.options takes the record shorthand and is checked against
+            // the model's advertised descriptors, exactly as for delegate_task.
+            const optionedUpdateCall = yield* invoke("update_scheduled_task", {
+              scheduledTaskId,
+              target: { options: { reasoning: "low" } },
+            });
+            expect(optionedUpdateCall.isError).toBe(false);
+            expect(optionedUpdateCall.structuredContent).toMatchObject({
+              scheduledTaskId,
+              providerInstanceId: codexInstanceId,
+              model: codexModel,
+              options: [{ id: "reasoning", value: "low" }],
+            });
+            const rejectedScheduleCall = yield* invoke("schedule_task", {
+              prompt: "think very hard",
+              schedule: { type: "interval", everyMs: 60_000 },
+              target: { options: { reasoning: "extreme" } },
+              clientRequestId: "schedule-rejected-options-1",
+            });
+            expect(declaredFailure(rejectedScheduleCall)).toMatchObject({
+              _tag: "OrchestratorMcpFailure",
+              code: "invalid_request",
+              message: expect.stringContaining("rejected options"),
+            });
+            expect(yield* Ref.get(scheduledStore)).toHaveLength(1);
 
             // delete_scheduled_task removes it entirely.
             const scheduledDeleteCall = yield* invoke("delete_scheduled_task", { scheduledTaskId });

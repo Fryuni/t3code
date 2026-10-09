@@ -5,16 +5,22 @@ import {
   OrchestratorMcpCreateThreadsInput,
   OrchestratorMcpDelegateTaskInput,
   OrchestratorMcpDelegateTaskResult,
+  OrchestratorMcpScheduleTaskInput,
   OrchestratorMcpThreadInterruptInput,
   OrchestratorMcpThreadListInput,
   OrchestratorMcpThreadReadInput,
   OrchestratorMcpThreadSendInput,
   OrchestratorMcpThreadWaitInput,
+  OrchestratorMcpUpdateScheduledTaskInput,
 } from "./orchestratorMcp.ts";
 
 const decodeCreateThreadsInput = Schema.decodeUnknownSync(OrchestratorMcpCreateThreadsInput);
 const decodeDelegateTaskInput = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskInput);
 const decodeDelegateTaskResult = Schema.decodeUnknownSync(OrchestratorMcpDelegateTaskResult);
+const decodeScheduleTaskInput = Schema.decodeUnknownSync(OrchestratorMcpScheduleTaskInput);
+const decodeUpdateScheduledTaskInput = Schema.decodeUnknownSync(
+  OrchestratorMcpUpdateScheduledTaskInput,
+);
 const decodeThreadInterruptInput = Schema.decodeUnknownSync(OrchestratorMcpThreadInterruptInput);
 const decodeThreadListInput = Schema.decodeUnknownSync(OrchestratorMcpThreadListInput);
 const decodeThreadReadInput = Schema.decodeUnknownSync(OrchestratorMcpThreadReadInput);
@@ -82,6 +88,24 @@ describe("orchestrator MCP contracts", () => {
       { id: "reasoning", value: "low" },
       { id: "fastMode", value: true },
     ]);
+  });
+
+  it("decodes scheduled task targets in canonical and shorthand shapes", () => {
+    const scheduled = decodeScheduleTaskInput({
+      prompt: "Check in.",
+      schedule: { type: "interval", everyMs: 60_000 },
+      target: { options: { reasoning: "low" } },
+    });
+    const updated = decodeUpdateScheduledTaskInput({
+      scheduledTaskId: "task-1",
+      target: { model: "gpt-5.6-luna", options: [{ id: "fastMode", value: true }] },
+    });
+
+    expect(scheduled.target).toEqual({ options: [{ id: "reasoning", value: "low" }] });
+    expect(updated.target).toEqual({
+      model: "gpt-5.6-luna",
+      options: [{ id: "fastMode", value: true }],
+    });
   });
 
   it("rejects target model options that are not strings or booleans", () => {
