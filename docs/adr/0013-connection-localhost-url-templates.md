@@ -3,14 +3,16 @@
 - Status: superseded by upstream
 - Date: 2026-10-06
 - Tracking: [Fryuni/t3code#54](https://github.com/Fryuni/t3code/pull/54)
-- Compared with upstream: `pingdotgg/t3code` at `ba0ea3d15` (2026-10-07)
+- Compared with upstream: `pingdotgg/t3code` at `ec80933ac` (2026-10-09)
 
-**Superseded.** Upstream now runs the preview browser on the environment server
+**Superseded.** Upstream added a preview browser on the environment server
 ([pingdotgg/t3code#15328](https://github.com/pingdotgg/t3code/pull/15328), `ac8e9453c`).
-Tabs belong to the environment, so `localhost` resolves on the remote machine
-itself, and the desktop app streams other environments' tabs instead of loading
-their addresses locally. That is the "another way to reach a remote environment's
-localhost" this ADR waited for. The fork dropped `browserLocalhostUrlTemplates`,
+Server-runtime tabs resolve `localhost` on that machine and stream to remote
+clients. Since [pingdotgg/t3code#17316](https://github.com/pingdotgg/t3code/pull/17316)
+(`66298aa92`), desktop opens remote environments' tabs locally by default, with
+an **Open in the environment's browser** action to move them to the server when
+needed. That remains the "another way to reach a remote environment's localhost"
+this ADR waited for. The fork dropped `browserLocalhostUrlTemplates`,
 the **Localhost previews** dialog, and the resolver changes when it synced onto
 upstream `ba0ea3d15`, and keeps upstream's implementation. A template saved
 before the sync is an unknown client-settings key and is ignored. The rest of
