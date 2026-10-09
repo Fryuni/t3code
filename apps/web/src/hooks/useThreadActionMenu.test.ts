@@ -20,6 +20,7 @@ function deferred<T>() {
 
 const state = vi.hoisted(() => ({
   granted: new Set<string>(),
+  connectedEnvironments: new Set<string>(),
   pullRequestEnvironments: new Set<string>(),
   projects: [] as Array<{ id: string; environmentId: string }>,
   effects: [] as string[],
@@ -75,7 +76,11 @@ vi.mock("../state/entities", () => ({
     ) ?? null,
   useProjects: () => state.projects,
 }));
-vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "primary" }));
+vi.mock("../state/environments", () => ({
+  usePrimaryEnvironmentId: () => "primary",
+  readEnvironmentConnected: (environmentId: string) =>
+    state.connectedEnvironments.has(environmentId),
+}));
 vi.mock("../state/threads", () => ({ threadEnvironment: { updateMetadata: "metadata" } }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: () => async () => {
@@ -172,6 +177,7 @@ const createMenu = () =>
 
 beforeEach(() => {
   state.granted = new Set(["primary"]);
+  state.connectedEnvironments = new Set(["primary", "secondary"]);
   state.pullRequestEnvironments = new Set(["primary", "secondary"]);
   state.projects = [
     { id: "project", environmentId: "primary" },
@@ -288,3 +294,29 @@ it.each(["project", "capability"] as const)(
     expect(state.navigate).not.toHaveBeenCalled();
   },
 );
+
+it("rechecks connection state while the target project and PR capability remain cached", async () => {
+  const openProjectPullRequestList = useOpenProjectPullRequestList();
+  const projectRef = {
+    environmentId: target.environmentId,
+    projectId: ProjectId.make("project"),
+  };
+  state.connectedEnvironments.delete("secondary");
+
+  await openProjectPullRequestList(projectRef);
+
+  expect(state.navigate).not.toHaveBeenCalled();
+
+  state.connectedEnvironments.add("secondary");
+  await openProjectPullRequestList(projectRef);
+
+  expect(state.navigate).toHaveBeenCalledExactlyOnceWith({
+    to: "/pull-requests",
+    search: {
+      involvement: "all",
+      state: "open",
+      environmentId: "secondary",
+      projectId: "project",
+    },
+  });
+});

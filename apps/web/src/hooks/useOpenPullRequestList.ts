@@ -14,7 +14,7 @@ import {
   useProjects,
   useServerConfigs,
 } from "../state/entities";
-import { usePrimaryEnvironmentId } from "../state/environments";
+import { readEnvironmentConnected, usePrimaryEnvironmentId } from "../state/environments";
 import { useUiStateStore } from "../uiStateStore";
 import { useClientSettings, useLegacySidebarEnabled } from "./useSettings";
 
@@ -22,8 +22,9 @@ export function useOpenProjectPullRequestList() {
   const navigate = useNavigate();
   return useCallback(
     (projectRef: ScopedProjectRef) => {
-      // A menu can outlive its target; an unavailable scope would open the full PR list.
+      // Menus and cached project/config data can outlive the target's connection.
       if (
+        !readEnvironmentConnected(projectRef.environmentId) ||
         readProject(projectRef) === null ||
         !readEnvironmentSupportsPullRequests(projectRef.environmentId)
       ) {

@@ -20,9 +20,10 @@ The page's existing filters remain the way to change or clear the scope.
 This applies to web and desktop. Mobile has no PR list page to open. The shortcut
 is available to read-only clients and is shown only when the target environment
 advertises PR support; it reuses the existing list API and capability.
-Selection rechecks that the exact project still exists and its environment still
-supports PRs, since a menu can outlive its target and the PR page treats unavailable
-scopes as a request for a broader list.
+Selection rechecks that the exact project still exists and its environment is
+connected and supports PRs, since a menu can outlive its target and the PR page
+treats unavailable scopes as a request for a broader list. Connection state must
+be checked separately: project and capability data remain cached after disconnect.
 
 When updating from upstream, preserve navigation to the exact project and
 environment before any list request. Retire this fork addition when upstream
