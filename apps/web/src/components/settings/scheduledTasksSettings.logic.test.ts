@@ -187,6 +187,24 @@ describe("editing scheduled task branch settings", () => {
   );
 });
 
+describe("editing a scheduled task's model", () => {
+  it("keeps the task's provider options for the save", () => {
+    const options = [
+      { id: "effort", value: "high" },
+      { id: "fastMode", value: true },
+    ];
+    const draft = taskToDraft({
+      ...legacyTask,
+      modelSelection: { ...legacyTask.modelSelection, options },
+    });
+    expect(draft.modelSelection).toEqual({
+      instanceId: ProviderInstanceId.make("codex"),
+      model: "gpt-5.4",
+      options,
+    });
+  });
+});
+
 describe("webhook scheduled tasks", () => {
   const signature = { header: "x-signature", encoding: "base64", prefix: "" } as const;
   const webhookTask: ScheduledTask = {

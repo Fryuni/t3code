@@ -523,6 +523,12 @@ export const OrchestratorMcpScheduleTaskInput = Schema.Struct({
   enabled: Schema.optional(
     Schema.Boolean.annotate({ description: "Whether the schedule starts enabled; defaults true." }),
   ),
+  target: Schema.optional(
+    OrchestratorMcpTarget.annotate({
+      description:
+        "Provider, model, and model options the runs use. Omit to inherit the calling thread's selection, or the project default when there is no calling thread. A field left out inherits the same way; options inherit only while the provider and model also stay inherited, and otherwise use the model's defaults.",
+    }),
+  ),
   /**
    * When true (the default), the scheduled task fires into the calling thread
    * on each run instead of launching a fresh thread. This is the recurring
@@ -547,6 +553,10 @@ export const OrchestratorMcpScheduledTask = Schema.Struct({
   projectId: ProjectId,
   boundThreadId: Schema.NullOr(ThreadId),
   schedule: ScheduledTaskSchedule,
+  providerInstanceId: ProviderInstanceId,
+  model: Schema.String,
+  /** Provider options the runs use; absent when the model's defaults apply. Pass back as target.options. */
+  options: Schema.optional(Schema.Array(ProviderOptionSelection)),
   nextRunAt: Schema.NullOr(IsoDateTime),
   lastRunStatus: ScheduledTaskRunStatus,
   /** For webhook tasks: the public T3 Connect URL. Absent when this environment has no managed tunnel. */
@@ -586,6 +596,12 @@ export const OrchestratorMcpUpdateScheduledTaskInput = Schema.Struct({
   title: Schema.optional(OrchestratorMcpTitle),
   schedule: Schema.optional(OrchestratorMcpSchedule),
   enabled: Schema.optional(Schema.Boolean),
+  target: Schema.optional(
+    OrchestratorMcpTarget.annotate({
+      description:
+        "New provider, model, or model options for the runs. Omit to keep the stored selection. A field left out keeps its stored value, except that a new provider starts on its first advertised model and options reset to the model's defaults whenever the provider or model changes.",
+    }),
+  ),
   bindToCurrentThread: Schema.optional(Schema.Boolean),
 });
 export type OrchestratorMcpUpdateScheduledTaskInput =
