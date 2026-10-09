@@ -1,11 +1,12 @@
 import {
   AuthOrchestrationOperateScope,
   EnvironmentId,
+  ProjectId,
   ThreadId,
   type ContextMenuItem,
 } from "@t3tools/contracts";
 import { AsyncResult } from "effect/reactivity";
-import { beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
 
 import type { ThreadActionMenuId } from "../components/threadActionMenu.logic";
 
@@ -19,8 +20,12 @@ function deferred<T>() {
 
 const state = vi.hoisted(() => ({
   granted: new Set<string>(),
+  connectedEnvironments: new Set<string>(),
+  pullRequestEnvironments: new Set<string>(),
+  projects: [] as Array<{ id: string; environmentId: string }>,
   effects: [] as string[],
   completed: deferred<void>(),
+  navigate: vi.fn<(options: { to: string; search?: unknown }) => Promise<void>>(),
   show: vi.fn<
     (
       items: ReadonlyArray<ContextMenuItem<ThreadActionMenuId>>,
@@ -40,6 +45,7 @@ vi.mock("react", () => ({
   useMemo: (factory: () => unknown) => factory(),
 }));
 vi.mock("@tanstack/react-router", () => ({
+  useNavigate: () => state.navigate,
   useRouter: () => ({ navigate: async () => recordEffect("project-settings") }),
 }));
 vi.mock("../state/session", () => ({
@@ -49,6 +55,8 @@ vi.mock("../state/session", () => ({
 vi.mock("../state/entities", () => ({
   readEnvironmentSupportsAutoSettleOptOut: () => true,
   readEnvironmentSupportsPinning: () => true,
+  readEnvironmentSupportsPullRequests: (environmentId: string) =>
+    state.pullRequestEnvironments.has(environmentId),
   readEnvironmentSupportsSettlement: () => true,
   readEnvironmentSupportsSnooze: () => true,
   readEnvironmentSupportsTitleRegeneration: () => true,
@@ -62,9 +70,17 @@ vi.mock("../state/entities", () => ({
     runtime: null,
     latestRun: null,
   }),
-  useProjects: () => [{ id: "project", environmentId: "secondary" }],
+  readProject: (ref: { environmentId: string; projectId: string }) =>
+    state.projects.find(
+      (project) => project.environmentId === ref.environmentId && project.id === ref.projectId,
+    ) ?? null,
+  useProjects: () => state.projects,
 }));
-vi.mock("../state/environments", () => ({ usePrimaryEnvironmentId: () => "primary" }));
+vi.mock("../state/environments", () => ({
+  usePrimaryEnvironmentId: () => "primary",
+  readEnvironmentConnected: (environmentId: string) =>
+    state.connectedEnvironments.has(environmentId),
+}));
 vi.mock("../state/threads", () => ({ threadEnvironment: { updateMetadata: "metadata" } }));
 vi.mock("../state/use-atom-command", () => ({
   useAtomCommand: () => async () => {
@@ -145,6 +161,7 @@ vi.mock("./useThreadActions", () => ({
 }));
 
 import { useThreadActionMenu } from "./useThreadActionMenu";
+import { useOpenProjectPullRequestList } from "./useOpenPullRequestList";
 
 const target = {
   environmentId: EnvironmentId.make("secondary"),
@@ -160,10 +177,19 @@ const createMenu = () =>
 
 beforeEach(() => {
   state.granted = new Set(["primary"]);
+  state.connectedEnvironments = new Set(["primary", "secondary"]);
+  state.pullRequestEnvironments = new Set(["primary", "secondary"]);
+  state.projects = [
+    { id: "project", environmentId: "primary" },
+    { id: "project", environmentId: "secondary" },
+  ];
   state.effects = [];
   state.completed = deferred<void>();
   state.show.mockReset().mockResolvedValue(null);
+  state.navigate.mockReset().mockImplementation(async () => recordEffect("project-pull-requests"));
 });
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("thread menu permissions", () => {
   it("disables mutations for a denied secondary environment", () => {
@@ -212,10 +238,85 @@ describe("thread menu permissions", () => {
     ["copy-thread-id", "copy"],
     ["mark-unread", "mark-unread"],
     ["project-settings", "project-settings"],
+    ["project-pull-requests", "project-pull-requests"],
   ] as const)("keeps %s available without task permission", async (action, effect) => {
     state.show.mockResolvedValue(action);
     createMenu().openMenu(position);
     await state.completed.promise;
     expect(state.effects).toEqual([effect]);
+  });
+});
+
+it("opens the thread's project and environment instead of the saved PR scope", async () => {
+  vi.stubGlobal("window", {
+    localStorage: {
+      getItem: () =>
+        JSON.stringify({
+          involvement: "authored",
+          state: "open",
+          sort: "updated",
+          environmentId: "primary",
+          projectId: "another-project",
+          host: "another.host",
+        }),
+    },
+  });
+  state.show.mockResolvedValue("project-pull-requests");
+  createMenu().openMenu(position);
+  await state.completed.promise;
+  expect(state.navigate).toHaveBeenCalledExactlyOnceWith({
+    to: "/pull-requests",
+    search: {
+      involvement: "authored",
+      state: "open",
+      sort: "updated",
+      environmentId: "secondary",
+      projectId: "project",
+    },
+  });
+});
+
+it.each(["project", "capability"] as const)(
+  "does not navigate when the target %s disappears after the opener is created",
+  async (unavailable) => {
+    const openProjectPullRequestList = useOpenProjectPullRequestList();
+    if (unavailable === "project") {
+      state.projects = state.projects.filter((project) => project.environmentId !== "secondary");
+    } else {
+      state.pullRequestEnvironments.delete("secondary");
+    }
+
+    await openProjectPullRequestList({
+      environmentId: target.environmentId,
+      projectId: ProjectId.make("project"),
+    });
+
+    expect(state.navigate).not.toHaveBeenCalled();
+  },
+);
+
+it("rechecks connection state while the target project and PR capability remain cached", async () => {
+  const openProjectPullRequestList = useOpenProjectPullRequestList();
+  const projectRef = {
+    environmentId: target.environmentId,
+    projectId: ProjectId.make("project"),
+  };
+  state.connectedEnvironments.delete("secondary");
+
+  await openProjectPullRequestList(projectRef);
+
+  expect(state.navigate).not.toHaveBeenCalled();
+
+  state.connectedEnvironments.add("secondary");
+  await openProjectPullRequestList(projectRef);
+
+  expect(state.navigate).toHaveBeenCalledExactlyOnceWith({
+    to: "/pull-requests",
+    search: {
+      involvement: "all",
+      state: "open",
+      environmentId: "secondary",
+      projectId: "project",
+    },
   });
 });

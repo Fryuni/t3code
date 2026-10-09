@@ -18,6 +18,7 @@ const baseState: ThreadActionMenuState = {
   isRegeneratingTitle: false,
   isRunning: false,
   supports: {
+    pullRequests: true,
     settlement: true,
     autoSettleOptOut: true,
     snooze: true,
@@ -85,6 +86,7 @@ describe("buildThreadActionMenuItems", () => {
       "new-thread-on-branch",
       "mark-unread",
       "copy",
+      "project-pull-requests",
       "project-settings",
     ]);
     const allowed = buildThreadActionMenuItems({ ...baseState, canOperate: true });
@@ -96,6 +98,7 @@ describe("buildThreadActionMenuItems", () => {
       ids({
         ...baseState,
         supports: {
+          pullRequests: false,
           settlement: false,
           autoSettleOptOut: false,
           snooze: false,
@@ -106,15 +109,20 @@ describe("buildThreadActionMenuItems", () => {
     ).toEqual(["rename", "mark-unread", "copy", "project-settings", "archive", "delete"]);
   });
 
-  it("groups project settings with utility actions before archive", () => {
+  it("groups project navigation with utility actions before archive", () => {
     const items = buildThreadActionMenuItems(baseState);
     const copyIndex = items.findIndex((item) => item.id === "copy");
     expect(items[copyIndex + 1]).toMatchObject({
+      id: "project-pull-requests",
+      label: "Show project's PRs",
+      icon: "git-pull-request",
+    });
+    expect(items[copyIndex + 2]).toMatchObject({
       id: "project-settings",
       label: "Project settings",
       icon: "settings",
     });
-    expect(items[copyIndex + 2]?.id).toBe("archive");
+    expect(items[copyIndex + 3]?.id).toBe("archive");
   });
 
   it("offers project filtering only for surfaces with a scoped thread list", () => {
@@ -206,6 +214,7 @@ describe("buildThreadActionMenuItems", () => {
       ids({
         ...baseState,
         supports: {
+          pullRequests: false,
           settlement: false,
           autoSettleOptOut: false,
           snooze: false,
@@ -226,7 +235,12 @@ describe("buildThreadActionMenuItems", () => {
 
 describe("buildDraftActionMenuItems", () => {
   it("offers only the copy values the draft has", () => {
-    const items = buildDraftActionMenuItems({ hasPath: false, hasBranch: true, hasProject: true });
+    const items = buildDraftActionMenuItems({
+      hasPath: false,
+      hasBranch: true,
+      hasProject: true,
+      supportsPullRequests: true,
+    });
     expect(items[0]).toMatchObject({ id: "copy", disabled: false });
     expect(items[0]?.children?.map((item) => item.id)).toEqual(["copy-branch"]);
 
@@ -234,13 +248,29 @@ describe("buildDraftActionMenuItems", () => {
       hasPath: false,
       hasBranch: false,
       hasProject: true,
+      supportsPullRequests: true,
     });
     expect(noCopy[0]).toMatchObject({ id: "copy", disabled: true, children: [] });
   });
 
-  it("drops project settings without a project and keeps discard last", () => {
-    const items = buildDraftActionMenuItems({ hasPath: true, hasBranch: false, hasProject: false });
+  it("drops project navigation without a project and keeps discard last", () => {
+    const items = buildDraftActionMenuItems({
+      hasPath: true,
+      hasBranch: false,
+      hasProject: false,
+      supportsPullRequests: true,
+    });
     expect(items.map((item) => item.id)).toEqual(["copy", "discard"]);
     expect(items.at(-1)).toMatchObject({ label: "Discard draft", destructive: true });
+  });
+
+  it.each([false, true])("offers project PRs only when supported (%s)", (supportsPullRequests) => {
+    const items = buildDraftActionMenuItems({
+      hasPath: true,
+      hasBranch: false,
+      hasProject: true,
+      supportsPullRequests,
+    });
+    expect(items.some((item) => item.id === "project-pull-requests")).toBe(supportsPullRequests);
   });
 });

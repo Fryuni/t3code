@@ -116,7 +116,9 @@ For authorized mobile verification, a missing or outdated native client is a bui
 
 ## Documentation
 
-Most code changes do not need an internal documentation change. Agents can read the code.
+All changes made to this fork **MUST be covered by an ADR** in `docs/adr/`, including small code, configuration, and documentation changes. Create an ADR or update the relevant existing one before calling the work done. Record why the change exists and what to preserve, adapt, or remove when updating from upstream.
+
+Beyond the required ADR, most code changes do not need an internal documentation change. Agents can read the code.
 
 - `docs/internals/` is for architectural decisions and their reasons, constraints that span components, and implementation traps that are hard to discover from the source. Before adding a paragraph, ask what a maintainer would get wrong without it. If reading the relevant code answers the question, leave it out.
 - Do not document every feature, enumerate fields or methods, narrate control flow, maintain file catalogs, or append PR summaries. Types, tests, and code already record the implementation. The glossary defines shared vocabulary; it is not a feature index.

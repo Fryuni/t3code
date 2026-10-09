@@ -83,12 +83,14 @@ import { useDesktopLocalBootstraps } from "../connection/useDesktopLocalBootstra
 import { isElectron } from "../env";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { useOpenPrLink } from "../lib/openPullRequestLink";
+import { useOpenProjectPullRequestList } from "../hooks/useOpenPullRequestList";
 import { releaseProjectDraftUploads } from "../lib/composerDraftUploads";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import { isMacPlatform } from "../lib/utils";
 import { useSidebarPendingFileDropStore } from "../sidebarPendingFileDropStore";
 import { makeWorkspaceFileDropHandlers } from "./chat/workspaceFileDrop";
 import {
+  readEnvironmentSupportsPullRequests,
   readThreadShell,
   useProjects,
   useThreadShells,
@@ -1230,6 +1232,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
     (settings) => settings.sidebarThreadPreviewCount,
   );
   const router = useRouter();
+  const openProjectPullRequestList = useOpenProjectPullRequestList();
   const queuePendingFileDrop = useSidebarPendingFileDropStore((s) => s.queuePendingFileDrop);
   const clearPendingFileDrop = useSidebarPendingFileDropStore((s) => s.clearPendingFileDrop);
   const { isMobile, setOpenMobile } = useSidebar();
@@ -2333,6 +2336,15 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
           { id: "mark-unread", label: "Mark unread" },
           { id: "copy-path", label: "Copy Path" },
           { id: "copy-thread-id", label: "Copy Thread ID" },
+          ...(readEnvironmentSupportsPullRequests(thread.environmentId)
+            ? [
+                {
+                  id: "project-pull-requests",
+                  label: "Show project's PRs",
+                  icon: "git-pull-request",
+                },
+              ]
+            : []),
           { id: "project-settings", label: "Project settings" },
           {
             id: "delete",
@@ -2344,6 +2356,12 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
         ],
         position,
       );
+
+      if (clicked === "project-pull-requests") {
+        if (isMobile) setOpenMobile(false);
+        void openProjectPullRequestList(scopeProjectRef(thread.environmentId, thread.projectId));
+        return;
+      }
 
       if (clicked === "project-settings") {
         if (isMobile) setOpenMobile(false);
@@ -2441,6 +2459,7 @@ const SidebarProjectItem = memo(function SidebarProjectItem(props: SidebarProjec
       isMobile,
       markThreadUnread,
       memberProjectByScopedKey,
+      openProjectPullRequestList,
       project.projectKey,
       project.workspaceRoot,
       router,
