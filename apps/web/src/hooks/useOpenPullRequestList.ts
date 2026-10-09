@@ -8,6 +8,8 @@ import {
 } from "../components/pullRequest/pullRequestListPreferences";
 import { buildProjectGroups, selectProjectGroupingSettings } from "../logicalProject";
 import {
+  readEnvironmentSupportsPullRequests,
+  readProject,
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
   useServerConfigs,
@@ -19,8 +21,15 @@ import { useClientSettings, useLegacySidebarEnabled } from "./useSettings";
 export function useOpenProjectPullRequestList() {
   const navigate = useNavigate();
   return useCallback(
-    (projectRef: ScopedProjectRef) =>
-      navigate({
+    (projectRef: ScopedProjectRef) => {
+      // A menu can outlive its target; an unavailable scope would open the full PR list.
+      if (
+        readProject(projectRef) === null ||
+        !readEnvironmentSupportsPullRequests(projectRef.environmentId)
+      ) {
+        return;
+      }
+      return navigate({
         to: "/pull-requests",
         search: pullRequestListPreferences({
           ...readPullRequestListPreferences(),
@@ -28,7 +37,8 @@ export function useOpenProjectPullRequestList() {
           projectId: projectRef.projectId,
           host: undefined,
         }),
-      }),
+      });
+    },
     [navigate],
   );
 }
