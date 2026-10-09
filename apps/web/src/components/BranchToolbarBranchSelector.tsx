@@ -210,6 +210,12 @@ export function BranchToolbarBranchSelector({
         (hasServerThread && !readEnvironmentScope(environmentId, AuthOrchestrationOperateScope))
       )
         return;
+      // Defaults can update an empty thread's pending selection, but workspace
+      // metadata belongs to the server once a thread has been launched.
+      if (automatic && hasServerThread) {
+        if (!envLocked) onActiveThreadBranchOverrideChange?.(branch);
+        return;
+      }
       if (serverSession && worktreePath !== activeWorktreePath) {
         void stopThreadSession({
           environmentId,
@@ -249,6 +255,7 @@ export function BranchToolbarBranchSelector({
       serverSession,
       activeWorktreePath,
       hasServerThread,
+      envLocked,
       onActiveThreadBranchOverrideChange,
       setDraftThreadContext,
       draftId,
