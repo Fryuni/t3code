@@ -1,3 +1,4 @@
+import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
 import { useCallback, useMemo } from "react";
 
@@ -14,6 +15,23 @@ import {
 import { usePrimaryEnvironmentId } from "../state/environments";
 import { useUiStateStore } from "../uiStateStore";
 import { useClientSettings, useLegacySidebarEnabled } from "./useSettings";
+
+export function useOpenProjectPullRequestList() {
+  const navigate = useNavigate();
+  return useCallback(
+    (projectRef: ScopedProjectRef) =>
+      navigate({
+        to: "/pull-requests",
+        search: pullRequestListPreferences({
+          ...readPullRequestListPreferences(),
+          environmentId: projectRef.environmentId,
+          projectId: projectRef.projectId,
+          host: undefined,
+        }),
+      }),
+    [navigate],
+  );
+}
 
 export function useOpenPullRequestList() {
   const navigate = useNavigate();

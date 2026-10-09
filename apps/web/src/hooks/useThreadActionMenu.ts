@@ -28,6 +28,7 @@ import { readEnvironmentScope } from "../state/session";
 import {
   readEnvironmentSupportsAutoSettleOptOut,
   readEnvironmentSupportsPinning,
+  readEnvironmentSupportsPullRequests,
   readEnvironmentSupportsSettlement,
   readEnvironmentSupportsSnooze,
   readEnvironmentSupportsTitleRegeneration,
@@ -45,6 +46,7 @@ import { buildPhysicalToLogicalProjectKeyMap } from "../sidebarProjectGrouping";
 import { threadRuntimeCanArchive } from "@t3tools/client-runtime/state/models";
 import { useCopyToClipboard } from "./useCopyToClipboard";
 import { useNewThreadHandler } from "./useHandleNewThread";
+import { useOpenProjectPullRequestList } from "./useOpenPullRequestList";
 import { useClientSettings } from "./useSettings";
 import { useThreadActions } from "./useThreadActions";
 
@@ -76,6 +78,7 @@ export function useThreadActionMenu(input: {
 }) {
   const { threadRef, projectCwd, onStartRename } = input;
   const router = useRouter();
+  const openProjectPullRequestList = useOpenProjectPullRequestList();
   const projects = useProjects();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const projectGroupingSettings = useClientSettings(selectProjectGroupingSettings);
@@ -139,6 +142,7 @@ export function useThreadActionMenu(input: {
         if (!thread) return;
         const now = new Date();
         const supports = {
+          pullRequests: readEnvironmentSupportsPullRequests(threadRef.environmentId),
           settlement: readEnvironmentSupportsSettlement(threadRef.environmentId),
           autoSettleOptOut: readEnvironmentSupportsAutoSettleOptOut(threadRef.environmentId),
           snooze: readEnvironmentSupportsSnooze(threadRef.environmentId),
@@ -196,6 +200,11 @@ export function useThreadActionMenu(input: {
           }
         };
         switch (action) {
+          case "project-pull-requests":
+            void openProjectPullRequestList(
+              scopeProjectRef(threadRef.environmentId, thread.projectId),
+            );
+            return;
           case "project-settings": {
             const project = projects.find(
               (candidate) =>
@@ -353,6 +362,7 @@ export function useThreadActionMenu(input: {
       logicalProjectKeyByPhysicalKey,
       markThreadUnread,
       onStartRename,
+      openProjectPullRequestList,
       pinThread,
       projectCwd,
       projectGroupingSettings,

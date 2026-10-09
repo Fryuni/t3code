@@ -3,7 +3,7 @@ import {
   type EnvironmentId,
   type ThreadId,
 } from "@t3tools/contracts";
-import { scopeThreadRef } from "@t3tools/client-runtime/environment";
+import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import {
   isAtomCommandInterrupted,
@@ -24,7 +24,9 @@ import { isTrailingDoubleClick } from "../Sidebar.logic";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import { toastManager } from "../ui/toast";
 import { useThreadActionMenu } from "~/hooks/useThreadActionMenu";
+import { useOpenProjectPullRequestList } from "~/hooks/useOpenPullRequestList";
 import { readLocalApi } from "~/localApi";
+import { readEnvironmentSupportsPullRequests } from "../../state/entities";
 import { threadEnvironment } from "../../state/threads";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
@@ -81,6 +83,7 @@ export const ChatHeader = memo(function ChatHeader({
   onNewThreadInProject,
   onOpenProjectSettings,
 }: ChatHeaderProps) {
+  const openProjectPullRequestList = useOpenProjectPullRequestList();
   const activeProjectName = activeProject?.title;
   const activeProjectCwd = activeProject?.workspaceRoot ?? null;
   const activeThreadRef = useMemo(
@@ -225,18 +228,42 @@ export const ChatHeader = memo(function ChatHeader({
         const api = readLocalApi();
         if (!api) return;
         void api.contextMenu
-          .show([{ id: "project-settings", label: "Project settings", icon: "settings" }], {
-            x: event.clientX,
-            y: event.clientY,
-          })
+          .show(
+            [
+              ...(activeProject && readEnvironmentSupportsPullRequests(activeProject.environmentId)
+                ? [
+                    {
+                      id: "project-pull-requests",
+                      label: "Show project's PRs",
+                      icon: "git-pull-request",
+                    },
+                  ]
+                : []),
+              { id: "project-settings", label: "Project settings", icon: "settings" },
+            ],
+            { x: event.clientX, y: event.clientY },
+          )
           .then((action) => {
+            if (action === "project-pull-requests" && activeProject) {
+              void openProjectPullRequestList(
+                scopeProjectRef(activeProject.environmentId, activeProject.id),
+              );
+            }
             if (action === "project-settings") onOpenProjectSettings?.();
           });
         return;
       }
       openMenu({ x: event.clientX, y: event.clientY });
     },
-    [cancelPendingTitleMenu, isServerThread, onOpenProjectSettings, openMenu, renamingTitle],
+    [
+      activeProject,
+      cancelPendingTitleMenu,
+      isServerThread,
+      onOpenProjectSettings,
+      openMenu,
+      openProjectPullRequestList,
+      renamingTitle,
+    ],
   );
   const handleRenameKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLInputElement>) => {

@@ -9,6 +9,7 @@ import type { SnoozePreset } from "@t3tools/client-runtime/state/thread-settled"
 export type ThreadActionMenuId =
   | "new-thread-on-branch"
   | "filter-by-project"
+  | "project-pull-requests"
   | "project-settings"
   | "pin"
   | "unpin"
@@ -34,6 +35,7 @@ export type DraftActionMenuId =
   | "copy"
   | "copy-path"
   | "copy-branch"
+  | "project-pull-requests"
   | "project-settings"
   | "discard";
 
@@ -42,6 +44,7 @@ export function buildDraftActionMenuItems(options: {
   readonly hasPath: boolean;
   readonly hasBranch: boolean;
   readonly hasProject: boolean;
+  readonly supportsPullRequests: boolean;
 }): ReadonlyArray<ContextMenuItem<DraftActionMenuId>> {
   return [
     {
@@ -56,6 +59,15 @@ export function buildDraftActionMenuItems(options: {
           : []),
       ],
     },
+    ...(options.hasProject && options.supportsPullRequests
+      ? [
+          {
+            id: "project-pull-requests" as const,
+            label: "Show project's PRs",
+            icon: "git-pull-request",
+          },
+        ]
+      : []),
     ...(options.hasProject
       ? [{ id: "project-settings" as const, label: "Project settings", icon: "settings" }]
       : []),
@@ -91,6 +103,7 @@ export interface ThreadActionMenuState {
   /** Archive rejects a thread with an attached provider, so disable it here rather than let the action fail. */
   readonly isRunning: boolean;
   readonly supports: {
+    readonly pullRequests: boolean;
     readonly settlement: boolean;
     /** Server understands thread.auto-settle.set. */
     readonly autoSettleOptOut: boolean;
@@ -105,6 +118,7 @@ export interface ThreadActionMenuState {
 export function threadActionRequiresOperate(action: ThreadActionMenuId): boolean {
   return ![
     "new-thread-on-branch",
+    "project-pull-requests",
     "project-settings",
     "mark-unread",
     "copy",
@@ -229,6 +243,15 @@ export function buildThreadActionMenuItems(
         { id: "copy-thread-id", label: "Thread ID", icon: "hash" },
       ],
     },
+    ...(state.supports.pullRequests
+      ? [
+          {
+            id: "project-pull-requests" as const,
+            label: "Show project's PRs",
+            icon: "git-pull-request",
+          },
+        ]
+      : []),
     { id: "project-settings", label: "Project settings", icon: "settings" },
     // Archive removes the thread from the sidebar while keeping its
     // conversation under Settings > Archived threads — distinct from Settle

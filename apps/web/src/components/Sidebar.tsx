@@ -136,6 +136,7 @@ import {
 } from "../threadSelectionStore";
 import { useAcknowledgeThreadWoke, useThreadActions } from "../hooks/useThreadActions";
 import { useHandleNewThread } from "../hooks/useHandleNewThread";
+import { useOpenProjectPullRequestList } from "../hooks/useOpenPullRequestList";
 import { useTerminalFocus } from "../hooks/useTerminalFocus";
 import { isCommandPaletteOpen, openCommandPalette } from "../commandPaletteBus";
 import { startNewThreadFromContext } from "../lib/chatThreadActions";
@@ -150,6 +151,7 @@ import {
   usePrimaryEnvironmentId,
 } from "../state/environments";
 import {
+  readEnvironmentSupportsPullRequests,
   readThreadShell,
   useAllEnvironmentProjectSnapshotsReady,
   useProjects,
@@ -2386,6 +2388,7 @@ export default function Sidebar() {
   const projectOrder = useUiStateStore((store) => store.projectOrder);
   const threads = useThreadShells();
   const router = useRouter();
+  const openProjectPullRequestList = useOpenProjectPullRequestList();
   const { isMobile, setOpenMobile } = useSidebar();
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
   const confirmThreadDelete = useClientSettings((s) => s.confirmThreadDelete);
@@ -4535,12 +4538,19 @@ export default function Sidebar() {
               hasPath: Boolean(workspacePath),
               hasBranch: Boolean(session.branch),
               hasProject: projectGroup != null,
+              supportsPullRequests: readEnvironmentSupportsPullRequests(session.environmentId),
             }),
             position,
           ),
         );
         if (clicked._tag === "Failure") return;
         switch (clicked.value) {
+          case "project-pull-requests":
+            if (isMobile) setOpenMobile(false);
+            void openProjectPullRequestList(
+              scopeProjectRef(session.environmentId, session.projectId),
+            );
+            return;
           case "project-settings":
             if (projectGroup) openProjectSettings(projectGroup);
             return;
@@ -4560,7 +4570,15 @@ export default function Sidebar() {
         }
       })();
     },
-    [copyBranchToClipboard, copyPathToClipboard, openProjectSettings, projectByKey],
+    [
+      copyBranchToClipboard,
+      copyPathToClipboard,
+      isMobile,
+      openProjectPullRequestList,
+      openProjectSettings,
+      projectByKey,
+      setOpenMobile,
+    ],
   );
 
   const handleThreadContextMenu = useCallback(
@@ -4632,6 +4650,7 @@ export default function Sidebar() {
               isRegeneratingTitle,
               isRunning: !threadRuntimeCanArchive(thread.runtime),
               supports: {
+                pullRequests: readEnvironmentSupportsPullRequests(thread.environmentId),
                 settlement: supportsSettlement,
                 autoSettleOptOut: supportsAutoSettleOptOut,
                 snooze: supportsSnooze,
@@ -4664,6 +4683,12 @@ export default function Sidebar() {
                   : threadProjectGroup.projectKey,
               );
             }
+            return;
+          case "project-pull-requests":
+            if (isMobile) setOpenMobile(false);
+            void openProjectPullRequestList(
+              scopeProjectRef(thread.environmentId, thread.projectId),
+            );
             return;
           case "project-settings":
             if (threadProjectGroup) openProjectSettings(threadProjectGroup);
@@ -4844,11 +4869,14 @@ export default function Sidebar() {
       copyThreadIdToClipboard,
       deleteThread,
       handleMultiSelectContextMenu,
+      isMobile,
       markThreadUnread,
+      openProjectPullRequestList,
       openProjectSettings,
       projectScopeKey,
       projectByKey,
       serverConfigs,
+      setOpenMobile,
       setProjectScopeKey,
       setThreadAutoSettle,
       startThreadRename,
