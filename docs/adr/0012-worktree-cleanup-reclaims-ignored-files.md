@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#46](https://github.com/Fryuni/t3code/pull/46)
-- Compared with upstream: `pingdotgg/t3code` at `37eaf5d29` (2026-10-08)
+- Compared with upstream: `pingdotgg/t3code` at `ec80933ac` (2026-10-09)
 
 Upstream's automatic worktree cleanup (`c4ca1b0f9`, #11598) keeps any worktree that
 holds an ignored path other than `node_modules/`, on the grounds that ignored files can
