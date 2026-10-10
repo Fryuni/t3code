@@ -49,7 +49,11 @@ export function savedPullRequestStack(
   };
 }
 
-/** A fresh absence overrides saved membership; failed refreshes preserve available navigation. */
+/**
+ * A fresh absence overrides saved membership; failed refreshes preserve available navigation.
+ * A background refresh keeps the last successful lookup fresh, so stack-dependent actions do
+ * not blink out every time the detail revalidates.
+ */
 export function pullRequestStackView(
   query: {
     data: PullRequestStack | null;
@@ -62,7 +66,7 @@ export function pullRequestStackView(
   const data = query.isSuccess ? query.data : (query.data ?? saved);
   return {
     data,
-    isFresh: query.isSuccess && !query.isPending,
+    isFresh: query.isSuccess,
     notice:
       data === null
         ? null

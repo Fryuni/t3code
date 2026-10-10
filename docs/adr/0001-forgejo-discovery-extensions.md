@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#26](https://github.com/Fryuni/t3code/issues/26)
-- Compared with upstream: `pingdotgg/t3code` at `ec80933ac` (2026-10-09)
+- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
 
 Upstream already discovers Forgejo and Gitea through `fj` and `tea`. The fork
 extends that discovery for installations whose SSH clone authority differs from
@@ -17,7 +17,7 @@ A successful repository lookup alone is insufficient: several instances can host
 the same owner/name. Matching the advertised SSH authority and repository path
 provides evidence of which instance owns the remote, while ambiguous matches
 remain unresolved. This lives in the existing
-[CLI discovery boundary](../../apps/server/src/sourceControl/ForgejoCli.ts), so
+[CLI discovery boundary](../../packages/source-control-forgejo/src/server/ForgejoCli.ts), so
 normal discovery and repository resolution use the same fallback.
 
 The fallback trades authenticated network requests for support of these SSH

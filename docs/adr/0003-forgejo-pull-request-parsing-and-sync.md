@@ -3,13 +3,13 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#28](https://github.com/Fryuni/t3code/issues/28)
-- Compared with upstream: `pingdotgg/t3code` at `ec80933ac` (2026-10-09)
+- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
 
 Upstream's Forgejo provider compares head repository names, head owners, and the
 publishing owner with exact string equality. A remote or user input can spell
 these differently from the API even though they identify the same Forgejo
 namespace. The fork makes those comparisons case-insensitive in the
-[provider](../../apps/server/src/sourceControl/ForgejoSourceControlProvider.ts).
+[provider](../../packages/source-control-forgejo/src/server/ForgejoSourceControlProvider.ts).
 
 For branch PR discovery, exact comparison can discard `Contributor/Repo` when
 the selector says `contributor/repo`. Later normalization in GitManager cannot
