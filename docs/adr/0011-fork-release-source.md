@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `ec80933ac` (2026-10-09)
+- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and

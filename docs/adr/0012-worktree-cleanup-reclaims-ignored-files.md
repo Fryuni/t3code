@@ -1,9 +1,19 @@
 # ADR 0012: Worktree cleanup reclaims ignored files
 
-- Status: accepted
+- Status: superseded by upstream
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#46](https://github.com/Fryuni/t3code/pull/46)
-- Compared with upstream: `pingdotgg/t3code` at `ec80933ac` (2026-10-09)
+- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+
+**Superseded.** Upstream reworked cleanup in
+[pingdotgg/t3code#17563](https://github.com/pingdotgg/t3code/pull/17563) (`0caa95d6e`)
+with a **Keep worktrees with local changes** setting (`worktreeKeepWhen`). Its default,
+**Uncommitted changes**, removes ignored files such as `.env` and build output and keeps
+tracked edits and untracked files, which is this decision; **Any local files** restores
+the old retaining behavior for users who want it. The fork dropped its own
+`storageCleanup.ts` and test changes when it synced onto upstream `c77a7b7ee` and keeps
+upstream's implementation. The rest of this record describes the decision as it stood
+before.
 
 Upstream's automatic worktree cleanup (`c4ca1b0f9`, #11598) keeps any worktree that
 holds an ignored path other than `node_modules/`, on the grounds that ignored files can
