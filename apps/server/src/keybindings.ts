@@ -104,16 +104,18 @@ function isSameKeybindingRule(left: KeybindingRule, right: KeybindingRule): bool
   );
 }
 
-// Default rules added to a command after startup sync had already persisted
-// that command. Backfill skips commands a config already has, so startup adds
-// each rule once per config, only next to the untouched earlier default
-// (`alongside`), and records its id. Customized commands and later removals
-// stay as the user set them.
-const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
-  readonly id: string;
-  readonly alongside: KeybindingRule;
-  readonly rule: KeybindingRule;
-}> = [
+// Default rules added to or changed on a command after startup sync had
+// already persisted that command. Backfill skips commands a config already
+// has, so startup applies each rule once per config, only while the earlier
+// default is untouched, and records its id. `alongside` adds the rule next to
+// that default; `replaces` swaps it in place. Customized commands and later
+// edits stay as the user set them.
+const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<
+  {
+    readonly id: string;
+    readonly rule: KeybindingRule;
+  } & ({ readonly alongside: KeybindingRule } | { readonly replaces: KeybindingRule })
+> = [
   {
     id: "composer.sendBackground:mod+enter",
     alongside: {
@@ -126,6 +128,17 @@ const LATE_DEFAULT_KEYBINDINGS: ReadonlyArray<{
       command: "composer.sendBackground",
       when: "composerFocus && draftThreadRoute",
     },
+  },
+  // Ctrl+D is EOF in a terminal outside macOS, so splitting moved off it.
+  {
+    id: "terminal.split:mod+s",
+    replaces: { key: "mod+d", command: "terminal.split", when: "terminalFocus" },
+    rule: { key: "mod+s", command: "terminal.split", when: "terminalFocus" },
+  },
+  {
+    id: "terminal.splitVertical:mod+shift+s",
+    replaces: { key: "mod+shift+d", command: "terminal.splitVertical", when: "terminalFocus" },
+    rule: { key: "mod+shift+s", command: "terminal.splitVertical", when: "terminalFocus" },
   },
 ];
 
@@ -559,13 +572,22 @@ const make = Effect.gen(function* () {
         missingDefaults.push(defaultRule);
       }
       // The loop above backfills whole missing commands. Late defaults join
-      // an untouched earlier default, when their shortcut is still free.
-      for (const { alongside, rule } of pendingLateDefaults) {
+      // or replace an untouched earlier default, when their shortcut is still free.
+      let persistedConfig = customConfig;
+      for (const late of pendingLateDefaults) {
+        const earlier = "replaces" in late ? late.replaces : late.alongside;
         if (
-          customConfig.some((entry) => isSameKeybindingRule(entry, alongside)) &&
-          !customConfig.some((entry) => hasSameShortcutContext(entry, rule))
+          !persistedConfig.some((entry) => isSameKeybindingRule(entry, earlier)) ||
+          persistedConfig.some((entry) => hasSameShortcutContext(entry, late.rule))
         ) {
-          missingDefaults.push(rule);
+          continue;
+        }
+        if ("replaces" in late) {
+          persistedConfig = persistedConfig.map((entry) =>
+            isSameKeybindingRule(entry, earlier) ? late.rule : entry,
+          );
+        } else {
+          missingDefaults.push(late.rule);
         }
       }
       for (const conflict of shortcutConflictWarnings) {
@@ -604,8 +626,8 @@ const make = Effect.gen(function* () {
           commands: skippedDefaults.map((rule) => rule.command),
         });
       }
-      if (defaultsToAppend.length > 0) {
-        yield* writeConfigAtomically([...defaultsToAppend, ...customConfig]);
+      if (defaultsToAppend.length > 0 || persistedConfig !== customConfig) {
+        yield* writeConfigAtomically([...defaultsToAppend, ...persistedConfig]);
       }
       // A late default skipped at max entries stays pending for a later start.
       const settledLateDefaults = pendingLateDefaults.filter(

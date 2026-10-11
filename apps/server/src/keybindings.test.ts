@@ -364,6 +364,45 @@ it.layer(NodeServices.layer)("keybindings", (it) => {
     }).pipe(Effect.provide(layerKeybindings())),
   );
 
+  it.effect("moves an untouched split default off mod+d once", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const when = "terminalFocus";
+      const oldSplit = { key: "mod+d", command: "terminal.split", when } as const;
+      const newSplit = { key: "mod+s", command: "terminal.split", when } as const;
+      const diffToggle = { key: "mod+d", command: "diff.toggle", when: "!terminalFocus" } as const;
+      const modDOrSplitRules = Effect.map(readKeybindingsConfig(keybindingsConfigPath), (rules) =>
+        rules.filter((entry) => entry.key === "mod+d" || entry.command === "terminal.split"),
+      );
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [diffToggle, oldSplit]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(yield* modDOrSplitRules, [diffToggle, newSplit]);
+
+      // Choosing mod+d again later must survive the next startup.
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [diffToggle, oldSplit]);
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      assert.deepStrictEqual(yield* modDOrSplitRules, [diffToggle, oldSplit]);
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
+  it.effect("leaves a customized split shortcut in place", () =>
+    Effect.gen(function* () {
+      const { keybindingsConfigPath } = yield* ServerConfig.ServerConfig;
+      const keybindings = yield* Keybindings.Keybindings;
+      const custom = { key: "mod+\\", command: "terminal.split", when: "terminalFocus" } as const;
+      yield* writeKeybindingsConfig(keybindingsConfigPath, [custom]);
+
+      yield* keybindings.syncDefaultKeybindingsOnStartup;
+      const persisted = yield* readKeybindingsConfig(keybindingsConfigPath);
+      assert.deepStrictEqual(
+        persisted.filter((entry) => entry.command === "terminal.split"),
+        [custom],
+      );
+    }).pipe(Effect.provide(layerKeybindings())),
+  );
+
   it.effect("skips conflicting default keybindings on startup and logs a detailed warning", () => {
     const messages: string[] = [];
     const logger = Logger.make(({ message }) => {
