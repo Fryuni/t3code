@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -26,7 +26,10 @@ release page or, without the base-URL override, quietly updates back onto upstre
 Upstream has no reason to support other release sources, and its release pipelines
 (signing, npm, desktop, mobile, relay and Clerk config) cannot run here. Fork commits
 `0d1a4859a` and `0168d4b3f` deleted `release.yml` and the test that read it, so
-`server-linux-release.yml` is the fork's only release path.
+`server-linux-release.yml` is the fork's only release path. The fork keeps only
+`ci.yml` and `server-linux-release.yml` in `.github/workflows`; upstream's other
+workflows need its organization's runners, secrets, and stores, so syncs drop any
+upstream adds, such as `mobile-android-apk.yml`.
 
 ## Decision
 
@@ -49,7 +52,9 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   `releaseRepository` ([`environment.ts`](../../packages/contracts/src/environment.ts)).
   Fork-aware clients stop offering upstream versions: the web's
   `resolveServerConfigVersionMismatch` ([`versionSkew.ts`](../../apps/web/src/versionSkew.ts))
-  reports no mismatch, and mobile's **Check for updates** reads the fork's latest
+  reports no mismatch, upstream's sidebar "update everything" run
+  ([`updateEverything.logic.ts`](../../apps/web/src/components/sidebar/updateEverything.logic.ts))
+  leaves such servers out, and mobile's **Check for updates** reads the fork's latest
   release.
 
 Builds without the define, including every build from source, behave exactly like

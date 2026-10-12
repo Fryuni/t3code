@@ -49,6 +49,7 @@ const QueuedThreadCreationSchema = Schema.Struct({
   startFromOrigin: Schema.optional(Schema.Boolean),
   // Optional so v3 readers keep decoding; absent creates a branch.
   createNewBranch: Schema.optional(Schema.Boolean),
+  pullRequestReference: Schema.optional(Schema.String),
 });
 
 export const QueuedThreadMessageSchema = Schema.Struct({
@@ -82,6 +83,7 @@ export interface QueuedThreadCreation {
   readonly worktreePath: string | null;
   readonly startFromRemote?: WorktreeStartRemote;
   readonly createNewBranch?: boolean;
+  readonly pullRequestReference?: string;
 }
 
 export interface QueuedThreadMessage {
@@ -264,7 +266,8 @@ export function isQueuedThreadCreationSendable(message: QueuedThreadMessage): bo
   if (!message.creation) {
     return false;
   }
-  if (message.text.trim().length === 0 || message.modelSelection === undefined) {
+  const hasContent = message.text.trim().length > 0 || message.attachments.length > 0;
+  if (!hasContent || message.modelSelection === undefined) {
     return false;
   }
   return message.creation.workspaceMode !== "worktree" || Boolean(message.creation.branch);

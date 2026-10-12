@@ -363,6 +363,8 @@ export interface ComposerDraftWorkspaceSelection {
   readonly startFromRemote?: WorktreeStartRemote;
   /** False checks out `branch` itself in the new worktree. Absent creates a branch. */
   readonly createNewBranch?: boolean;
+  /** Resolve and check out this PR when the queued task is sent. */
+  readonly pullRequestReference?: string;
 }
 
 export type ComposerDraftSettingsUpdate = Pick<
@@ -378,6 +380,7 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
   // Read-only: drafts saved before upstream existed. Loading folds it into `startFromRemote`.
   startFromOrigin: Schema.optional(Schema.Boolean),
   createNewBranch: Schema.optional(Schema.Boolean),
+  pullRequestReference: Schema.optional(Schema.String),
 });
 
 const ComposerDraftProjectSchema = Schema.Struct({
@@ -1222,6 +1225,8 @@ export async function removeDeliveredCloudQueuedMessage(
             editor.workspaceSelection.worktreePath !== message.creation?.worktreePath ||
             (editor.workspaceSelection.createNewBranch ?? true) !==
               (message.creation?.createNewBranch ?? true) ||
+            editor.workspaceSelection.pullRequestReference !==
+              message.creation?.pullRequestReference ||
             (editor.workspaceSelection.startFromRemote ?? null) !==
               (message.creation?.startFromRemote ?? null))))
     )

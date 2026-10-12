@@ -1,7 +1,7 @@
 import {
   pullRequestHostOf,
   type RepositoryIdentity,
-  type SourceControlProviderKind,
+  SourceControlProviderKind,
   type ThreadLinkedPullRequest,
 } from "@t3tools/contracts";
 import {
@@ -252,7 +252,10 @@ export function changeRequestLinkOnRepositoryInstance(
   if (!identity) return false;
   const kind = identity.provider as SourceControlProviderKind | undefined;
   if (kind !== "forgejo" || link.authority === undefined) {
-    return pullRequestHostOf(identity, kind ?? "unknown") === link.host.toLowerCase();
+    return (
+      pullRequestHostOf(identity, kind ?? SourceControlProviderKind.make("unknown")) ===
+      link.host.toLowerCase()
+    );
   }
   const web = httpUrl(identity.webUrl);
   const known = web ?? httpUrl(identity.locator.remoteUrl);

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and every run passes it unchanged
@@ -23,13 +23,20 @@ starts from that model's defaults, since options belong to a model.
 The MCP schedule tools accept the same optional `target` as `delegate_task`. The
 shared target resolver in
 [`OrchestratorMcpService.ts`](../../apps/server/src/mcp/OrchestratorMcpService.ts)
-takes an inherited model selection instead of a thread projection, so an update
-edits the stored task rather than the caller's thread, and a client caller can
+takes an inherited model selection and a project instead of a thread projection, so
+an update edits the stored task rather than the caller's thread, and a client caller can
 name a provider when its project has no default model. An omitted target keeps
 the previous unvalidated inheritance, so a task saved without one keeps working
 while its provider is briefly unavailable; an explicit target is validated
 against the advertised option descriptors exactly like delegation. Task summaries
 report the provider, model, and options so an agent can read back what it set.
+
+Upstream later let projects turn provider instances on or off
+([pingdotgg/t3code#17879](https://github.com/pingdotgg/t3code/pull/17879)). Its
+driver-only target resolution skips instances the project turned off; the project
+is the task's for schedule tools and the caller thread's for delegation. The web
+dialog keeps upstream's rule that a draft selection on an instance disabled for the
+task's project falls back to the default.
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target

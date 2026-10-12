@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its
@@ -23,6 +23,12 @@ or short name, or when it is the known `openai.` Codex prefix. Version dots such
 as `gpt-5.6` therefore never read as a provider. The web picker row, web picker search,
 and mobile model options all use the helper, so a qualifier the user can see is
 also one they can search for.
+
+Upstream later set `subProvider` for OpenCode Zen and Go models and added
+`getProviderRowLabel`, which shows a sub-provider that already starts with the
+provider's name, such as "OpenCode Zen", without repeating the provider
+([pingdotgg/t3code#17424](https://github.com/pingdotgg/t3code/pull/17424)). The web
+row passes this helper's label through `getProviderRowLabel`, so both apply.
 
 Drop this divergence when upstream's pickers distinguish `bar` from `foo/bar`
 without it.

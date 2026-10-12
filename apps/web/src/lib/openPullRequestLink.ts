@@ -3,16 +3,9 @@ import { useAtomValue } from "@effect/atom-react";
 import { useNavigate } from "@tanstack/react-router";
 import { type MouseEvent, useCallback, useMemo } from "react";
 
-import {
-  changeRequestLinkMatchesRepository,
-  changeRequestLinkOnRepositoryInstance,
-  parseChangeRequestUrl,
-  type ChangeRequestLink,
-} from "@t3tools/shared/changeRequestUrl";
-import {
-  canonicalRepositoryKey,
-  sourceControlRepositorySelector,
-} from "@t3tools/shared/sourceControl";
+import { sourceControlClients } from "@t3tools/client-runtime/source-control-clients";
+import { parseChangeRequestUrl, type ChangeRequestLink } from "@t3tools/shared/changeRequestUrl";
+import { sourceControlRepositorySelector } from "@t3tools/shared/sourceControl";
 
 import { useOpenLink } from "../browser/useOpenLink";
 import { stackedThreadToast, toastManager } from "../components/ui/toast";
@@ -33,10 +26,8 @@ export {
 } from "@t3tools/shared/changeRequestUrl";
 
 /**
- * The project a link belongs to, or nothing. Matched the way the server matches, through the
- * shared `changeRequestLinkMatchesRepository`: the repository identity is the full path below
- * the host where one was recorded — which is what nested GitLab groups and Azure project paths
- * need — and the host is the one the identity is addressed below, so github.com and an
+ * The project a link belongs to, or nothing. Each host's client definition decides whether a
+ * link names a project's repository, the same rule the server applies, so github.com and an
  * Enterprise install stay apart, as do Forgejo instances on different ports or mount paths.
  *
  * One environment can hold two checkouts of the same repository under different projects, and
@@ -52,9 +43,13 @@ export function findProjectForChangeRequest(
     preferredProjectId === undefined
       ? undefined
       : projects.find((project) => project.id === preferredProjectId);
-  return (preferred === undefined ? projects : [preferred, ...projects]).find((project) =>
-    changeRequestLinkMatchesRepository(link, project.repositoryIdentity),
-  );
+  return (preferred === undefined ? projects : [preferred, ...projects]).find((project) => {
+    const identity = project.repositoryIdentity;
+    return (
+      identity?.provider !== undefined &&
+      sourceControlClients.get(identity.provider).isChangeRequestInRepository(identity, link)
+    );
+  });
 }
 
 export function resolvePullRequestPreviewTarget({
@@ -114,15 +109,11 @@ export function findProjectOnChangeRequestHost(
 ): EnvironmentProject | undefined {
   const own = findProjectForChangeRequest(projects, link, preferredProjectId);
   if (own !== undefined) return own;
-  // Azure CLI reads use the checkout's organization and project, not host-wide credentials.
-  if (canonicalRepositoryKey(`${link.host}/${link.repository}`).startsWith("dev.azure.com/"))
-    return undefined;
   return projects.find((project) => {
     const identity = project.repositoryIdentity;
     return (
       identity?.provider !== undefined &&
-      identity.provider !== "azure-devops" &&
-      changeRequestLinkOnRepositoryInstance(link, identity)
+      sourceControlClients.get(identity.provider).canReadChangeRequestOnHost(identity, link)
     );
   });
 }

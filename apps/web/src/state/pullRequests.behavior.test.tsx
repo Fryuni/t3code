@@ -2,6 +2,7 @@ import { RegistryContext } from "@effect/atom-react";
 import {
   EnvironmentId,
   ProjectId,
+  SourceControlProviderKind,
   type PullRequestRef,
   type PullRequestSummary,
 } from "@t3tools/contracts";
@@ -27,7 +28,7 @@ const reference: PullRequestRef = {
   number: 7,
 };
 const summary: PullRequestSummary = {
-  provider: "forgejo",
+  provider: SourceControlProviderKind.make("forgejo"),
   projectId: reference.projectId,
   repository: reference.repository,
   number: reference.number,

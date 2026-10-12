@@ -3,11 +3,12 @@
 - Status: accepted
 - Date: 2026-09-21
 - Tracking: [Fryuni/t3code#29](https://github.com/Fryuni/t3code/issues/29)
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 Upstream opens PR links through one URL-based
 [shared opener](../../apps/web/src/lib/openPullRequestLink.ts), which selects the
-first project whose repository matches the URL. In the fork, links opened beside
+first project whose repository matches the URL, as decided by each host's client
+definition. In the fork, links opened beside
 a thread prefer that thread's project when it matches the URL.
 
 Repository identity alone cannot choose between two local checkouts of the same
@@ -19,6 +20,9 @@ working in. This preference applies within the thread's environment, since
 project IDs can repeat across environments; it never overrides a repository
 mismatch. The fork preserves upstream's environment and capability boundaries
 rather than borrowing a matching checkout from another server.
+
+The preference only reorders the candidates handed to upstream's matcher, so keep it
+as a reordering when upstream changes how a project matches a URL.
 
 This decision applies to web and desktop, which share the opener. Mobile retains
 its external PR-link navigation. Forgejo instance matching uses the shared rules

@@ -1,6 +1,7 @@
 import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
 import type { WorktreeStartRemote } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
+import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 
 type WorkspaceMode = "local" | "worktree";
 
@@ -87,7 +88,12 @@ export function resolveNewTaskBranchLabel(input: {
   readonly startFromRemote: WorktreeStartRemote;
   readonly createNewBranch?: boolean;
   readonly workspaceMode: WorkspaceMode;
+  readonly pullRequestReference?: string;
 }): string {
+  if (input.workspaceMode === "worktree" && input.pullRequestReference) {
+    const pr = parseChangeRequestUrl(input.pullRequestReference);
+    if (pr) return `From PR #${pr.number}`;
+  }
   if (!input.branchName) {
     return "Choose branch";
   }
