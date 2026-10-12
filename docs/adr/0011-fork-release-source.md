@@ -29,7 +29,8 @@ Upstream has no reason to support other release sources, and its release pipelin
 `server-linux-release.yml` is the fork's only release path. The fork keeps only
 `ci.yml` and `server-linux-release.yml` in `.github/workflows`; upstream's other
 workflows need its organization's runners, secrets, and stores, so syncs drop any
-upstream adds, such as `mobile-android-apk.yml`.
+upstream adds, such as `mobile-android-apk.yml`, along with scripts only they use,
+such as `.github/scripts/mirror-play-apk.cjs`.
 
 ## Decision
 
