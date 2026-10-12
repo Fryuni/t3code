@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -87,6 +87,10 @@ three treat prefixes and missing refs the same way:
   before creating the thread, so agents and clients get the error immediately rather
   than as a failed preparation; a missing branch can only be found by fetching, so it
   still fails during preparation.
+- Upstream's `checkWorktreeBase`, which `t3_thread_launch` runs before creating a
+  thread, accepts a base it cannot resolve locally when the launch fetches it. It
+  reads the remote through `resolveWorktreeStartRemote`, so an upstream start is
+  accepted when the `upstream` remote exists, not only an origin start.
 - A base such as `origin/dev` names the remote branch `dev`
   ([#38](https://github.com/Fryuni/t3code/pull/38)). Upstream's V2 launch looked up
   `origin/origin/dev`, missed, and passed the name through instead of the fetched

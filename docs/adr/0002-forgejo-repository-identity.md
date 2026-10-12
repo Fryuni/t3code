@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -26,8 +26,15 @@ so preserve the canonical key and display name when that hook changes upstream.
 
 These rules use the existing identity and link contracts, with shared
 [normalization](../../packages/shared/src/sourceControl.ts) and
-[link matching](../../packages/shared/src/changeRequestUrl.ts). Keeping the rules
-shared matters because project selection, credential selection, synchronization,
+[link matching](../../packages/shared/src/changeRequestUrl.ts). Upstream later moved
+client-side link matching into per-host client definitions
+([pingdotgg/t3code#17770](https://github.com/pingdotgg/t3code/pull/17770)), whose
+Forgejo version lower-cases the whole web path and lets a root mount lend
+credentials to any mount. The fork keeps upstream's per-host structure and has the
+[Forgejo client definition](../../packages/source-control-forgejo/src/client/definition.ts)
+apply this rule instead: the mount above owner/name is compared exactly, for the
+repository and for the instance a link may borrow credentials from. Keeping the rules
+consistent matters because project selection, credential selection, synchronization,
 and clients must agree about repository identity. Separate local fixes would
 allow one operation to join instances that another keeps apart. When only an SSH
 host is known, matching still leaves the web port and mount to login resolution;

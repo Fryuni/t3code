@@ -1,3 +1,4 @@
+import { SourceControlProviderKind } from "@t3tools/contracts";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
 import * as Data from "effect/Data";
@@ -9,7 +10,7 @@ import {
   SourceControlProviderError,
   type SourceControlProviderDiscoveryItem,
 } from "@t3tools/contracts";
-import type { SourceControlProviderKind } from "@t3tools/contracts";
+import type {} from "@t3tools/contracts";
 import { detectSourceControlProviderFromRemoteUrl } from "@t3tools/shared/sourceControl";
 
 import * as BuiltInDrivers from "./builtInDrivers.ts";
@@ -229,7 +230,11 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
             remoteName: key.remoteName,
             remoteUrl: key.remoteUrl,
             ...(key.requestedHost === undefined ? {} : { requestedHost: key.requestedHost }),
-            provider: { kind: "unknown", name: key.providerName, baseUrl: key.baseUrl },
+            provider: {
+              kind: SourceControlProviderKind.make("unknown"),
+              name: key.providerName,
+              baseUrl: key.baseUrl,
+            },
           },
         }),
       {
@@ -264,7 +269,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
           Effect.mapError(
             (error) =>
               new SourceControlProviderError({
-                provider: "unknown",
+                provider: SourceControlProviderKind.make("unknown"),
                 operation: "detectProvider",
                 cwd,
                 detail: "Failed to detect source control provider.",
@@ -276,7 +281,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
           Effect.mapError(
             (error) =>
               new SourceControlProviderError({
-                provider: "unknown",
+                provider: SourceControlProviderKind.make("unknown"),
                 operation: "detectProvider",
                 cwd,
                 detail: "Failed to detect source control provider.",
@@ -305,7 +310,7 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
         : refineContext(input.cwd, input.context)
       ).pipe(
         Effect.map((context) => {
-          const kind = context?.provider.kind ?? "unknown";
+          const kind = context?.provider.kind ?? SourceControlProviderKind.make("unknown");
           const provider = providers.get(kind) ?? unsupportedProvider(kind);
           return {
             provider: bindProviderContext(provider, context),

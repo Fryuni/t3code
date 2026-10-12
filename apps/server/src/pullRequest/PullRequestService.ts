@@ -73,7 +73,7 @@ import {
   type PullRequestThreadCommentsResult,
   type PullRequestUpdateInput,
   type SourceControlProviderInfo,
-  type SourceControlProviderKind,
+  SourceControlProviderKind,
   type ThreadPullRequestKey,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
@@ -177,6 +177,8 @@ const LIST_STATS_CACHE_TTL = Duration.seconds(60);
 const FILES_VIEWED_CACHE_TTL = Duration.seconds(15);
 /** A diff can stay interactive while its next cached value is fetched off the critical path. */
 const DIFF_STALE_WINDOW = Duration.minutes(10);
+/** How long an expired diff may stay held before it is dropped unread. */
+const DIFF_SWEEP_INTERVAL = Duration.minutes(1);
 /** How long one host's signed-in login is believed without asking its CLI again. */
 const VIEWER_CACHE_TTL = Duration.minutes(10);
 const SEARCH_VISIBILITY_TTL = Duration.minutes(10);
@@ -737,14 +739,15 @@ export const make = Effect.gen(function* () {
         sourceControlRepositorySelector(project.repositoryIdentity) === null
       )
         continue;
-      const host = pullRequestHostOf(identity, "unknown");
+      const host = pullRequestHostOf(identity, SourceControlProviderKind.make("unknown"));
       // A legacy identity has no canonical host until its provider is refined, so it must reach
       // the refinement before a host filter can decide whether it belongs in the result.
       if (
         filter.host !== undefined &&
         host !== "unknown" &&
         host !== filter.host.toLowerCase() &&
-        pullRequestHostOf(identity, "forgejo") !== filter.host.toLowerCase() &&
+        pullRequestHostOf(identity, SourceControlProviderKind.make("forgejo")) !==
+          filter.host.toLowerCase() &&
         !isSshRemoteUrl(identity.locator.remoteUrl)
       ) {
         continue;
@@ -769,7 +772,9 @@ export const make = Effect.gen(function* () {
                 cwd: project.workspaceRoot,
                 context: {
                   provider:
-                    provider.kind === "forgejo" ? { ...provider, kind: "unknown" } : provider,
+                    provider.kind === "forgejo"
+                      ? { ...provider, kind: SourceControlProviderKind.make("unknown") }
+                      : provider,
                   remoteName,
                   remoteUrl,
                   ...(filter.host !== undefined && isSshRemoteUrl(remoteUrl)
@@ -900,8 +905,9 @@ export const make = Effect.gen(function* () {
    * The project whose checkout and credentials serve a reference. The project's own
    * repository is the default; a reference that names a `host` may instead point at any
    * repository on that host. Prefer its own checkout; providers with explicit repository
-   * targeting can fall back to another checkout on the host. Azure derives its organization
-   * from the checkout, so it requires a matching repository.
+   * targeting can fall back to another checkout on the host. Providers with explicit host
+   * targeting can also use the selected project's directory for supported public hosts.
+   * Azure derives its organization from the checkout, so it requires a matching repository.
    */
   const requireProject = (ref: PullRequestRef): Effect.Effect<SupportedProject, PullRequestError> =>
     listWorkspaceProjects({ projectId: ref.projectId }).pipe(
@@ -952,9 +958,39 @@ export const make = Effect.gen(function* () {
               ) ??
               onHost.find((candidate) => candidate.repositoryKey === null);
             if (route === undefined) {
-              return Effect.fail(
-                new PullRequestUnavailableError({ reason: "provider-unsupported" }),
-              );
+              return Effect.gen(function* () {
+                // These providers target the repository explicitly and authenticate by host;
+                // a linked PR in a non-repository project still needs its snapshot refreshed.
+                // GitLab still selects its host from the checkout or CLI configuration.
+                const provider = ["github.com", "bitbucket.org", "codeberg.org"].includes(host)
+                  ? detectSourceControlProviderFromRemoteUrl(`https://${host}/${repository}.git`)
+                  : null;
+                const api = provider === null ? null : registry.get(provider.kind);
+                if (api !== null) {
+                  const selected = yield* projects.getShell(ref.projectId).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new PullRequestOperationError({
+                          operation: "resolveRepository",
+                          detail: "The selected project could not be read.",
+                          cause,
+                        }),
+                    ),
+                  );
+                  if (Option.isSome(selected)) {
+                    return {
+                      cursorKey: listCursorKey(host, repository, api.kind),
+                      project: selected.value,
+                      api: withRateLimitBackoff(api, host, rateLimits),
+                      repository,
+                      host,
+                      remote: normalizeGitRemoteUrl(`https://${host}/${repository}`),
+                      repositoryKey: null,
+                    };
+                  }
+                }
+                return yield* new PullRequestUnavailableError({ reason: "provider-unsupported" });
+              });
             }
             return Effect.succeed(
               route.repositoryKey !== null ||
@@ -1256,20 +1292,24 @@ export const make = Effect.gen(function* () {
       // One summary per host, which is what the viewer lookup already answers for: two GitHub
       // hosts sign in separately, so collapsing them by kind would report one as the other.
       const providers: ReadonlyArray<PullRequestProviderSummary> = [
-        ...viewerResults.map((result) => ({
-          host: result.host,
-          kind: result.kind,
-          searchesOnHost:
-            projects.find((project) => project.host === result.host)?.api.capabilities.search ??
-            false,
-          projectCount: projectCounts.get(result.host) ?? 1,
-          configured: result.viewer !== null,
-          detail: result.error === null ? null : providerDetail(result.error),
-        })),
+        ...viewerResults.map((result) => {
+          const capabilities = projects.find((project) => project.host === result.host)?.api
+            .capabilities;
+          return {
+            host: result.host,
+            kind: result.kind,
+            searchesOnHost: capabilities?.search ?? false,
+            actions: capabilities?.actions ?? [],
+            projectCount: projectCounts.get(result.host) ?? 1,
+            configured: result.viewer !== null,
+            detail: result.error === null ? null : providerDetail(result.error),
+          };
+        }),
         ...[...unimplemented].map(([host, { kind, projectCount }]) => ({
           host,
           kind,
           searchesOnHost: false,
+          actions: [],
           projectCount,
           configured: false,
           detail: "This host cannot be browsed here yet.",
@@ -1946,6 +1986,7 @@ export const make = Effect.gen(function* () {
     );
 
   const context = yield* Effect.context<never>();
+  const scope = yield* Effect.scope;
   /** Runs a refresh as its own fiber, for the reads that answer from a held value first. */
   const runFork = Effect.runForkWith(context);
 
@@ -2667,8 +2708,9 @@ export const make = Effect.gen(function* () {
           if (oldest !== undefined) held.delete(oldest);
         }
         held.set(key, { at, value });
+        armDiffSweep();
       });
-    return <E>(key: string, read: Effect.Effect<PullRequestDiffResult, E>) => {
+    const serve = <E>(key: string, read: Effect.Effect<PullRequestDiffResult, E>) => {
       const recorded = read.pipe(Effect.tap((value) => record(key, value)));
       return Effect.flatMap(Clock.currentTimeMillis, (now) => {
         const snapshot = held.get(key);
@@ -2679,6 +2721,14 @@ export const make = Effect.gen(function* () {
         return revalidate(recorded).pipe(Effect.as(snapshot.value));
       });
     };
+    /** Drops what `serve` would already refuse, and says how many values are still held. */
+    const dropExpired = Effect.map(Clock.currentTimeMillis, (now) => {
+      for (const [key, snapshot] of held) {
+        if (now - snapshot.at > staleMs) held.delete(key);
+      }
+      return held.size;
+    });
+    return { serve, dropExpired };
   })();
 
   const makeLastGoodRead = <A>(capacity: number) => {
@@ -3242,6 +3292,36 @@ export const make = Effect.gen(function* () {
       },
     },
   );
+  /**
+   * Both diff holders drop an expired value only when its own key is read again, and a diff's key
+   * moves with every push, so a closed page's patches would stay held until the server restarted.
+   * One pending sweep at a time, armed in the same step that leaves a value held and re-armed
+   * while anything still is, so an idle server keeps no timer.
+   */
+  let diffSweepPending = false;
+  // Forked from the service's own context, in one step with the flag: a caller's interruption
+  // cannot strand the flag, and its request is not kept alive by the wait.
+  const armDiffSweep = () => {
+    if (diffSweepPending) return;
+    diffSweepPending = true;
+    runFork(Effect.forkIn(sweepDiffs, scope));
+  };
+  const sweepDiffs: Effect.Effect<void> = Effect.sleep(DIFF_SWEEP_INTERVAL).pipe(
+    Effect.andThen(
+      Effect.suspend(() => {
+        // Cleared before the sweep, so a read that settles during it arms the next one itself.
+        diffSweepPending = false;
+        return staleDiff.dropExpired;
+      }),
+    ),
+    // The cache drops its expired entries as its keys are walked.
+    Effect.flatMap((stale) =>
+      Effect.map(Cache.keys(diffCache), (keys) => stale + Array.from(keys).length),
+    ),
+    Effect.map((held) => {
+      if (held > 0) armDiffSweep();
+    }),
+  );
   const diff: PullRequestService["Service"]["diff"] = (input) => {
     const key = JSON.stringify([
       refCacheKey(input),
@@ -3264,8 +3344,10 @@ export const make = Effect.gen(function* () {
               Effect.uninterruptible,
             ),
       ),
+      // However the read ends, it may have left a value behind in the cache.
+      Effect.ensuring(Effect.sync(armDiffSweep)),
     );
-    return staleDiff(key, read);
+    return staleDiff.serve(key, read);
   };
 
   const filesViewedCache = yield* Cache.makeWith(

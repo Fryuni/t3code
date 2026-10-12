@@ -1,4 +1,4 @@
-import type { RepositoryIdentity } from "@t3tools/contracts";
+import { SourceControlProviderKind, type RepositoryIdentity } from "@t3tools/contracts";
 import { canonicalRepositoryKey } from "@t3tools/shared/sourceControl";
 
 import { parseForgejoRemote } from "./ForgejoCli.ts";
@@ -41,7 +41,7 @@ export function forgejoRepositoryIdentity(
   const displayName = trimSlashes(webUrl.pathname);
   return {
     ...identity,
-    provider: "forgejo",
+    provider: SourceControlProviderKind.make("forgejo"),
     canonicalKey: canonicalRepositoryKey(`${webUrl.host}/${displayName}`, "forgejo"),
     displayName,
     webUrl: webUrl.toString(),

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `c77a7b7ee` (2026-10-10)
+- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -35,6 +35,13 @@ branch, so clients hide the toggle unless the capability is present. Mobile's
 outbox stores the choice as an optional field without bumping its schema version,
 because upstream holds outbox writes at v3 so older bundles can still read them;
 absent means a branch is created.
+
+Upstream's mobile app can queue a task that checks out a pull request when it is sent
+(`pullRequestReference`). That checkout replaces the queued workspace, so it also
+resets the queued remote and **Create new branch** choices. Upstream's
+`ThreadManagementProviderInstanceDisabledError` and the fork's
+`ThreadLaunchWorkspaceError` are both rejected before a thread exists, so both
+release claimed attachments and both map to `invalid_request` in `t3_thread_launch`.
 
 Multi-model fan-out always creates branches, since every model needs its own
 branch and only one worktree can hold an existing one. After a background
