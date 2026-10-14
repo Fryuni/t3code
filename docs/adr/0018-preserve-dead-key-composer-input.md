@@ -19,6 +19,9 @@ deliberately selected text with quotes, brackets, and formatting markers. The
 plain and rich-text composers on web and desktop; mobile uses a separate native
 editor. No provider, transport, or connection-mode behavior changes.
 
+A quote entered through a dead-key sequence replaces selected text, as in a native
+input. The surrounding shortcut applies to direct character input.
+
 When updating from upstream, preserve the selection, composing, and transaction
 metadata guards. Keep regressions for both collapsed carets and selected text,
 including DOM replacements flushed after composition ends.
