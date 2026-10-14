@@ -47,10 +47,7 @@ import {
   isCollapsedCursorAdjacentToInlineToken,
   pastedPathQueryLength,
 } from "~/composer-logic";
-import {
-  collectComposerPromptInlineTokens,
-  selectionTouchesMentionBoundary,
-} from "~/composer-editor-mentions";
+import { collectComposerPromptInlineTokens } from "~/composer-editor-mentions";
 import {
   buildDocJson,
   ComposerBlockExtensions,
@@ -87,6 +84,7 @@ import {
   groupUndoByChangeKind,
   markAsClipboardEdit,
 } from "~/composer-undo-grouping";
+import { surroundComposerSelection } from "~/composer-selection-surround";
 import { collectInlineContextIds } from "~/lib/composerContextReferences";
 import { resolveDiffThemeName } from "~/lib/diffRendering";
 import { cn, isMacPlatform } from "~/lib/utils";
@@ -208,20 +206,6 @@ const ComposerCitationCommentContext = createContext<{
 }>({ openComment: null, onOpenChange: () => {}, onSubmitAndSend: () => {} });
 
 const RichComposerSkillsContext = createContext<ReadonlyArray<ServerProviderSkill>>([]);
-
-const SURROUND_CLOSE: Record<string, string> = {
-  "(": ")",
-  "[": "]",
-  "{": "}",
-  "'": "'",
-  '"': '"',
-  "“": "”",
-  "`": "`",
-  "<": ">",
-  "«": "»",
-  "*": "*",
-  _: "_",
-};
 
 function resolvedThemeFromDocument(): "light" | "dark" {
   return document.documentElement.classList.contains("dark") ? "dark" : "light";
@@ -1361,32 +1345,10 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           }
           return handled;
         },
-        handleTextInput: (view, from, to, text) => {
-          if (literalText || text.length !== 1) return false;
-          const closer = SURROUND_CLOSE[text];
-          if (!closer || from === to) return false;
-          // Never wrap chips or other atoms, and never wrap styled text: the
-          // default replace keeps marks intact, wrapping would drop them.
-          let touchesSpecial = false;
-          view.state.doc.nodesBetween(from, to, (node) => {
-            if (
-              (node.isAtom && node.isInline && !node.isText) ||
-              (node.isText && node.marks.length > 0)
-            ) {
-              touchesSpecial = true;
-              return false;
-            }
-            return true;
-          });
-          if (touchesSpecial) return false;
-          const map = serializeEditorDoc(view.state.doc);
-          const startMd = flatToMarkdown(map, pmToFlat(map, from));
-          const endMd = flatToMarkdown(map, pmToFlat(map, to));
-          if (selectionTouchesMentionBoundary(map.value, startMd, endMd)) return false;
-          const tr = view.state.tr.insertText(closer, to).insertText(text, from);
-          tr.setSelection(TextSelection.create(tr.doc, from + text.length, to + text.length));
-          view.dispatch(tr);
-          return true;
+        handleTextInput: (view, from, to, text, defaultTransaction) => {
+          return (
+            !literalText && surroundComposerSelection(view, from, to, text, defaultTransaction)
+          );
         },
         handlePaste: (view, event) => {
           const clipboardData = event.clipboardData;
