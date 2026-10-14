@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
+- Compared with upstream: `pingdotgg/t3code` at `348f217a8` (2026-10-14)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -17,7 +17,10 @@ desktop, and mobile. Turning it off sends `createBranch: false` on the worktree
 checks out `baseRef` itself in the new worktree. The field is explicit rather than
 inferred from a missing `branch`, because a missing `branch` already means "generate
 a name", and absent `createBranch` keeps every existing caller, including agents
-using `t3_thread_launch`, on upstream behavior.
+using `t3_thread_launch`, on upstream behavior. Upstream's `delegate_task` worktree
+isolation ([pingdotgg/t3code#19102](https://github.com/pingdotgg/t3code/pull/19102))
+builds its own strategy from the parent's commit without these fields, so delegated
+worktrees always create a branch.
 
 [`ThreadLaunchService`](../../apps/server/src/orchestration-v2/ThreadLaunchService.ts)
 rejects requests it cannot honor before the thread exists: `createBranch: false`

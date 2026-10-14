@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
+- Compared with upstream: `pingdotgg/t3code` at `348f217a8` (2026-10-14)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -50,7 +50,10 @@ a new draft that asks for an existing branch is not seeded with the default, bec
 the default names a base, not a branch to check out.
 
 A server without this key drops it from the override entry when it decodes the
-write, so the setting does not save for projects on such a server. Override entries
+write, so the setting does not save for projects on such a server. Upstream's
+dropped-setting check ([pingdotgg/t3code#18334](https://github.com/pingdotgg/t3code/pull/18334))
+covers this write too, so web Settings reports that environment as not supporting
+the setting instead of leaving it silently unsaved. Override entries
 are replaced whole, so a client without the key, including upstream's published
 mobile app and app.t3.codes, also erases it whenever it saves another override for
 the same project. Keeping unknown keys on the server would break the
