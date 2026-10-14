@@ -1,4 +1,4 @@
-import { TextSelection } from "@tiptap/pm/state";
+import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 import { selectionTouchesMentionBoundary } from "./composer-editor-mentions";
@@ -24,12 +24,16 @@ export function surroundComposerSelection(
   from: number,
   to: number,
   text: string,
+  defaultTransaction: () => Transaction,
 ) {
   // Composition replaces provisional text, sometimes after composing turns
   // false. Its replacement range is not a user selection to surround.
   if (view.composing || view.state.selection.empty || text.length !== 1) return false;
   const closer = SURROUND_CLOSE[text];
   if (!closer || from === to) return false;
+  // A final DOM replacement can retain the pre-composition selection after
+  // compositionend. ProseMirror keeps its composition id on the default edit.
+  if (defaultTransaction().getMeta("composition") != null) return false;
   // Never wrap chips or other atoms, and never wrap styled text: the
   // default replace keeps marks intact, wrapping would drop them.
   let touchesSpecial = false;

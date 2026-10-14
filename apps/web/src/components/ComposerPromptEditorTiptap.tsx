@@ -1345,8 +1345,10 @@ function ComposerPromptEditorTiptapInner(props: ComposerPromptEditorProps) {
           }
           return handled;
         },
-        handleTextInput: (view, from, to, text) => {
-          return !literalText && surroundComposerSelection(view, from, to, text);
+        handleTextInput: (view, from, to, text, defaultTransaction) => {
+          return (
+            !literalText && surroundComposerSelection(view, from, to, text, defaultTransaction)
+          );
         },
         handlePaste: (view, event) => {
           const clipboardData = event.clipboardData;

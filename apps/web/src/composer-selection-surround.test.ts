@@ -27,8 +27,9 @@ function composer(text: string, composing = false) {
     // ProseMirror offers a DOM text replacement to handleTextInput before
     // applying its default insertion, including replacements from composition.
     input(from: number, to: number, input: string) {
-      if (!surroundComposerSelection(view, from, to, input)) {
-        view.dispatch(state.tr.insertText(input, from, to));
+      const defaultTransaction = () => state.tr.insertText(input, from, to);
+      if (!surroundComposerSelection(view, from, to, input, defaultTransaction)) {
+        view.dispatch(defaultTransaction());
       }
     },
   };
