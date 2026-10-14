@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `58d253231` (2026-10-12)
+- Compared with upstream: `pingdotgg/t3code` at `348f217a8` (2026-10-14)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and every run passes it unchanged
@@ -18,7 +18,10 @@ The fork's web dialog keeps the full model selection in its draft
 `null` follows the configured default until the user picks a model or an option.
 The dialog renders the composer's provider option picker beside the model picker,
 the same pairing as the project default model setting. Picking a different model
-starts from that model's defaults, since options belong to a model.
+starts from that model's defaults, since options belong to a model. Upstream later
+wrapped its lone model picker in a `div` so the dialog no longer shifts
+([pingdotgg/t3code#18940](https://github.com/pingdotgg/t3code/pull/18940)); the
+fork's wrapper around both pickers already provides it.
 
 The MCP schedule tools accept the same optional `target` as `delegate_task`. The
 shared target resolver in

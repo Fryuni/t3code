@@ -1,4 +1,7 @@
-import { filterComposerPullRequestMatches } from "@t3tools/shared/composerPullRequestMatches";
+import {
+  composerPullRequestsFromLinks,
+  filterComposerPullRequestMatches,
+} from "@t3tools/shared/composerPullRequestMatches";
 import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { resolveFilesystemReadAccess } from "@t3tools/client-runtime/state/filesystem";
 import { environmentSession } from "./session";
@@ -9,6 +12,7 @@ import type {
   OrchestrationV2ProjectedTurnItem,
   ProjectId,
   ThreadId,
+  ThreadPullRequestLink,
   VcsListRefsResult,
   VcsRef,
 } from "@t3tools/contracts";
@@ -82,9 +86,18 @@ export function useComposerPullRequestSearch(input: {
   environmentId: EnvironmentId | null;
   projectId: ProjectId | null;
   repository: string | null;
+  /** The thread's linked pull requests, offered in numeric searches from any repository. */
+  threadPullRequests?: ReadonlyArray<ThreadPullRequestLink> | undefined;
   query: string | null;
 }) {
   const query = useDebouncedValue(input.query, 180);
+  const linked = useMemo(
+    () =>
+      input.projectId === null
+        ? []
+        : composerPullRequestsFromLinks(input.threadPullRequests ?? [], input.projectId),
+    [input.projectId, input.threadPullRequests],
+  );
   const ready =
     query === input.query &&
     query !== null &&
@@ -126,6 +139,7 @@ export function useComposerPullRequestSearch(input: {
     if (numeric) {
       return filterComposerPullRequestMatches({
         entries: [...(exact.data ? [exact.data] : []), ...(list.data?.entries ?? [])],
+        linked,
         projectId: input.projectId!,
         repository: input.repository!,
         query: query ?? "",
@@ -148,7 +162,7 @@ export function useComposerPullRequestSearch(input: {
     return [...unique.values()]
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))
       .slice(0, 20);
-  }, [ready, exact.data, list.data, input.projectId, input.repository, numeric, query]);
+  }, [ready, exact.data, list.data, linked, input.projectId, input.repository, numeric, query]);
   return {
     entries,
     isPending: input.query !== null && (query !== input.query || list.isPending || exact.isPending),
