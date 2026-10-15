@@ -33,6 +33,7 @@ import {
   ALL_ENVIRONMENTS_VALUE,
   ALL_PROJECTS_VALUE,
   environmentAxisValue,
+  filterProjectAxisItems,
   projectAxisValue,
   selectEnvironmentAxis,
   selectProjectAxis,
@@ -218,17 +219,13 @@ function ProjectScopeMenu({ value, groups, onChange }: SettingsScopeMenuProps) {
     () => new Map(groups.map((group) => [group.projectKey, group] as const)),
     [groups],
   );
-  // "All projects" heads the unfiltered list and drops out while searching, so
-  // autoHighlight lands on the first matching project.
-  const filteredItems = useMemo(() => {
-    const search = query.trim();
-    if (search.length === 0) return items;
-    return items.filter(
-      (item) =>
-        item.value !== ALL_PROJECTS_VALUE &&
+  const filteredItems = useMemo(
+    () =>
+      filterProjectAxisItems(items, query, (item, search) =>
         filter.contains(item, search, (candidate) => candidate.label),
-    );
-  }, [filter, items, query]);
+      ),
+    [filter, items, query],
+  );
   const selectedItem = items.find((item) => item.value === projectAxisValue(value)) ?? null;
   return (
     <Combobox
