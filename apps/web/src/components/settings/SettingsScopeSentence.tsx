@@ -1,13 +1,23 @@
 import { resolveEnvironmentMachineKind } from "@t3tools/contracts";
 import { useLocation } from "@tanstack/react-router";
 import { ChevronDownIcon, LayersIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useEnvironments, type EnvironmentPresentation } from "../../state/environments";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { InlineButton } from "../ui/button";
+import {
+  Combobox,
+  ComboboxEmpty,
+  ComboboxItem,
+  ComboboxList,
+  ComboboxPopup,
+  ComboboxSearchInput,
+  ComboboxTrigger,
+  useComboboxFilter,
+} from "../ui/combobox";
 import {
   Menu,
   MenuPopup,
@@ -23,6 +33,7 @@ import {
   ALL_ENVIRONMENTS_VALUE,
   ALL_PROJECTS_VALUE,
   environmentAxisValue,
+  filterProjectAxisItems,
   projectAxisValue,
   selectEnvironmentAxis,
   selectProjectAxis,
@@ -191,35 +202,79 @@ function EnvironmentScopeMenu({
 
 function ProjectScopeMenu({ value, groups, onChange }: SettingsScopeMenuProps) {
   const selected = groups.find((group) => group.projectKey === value.project);
+  const label = selected?.displayName ?? (value.project ? "Unavailable project" : "All projects");
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const filter = useComboboxFilter();
+  // {value, label} items let Base UI drive the combobox selection while the
+  // popup search filters the same collection, as in the sidebar project filter.
+  const items = useMemo(
+    () => [
+      { value: ALL_PROJECTS_VALUE, label: "All projects" },
+      ...groups.map((group) => ({ value: group.projectKey, label: group.displayName })),
+    ],
+    [groups],
+  );
+  const groupByKey = useMemo(
+    () => new Map(groups.map((group) => [group.projectKey, group] as const)),
+    [groups],
+  );
+  const filteredItems = useMemo(
+    () =>
+      filterProjectAxisItems(items, query, (item, search) =>
+        filter.contains(item, search, (candidate) => candidate.label),
+      ),
+    [filter, items, query],
+  );
+  const selectedItem = items.find((item) => item.value === projectAxisValue(value)) ?? null;
   return (
-    <ScopeMenu
-      ariaLabel="Project scope"
-      icon={selected ? <ProjectFavicon project={selected} className="size-3.5 shrink-0" /> : null}
-      label={selected?.displayName ?? (value.project ? "Unavailable project" : "All projects")}
+    <Combobox
+      items={items}
+      filteredItems={filteredItems}
+      autoHighlight
+      itemToStringLabel={(item) => item.label}
+      isItemEqualToValue={(a, b) => a.value === b.value}
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        setQuery("");
+      }}
+      value={selectedItem}
+      onValueChange={(item) => {
+        if (!item) return;
+        setOpen(false);
+        onChange(selectProjectAxis(value, item.value));
+      }}
     >
-      <MenuRadioGroup
-        value={projectAxisValue(value)}
-        onValueChange={(next) => {
-          if (typeof next === "string") onChange(selectProjectAxis(value, next));
-        }}
+      <ComboboxTrigger
+        aria-label={`Project scope: ${label}`}
+        render={<InlineButton tone="picker" />}
+        className="min-w-0 max-w-72"
       >
-        <MenuRadioItem value={ALL_PROJECTS_VALUE} closeOnClick>
-          <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 flex-1 truncate">All projects</span>
-            <MenuRadioItemIndicator />
-          </span>
-        </MenuRadioItem>
-        <MenuSeparator />
-        {groups.map((group) => (
-          <MenuRadioItem key={group.projectKey} value={group.projectKey} closeOnClick>
-            <span className="flex min-w-0 items-center gap-2">
-              <ProjectFavicon project={group} className="size-3.5" />
-              <span className="min-w-0 flex-1 truncate">{group.displayName}</span>
-              <MenuRadioItemIndicator />
-            </span>
-          </MenuRadioItem>
-        ))}
-      </MenuRadioGroup>
-    </ScopeMenu>
+        {selected ? <ProjectFavicon project={selected} className="size-3.5 shrink-0" /> : null}
+        <span className="min-w-0 truncate">{label}</span>
+        <ChevronDownIcon aria-hidden className="size-3.5 shrink-0 text-muted-foreground" />
+      </ComboboxTrigger>
+      <ComboboxPopup align="start" className="w-72 overflow-hidden">
+        <ComboboxSearchInput
+          aria-label="Search projects"
+          placeholder="Search projects..."
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        <ComboboxEmpty>No matching projects.</ComboboxEmpty>
+        <ComboboxList>
+          {(item: (typeof items)[number]) => {
+            const group = groupByKey.get(item.value);
+            return (
+              <ComboboxItem key={item.value} value={item}>
+                {group ? <ProjectFavicon project={group} className="size-3.5 shrink-0" /> : null}
+                <span className="min-w-0 flex-1 truncate">{item.label}</span>
+              </ComboboxItem>
+            );
+          }}
+        </ComboboxList>
+      </ComboboxPopup>
+    </Combobox>
   );
 }

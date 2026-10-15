@@ -2,7 +2,9 @@ import { EnvironmentId } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  ALL_PROJECTS_VALUE,
   environmentAxisValue,
+  filterProjectAxisItems,
   projectAxisValue,
   selectEnvironmentAxis,
   selectProjectAxis,
@@ -84,5 +86,27 @@ describe("environmentAxisValue", () => {
     expect(environmentAxisValue({ project: "p", checkout: "c" }, "laptop")).toBe("laptop");
     expect(environmentAxisValue({ project: "p" }, null)).toBe("all");
     expect(environmentAxisValue({ machine: "desk" }, "laptop")).toBe("desk");
+  });
+});
+
+describe("filterProjectAxisItems", () => {
+  const items = [
+    { value: ALL_PROJECTS_VALUE, label: "All projects" },
+    { value: "fleet", label: "fleet" },
+    { value: "cache", label: "cache-js" },
+  ];
+  const matches = (item: (typeof items)[number], query: string) =>
+    item.label.toLowerCase().includes(query.toLowerCase());
+
+  it("lists every row, All projects first, for an empty or blank query", () => {
+    expect(filterProjectAxisItems(items, "", matches)).toBe(items);
+    expect(filterProjectAxisItems(items, "   ", matches)).toBe(items);
+  });
+
+  it("drops All projects while searching, even when its label matches", () => {
+    expect(filterProjectAxisItems(items, "projects", matches)).toEqual([]);
+    expect(filterProjectAxisItems(items, " Cache ", matches).map((item) => item.value)).toEqual([
+      "cache",
+    ]);
   });
 });

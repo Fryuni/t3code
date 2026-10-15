@@ -54,6 +54,20 @@ export function selectProjectAxis(search: SettingsScopeSearch, value: string): S
   return next;
 }
 
+/**
+ * Filters the project picker's rows. "All projects" heads the unfiltered list
+ * and drops out while searching, so autoHighlight lands on the first match.
+ */
+export function filterProjectAxisItems<TItem extends { readonly value: string }>(
+  items: readonly TItem[],
+  query: string,
+  matches: (item: TItem, query: string) => boolean,
+): readonly TItem[] {
+  const search = query.trim();
+  if (search.length === 0) return items;
+  return items.filter((item) => item.value !== ALL_PROJECTS_VALUE && matches(item, search));
+}
+
 /** Provider configuration always belongs to one environment, including project scopes. */
 export function selectSingleEnvironmentScope(
   search: SettingsScopeSearch,
