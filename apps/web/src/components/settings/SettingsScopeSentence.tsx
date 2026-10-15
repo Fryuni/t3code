@@ -7,7 +7,6 @@ import type { SidebarProjectSnapshot } from "../../sidebarProjectGrouping";
 import { useEnvironments, type EnvironmentPresentation } from "../../state/environments";
 import { EnvironmentMachineIcon } from "../EnvironmentMachineIcon";
 import { ProjectFavicon } from "../ProjectFavicon";
-import { filterSidebarProjectScopeItems } from "../Sidebar.logic";
 import { InlineButton } from "../ui/button";
 import {
   Combobox,
@@ -219,16 +218,17 @@ function ProjectScopeMenu({ value, groups, onChange }: SettingsScopeMenuProps) {
     () => new Map(groups.map((group) => [group.projectKey, group] as const)),
     [groups],
   );
-  // "All projects" heads the unfiltered list and drops out while searching.
-  const filteredItems = useMemo(
-    () =>
-      filterSidebarProjectScopeItems({
-        items,
-        query,
-        matches: (item, search) => filter.contains(item, search, (candidate) => candidate.label),
-      }),
-    [filter, items, query],
-  );
+  // "All projects" heads the unfiltered list and drops out while searching, so
+  // autoHighlight lands on the first matching project.
+  const filteredItems = useMemo(() => {
+    const search = query.trim();
+    if (search.length === 0) return items;
+    return items.filter(
+      (item) =>
+        item.value !== ALL_PROJECTS_VALUE &&
+        filter.contains(item, search, (candidate) => candidate.label),
+    );
+  }, [filter, items, query]);
   const selectedItem = items.find((item) => item.value === projectAxisValue(value)) ?? null;
   return (
     <Combobox
