@@ -3,7 +3,7 @@
 - Status: superseded by upstream
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#46](https://github.com/Fryuni/t3code/pull/46)
-- Compared with upstream: `pingdotgg/t3code` at `348f217a8` (2026-10-14)
+- Compared with upstream: `pingdotgg/t3code` at `339179f50` (2026-10-14)
 
 **Superseded.** Upstream reworked cleanup in
 [pingdotgg/t3code#17563](https://github.com/pingdotgg/t3code/pull/17563) (`0caa95d6e`)
