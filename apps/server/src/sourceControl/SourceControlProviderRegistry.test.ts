@@ -567,6 +567,7 @@ it.effect("asks once for every checkout of a server no integration claims", () =
       remotes: [],
       process: {
         run: ({ command, args, cwd }) => {
+          if (command === "git") return Effect.fail(notFound(command, cwd));
           asked.push([command, ...args].join(" "));
           return Deferred.await(release).pipe(Effect.andThen(Effect.fail(notFound(command, cwd))));
         },
@@ -617,6 +618,45 @@ it.effect("asks once for every checkout of a server no integration claims", () =
   }),
 );
 
+it.effect("asks again for a checkout whose remote is configured on another server", () =>
+  Effect.gen(function* () {
+    const registry = yield* makeRegistry({
+      remotes: [],
+      process: {
+        run: ({ command, args, cwd }) =>
+          command === "git" && args[0] === "config" && cwd === "/rewritten"
+            ? Effect.succeed(processOutput("https://forge.example/team/rewritten\n"))
+            : command === "git"
+              ? Effect.succeed(processOutput("", { exitCode: ChildProcessSpawner.ExitCode(1) }))
+              : Effect.fail(notFound(command, cwd)),
+      },
+      githubApi: {
+        credential: (host) => Effect.fail(new GitHubCredentials.GitHubNotSignedInError({ host })),
+      },
+      forgejo: {
+        listLogins: ({ command = "tea" }) =>
+          Effect.succeed(
+            command === "fj"
+              ? [
+                  {
+                    name: "forge.example",
+                    url: "https://forge.example",
+                    user: "",
+                    default: "false",
+                  },
+                ]
+              : [],
+          ),
+      },
+    });
+    const direct = yield* resolveUnknown(registry, "direct");
+    assert.strictEqual(direct.provider.kind, "unknown");
+    const rewritten = yield* resolveUnknown(registry, "rewritten");
+    assert.strictEqual(rewritten.provider.kind, "forgejo");
+    assert.strictEqual(rewritten.context?.provider.baseUrl, "https://forge.example");
+  }),
+);
+
 it.effect("asks again after a check that could not answer", () =>
   Effect.gen(function* () {
     let asks = 0;
@@ -624,7 +664,7 @@ it.effect("asks again after a check that could not answer", () =>
       remotes: [],
       process: {
         run: ({ command, cwd }) => {
-          asks += 1;
+          if (command !== "git") asks += 1;
           return Effect.fail(
             new VcsProcessTimeoutError({ operation: "test", command, cwd, timeoutMs: 1 }),
           );

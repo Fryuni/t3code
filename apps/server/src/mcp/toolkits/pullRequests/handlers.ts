@@ -11,8 +11,15 @@ import {
   type ThreadId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { changeRequestUrlFor, parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
 import {
+  type ChangeRequestLink,
+  changeRequestUrlFor,
+  parseChangeRequestUrl,
+} from "@t3tools/shared/changeRequestUrl";
+import { repositoryPathFromRemoteUrl } from "@t3tools/source-control-core/server/SourceControlProvider";
+import {
+  detectSourceControlProviderFromRemoteUrl,
+  isSshRemoteUrl,
   normalizeSourceControlRepository,
   sourceControlRepositorySelector,
 } from "@t3tools/shared/sourceControl";
@@ -73,27 +80,65 @@ function projectHostAndProvider(project: OrchestrationProjectShell | undefined):
   };
 }
 
+/**
+ * The project's repository when a link names it on its SSH clone host instead of its web host.
+ * The clone host is what an agent reads from `git remote`, and a URL built from it can differ
+ * from the web host (a private-network alias, an `insteadOf` rewrite) and resolve to nothing.
+ */
+function projectRepositoryOnCloneHost(
+  link: Pick<ChangeRequestLink, "host" | "repository" | "authority">,
+  project: OrchestrationProjectShell | undefined,
+): string | null {
+  const identity = project?.repositoryIdentity;
+  const { host, kind } = projectHostAndProvider(project);
+  if (!identity || host === null || !isSshRemoteUrl(identity.locator.remoteUrl)) return null;
+  const cloneBaseUrl = detectSourceControlProviderFromRemoteUrl(
+    identity.locator.remoteUrl,
+  )?.baseUrl;
+  const clonePath = repositoryPathFromRemoteUrl(identity.locator.remoteUrl);
+  if (
+    cloneBaseUrl === undefined ||
+    clonePath === null ||
+    URL.parse(cloneBaseUrl)?.hostname !== link.host ||
+    // Only a known web URL says which port the web host is on; without one, `host` is the
+    // canonical hostname and only hostnames compare.
+    (identity.webUrl !== undefined && /^https?:\/\//iu.test(identity.webUrl)
+      ? (link.authority ?? link.host) === host
+      : URL.parse(`https://${host}`)?.hostname === link.host) ||
+    normalizeSourceControlRepository(clonePath, kind) !==
+      normalizeSourceControlRepository(link.repository, kind)
+  )
+    return null;
+  return sourceControlRepositorySelector(identity);
+}
+
 const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
   input: PullRequestTargetInput,
   project: OrchestrationProjectShell | undefined,
 ) {
+  let reference: Pick<PullRequestTargetInput, "host" | "repository" | "number"> = input;
   if (input.url !== undefined) {
     const parsed = parseChangeRequestUrl(input.url);
     if (parsed === null) {
       return yield* new PullRequestUrlInvalidError({});
     }
-    return { ...normalizeThreadPullRequestKey(parsed), url: input.url } satisfies ResolvedTarget;
+    const repository = projectRepositoryOnCloneHost(parsed, project);
+    if (repository === null) {
+      return { ...normalizeThreadPullRequestKey(parsed), url: input.url } satisfies ResolvedTarget;
+    }
+    reference = { repository, number: parsed.number };
   }
-  if (input.repository === undefined || input.number === undefined) {
+  const { number } = reference;
+  if (reference.repository === undefined || number === undefined) {
     return yield* new PullRequestTargetIncompleteError({});
   }
   const projectHost = projectHostAndProvider(project);
-  const host = (input.host ?? projectHost.host)?.toLowerCase();
+  const host = (reference.host ?? projectHost.host)?.toLowerCase();
   if (host === undefined) {
     return yield* new PullRequestHostRequiredError({});
   }
   const repository = normalizeSourceControlRepository(
-    input.repository,
+    reference.repository,
     host === projectHost.host ? projectHost.kind : undefined,
   );
   const url =
@@ -101,12 +146,12 @@ const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
       host === projectHost.host ? projectHost.kind : null,
       host,
       repository,
-      input.number,
+      number,
       project?.repositoryIdentity?.locator.remoteUrl,
       project?.repositoryIdentity?.webUrl,
-    ) ?? `https://${host}/${repository}/pull/${input.number}`;
+    ) ?? `https://${host}/${repository}/pull/${number}`;
   return {
-    ...normalizeThreadPullRequestKey({ host, repository, number: input.number, url }),
+    ...normalizeThreadPullRequestKey({ host, repository, number, url }),
     url,
   } satisfies ResolvedTarget;
 });

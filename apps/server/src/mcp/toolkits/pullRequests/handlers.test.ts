@@ -477,6 +477,93 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("moves a link on the project's SSH clone host to its web host", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "forge.example.test/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "ssh://git@forge.tailnet.test/Owner/Repo",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+          webUrl: "https://forge.example.test/Owner/Repo",
+        }),
+      });
+      const result = yield* harness.call("link_pull_request", {
+        url: "https://forge.tailnet.test/Owner/Repo/pulls/126",
+      });
+      expect(result).toMatchObject({
+        host: "forge.example.test",
+        repository: "owner/repo",
+        number: 126,
+        url: "https://forge.example.test/owner/repo/pulls/126",
+      });
+      const otherRepository = yield* harness.call("link_pull_request", {
+        url: "https://forge.tailnet.test/Owner/Other/pulls/7",
+      });
+      expect(otherRepository).toMatchObject({
+        host: "forge.tailnet.test",
+        url: "https://forge.tailnet.test/Owner/Other/pulls/7",
+      });
+    }),
+  );
+
+  it.effect("tells a clone host from a web host on the same hostname by port", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "forge.example.test:3000/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "ssh://git@forge.example.test:2222/Owner/Repo",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+          webUrl: "https://forge.example.test:3000/Owner/Repo",
+        }),
+      });
+      const onCloneHost = yield* harness.call("link_pull_request", {
+        url: "https://forge.example.test/Owner/Repo/pulls/5",
+      });
+      expect(onCloneHost).toMatchObject({
+        host: "forge.example.test:3000",
+        url: "https://forge.example.test:3000/owner/repo/pulls/5",
+      });
+      const onWebHost = yield* harness.call("link_pull_request", {
+        url: "https://forge.example.test:3000/Owner/Repo/pulls/6",
+      });
+      expect(onWebHost).toMatchObject({
+        host: "forge.example.test:3000",
+        url: "https://forge.example.test:3000/Owner/Repo/pulls/6",
+      });
+    }),
+  );
+
+  it.effect("keeps a link on a web port when the project only knows its SSH clone host", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "git.corp.test/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "ssh://git@git.corp.test:2222/Owner/Repo",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+        }),
+      });
+      const result = yield* harness.call("link_pull_request", {
+        url: "https://git.corp.test:3000/Owner/Repo/pulls/5",
+      });
+      expect(result.url).toBe("https://git.corp.test:3000/Owner/Repo/pulls/5");
+    }),
+  );
+
   it.effect("links a numeric Forgejo reference with its remote's web origin and mount path", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({

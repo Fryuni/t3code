@@ -927,6 +927,10 @@ it.effect("prefers fj for HTTP and ported SSH aliases on root servers", () => {
       TestSourceControlHost.layer({
         process: {
           run: (input) => {
+            if (input.args[0] === "config")
+              return Effect.succeed(
+                processOutput("", { exitCode: ChildProcessSpawner.ExitCode(1) }),
+              );
             commands.push(input.command);
             if (input.command === "git")
               return Effect.succeed(
@@ -1357,3 +1361,93 @@ it.effect(
       }
     }),
 );
+
+it.effect("resolves a remote rewritten by insteadOf through its configured web URL", () => {
+  const requests: string[] = [];
+  const sshAlias = {
+    provider: {
+      kind: SourceControlProviderKind.make("unknown"),
+      name: "Unknown",
+      baseUrl: "",
+    },
+    remoteName: "origin",
+    remoteUrl: "ssh://git@forge.tailnet.test/maria/project",
+  };
+  return Effect.gen(function* () {
+    const cli = yield* ForgejoCli.make;
+    const spec = yield* ForgejoSourceControlProvider.makeDiscovery.pipe(
+      Effect.provideService(ForgejoCli.ForgejoCli, cli),
+    );
+    if (spec.type !== "managed-cli") return yield* Effect.die("fj discovery missing");
+    const provider = yield* spec.refineUnknownRemote({ cwd: "/repo", context: sshAlias });
+    assert.strictEqual(provider?.baseUrl, "https://forge.example");
+    const repository = yield* cli.resolveRepository({
+      cwd: "/repo",
+      context: {
+        ...sshAlias,
+        provider: {
+          kind: SourceControlProviderKind.make("forgejo"),
+          name: "Forgejo",
+          baseUrl: "https://forge.example",
+        },
+      },
+    });
+    assert.deepStrictEqual(repository, {
+      command: "fj",
+      login: "forge.example",
+      repository: "maria/project",
+      baseUrl: "https://forge.example",
+    });
+    // Without a context, the configured origin URL is read before `git remote get-url`.
+    assert.deepStrictEqual(yield* cli.resolveRepository({ cwd: "/repo" }), repository);
+    // The configured URL names the login, so no server is asked which SSH host it advertises.
+    assert.deepStrictEqual(requests, []);
+  }).pipe(
+    Effect.provideService(
+      FileSystem.FileSystem,
+      FileSystem.makeNoop({
+        exists: () => Effect.succeed(true),
+        readFileString: () =>
+          Effect.succeed(
+            encodeJson({ hosts: { "forge.example": { type: "Application", token: "token" } } }),
+          ),
+      }),
+    ),
+    Effect.provideService(
+      HttpClient.HttpClient,
+      HttpClient.make((request) => {
+        requests.push(request.url);
+        return Effect.succeed(
+          HttpClientResponse.fromWeb(request, new Response("", { status: 404 })),
+        );
+      }),
+    ),
+    Effect.provide(
+      TestSourceControlHost.layer({
+        process: {
+          run: (input) => {
+            if (input.command === "git") {
+              assert.deepStrictEqual(input.args, ["config", "--get-all", "remote.origin.url"]);
+              return Effect.succeed(
+                processOutput(
+                  "https://forge.example/maria/project\nhttps://mirror.example/maria/project\n",
+                ),
+              );
+            }
+            if (input.command === "tea")
+              return Effect.fail(
+                new VcsProcessSpawnError({
+                  operation: input.operation,
+                  command: input.command,
+                  cwd: input.cwd,
+                  cause: new Error("tea not found"),
+                }),
+              );
+            assert.deepStrictEqual(input.args, ["--host", "https://forge.example", "whoami"]);
+            return Effect.succeed(processOutput(""));
+          },
+        },
+      }),
+    ),
+  );
+});
