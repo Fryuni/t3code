@@ -1398,6 +1398,8 @@ it.effect("resolves a remote rewritten by insteadOf through its configured web U
       repository: "maria/project",
       baseUrl: "https://forge.example",
     });
+    // Without a context, the configured origin URL is read before `git remote get-url`.
+    assert.deepStrictEqual(yield* cli.resolveRepository({ cwd: "/repo" }), repository);
     // The configured URL names the login, so no server is asked which SSH host it advertises.
     assert.deepStrictEqual(requests, []);
   }).pipe(
@@ -1425,8 +1427,12 @@ it.effect("resolves a remote rewritten by insteadOf through its configured web U
         process: {
           run: (input) => {
             if (input.command === "git") {
-              assert.deepStrictEqual(input.args, ["config", "--get", "remote.origin.url"]);
-              return Effect.succeed(processOutput("https://forge.example/maria/project\n"));
+              assert.deepStrictEqual(input.args, ["config", "--get-all", "remote.origin.url"]);
+              return Effect.succeed(
+                processOutput(
+                  "https://forge.example/maria/project\nhttps://mirror.example/maria/project\n",
+                ),
+              );
             }
             if (input.command === "tea")
               return Effect.fail(

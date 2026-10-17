@@ -11,7 +11,11 @@ import {
   type ThreadId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import { changeRequestUrlFor, parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import {
+  type ChangeRequestLink,
+  changeRequestUrlFor,
+  parseChangeRequestUrl,
+} from "@t3tools/shared/changeRequestUrl";
 import { repositoryPathFromRemoteUrl } from "@t3tools/source-control-core/server/SourceControlProvider";
 import {
   detectSourceControlProviderFromRemoteUrl,
@@ -82,7 +86,7 @@ function projectHostAndProvider(project: OrchestrationProjectShell | undefined):
  * from the web host (a private-network alias, an `insteadOf` rewrite) and resolve to nothing.
  */
 function projectRepositoryOnCloneHost(
-  link: { readonly host: string; readonly repository: string },
+  link: Pick<ChangeRequestLink, "host" | "repository" | "authority">,
   project: OrchestrationProjectShell | undefined,
 ): string | null {
   const identity = project?.repositoryIdentity;
@@ -96,7 +100,7 @@ function projectRepositoryOnCloneHost(
     cloneBaseUrl === undefined ||
     clonePath === null ||
     URL.parse(cloneBaseUrl)?.hostname !== link.host ||
-    URL.parse(`https://${host}`)?.hostname === link.host ||
+    (link.authority ?? link.host) === host ||
     normalizeSourceControlRepository(clonePath, kind) !==
       normalizeSourceControlRepository(link.repository, kind)
   )

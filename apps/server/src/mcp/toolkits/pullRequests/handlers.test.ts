@@ -511,6 +511,38 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("tells a clone host from a web host on the same hostname by port", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "forge.example.test:3000/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "ssh://git@forge.example.test:2222/Owner/Repo",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+          webUrl: "https://forge.example.test:3000/Owner/Repo",
+        }),
+      });
+      const onCloneHost = yield* harness.call("link_pull_request", {
+        url: "https://forge.example.test/Owner/Repo/pulls/5",
+      });
+      expect(onCloneHost).toMatchObject({
+        host: "forge.example.test:3000",
+        url: "https://forge.example.test:3000/owner/repo/pulls/5",
+      });
+      const onWebHost = yield* harness.call("link_pull_request", {
+        url: "https://forge.example.test:3000/Owner/Repo/pulls/6",
+      });
+      expect(onWebHost).toMatchObject({
+        host: "forge.example.test:3000",
+        url: "https://forge.example.test:3000/Owner/Repo/pulls/6",
+      });
+    }),
+  );
+
   it.effect("links a numeric Forgejo reference with its remote's web origin and mount path", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({

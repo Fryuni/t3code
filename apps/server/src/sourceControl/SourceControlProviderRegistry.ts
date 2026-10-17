@@ -272,13 +272,15 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
         .run({
           operation: "SourceControlProviderRegistry.configuredRemote",
           command: "git",
-          args: ["config", "--get", `remote.${remoteName}.url`],
+          args: ["config", "--get-all", `remote.${remoteName}.url`],
           cwd,
           allowNonZeroExit: true,
           timeoutMs: 5_000,
         })
         .pipe(
-          Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : "")),
+          Effect.map((result) =>
+            result.exitCode === 0 ? (result.stdout.split("\n")[0]?.trim() ?? "") : "",
+          ),
           Effect.orElseSucceed(() => ""),
         );
 

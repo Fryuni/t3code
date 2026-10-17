@@ -199,14 +199,15 @@ export const readConfiguredRemoteUrl = (
     .run({
       operation: "ForgejoCli.configuredRemote",
       command: "git",
-      args: ["config", "--get", `remote.${remoteName}.url`],
+      args: ["config", "--get-all", `remote.${remoteName}.url`],
       cwd,
       allowNonZeroExit: true,
       timeoutMs: 5_000,
     })
     .pipe(
       Effect.map((result) => {
-        const url = result.exitCode === 0 ? result.stdout.trim() : "";
+        // git fetches from the first of several URLs; `--get` would return the last.
+        const url = result.exitCode === 0 ? (result.stdout.split("\n")[0]?.trim() ?? "") : "";
         return /^https?:\/\//i.test(url) && parseForgejoRemote(url) ? url : null;
       }),
       Effect.orElseSucceed(() => null),
