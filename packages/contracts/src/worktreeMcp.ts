@@ -4,12 +4,10 @@ import { TrimmedNonEmptyString } from "./baseSchemas.ts";
 import { WorktreeStartRemote } from "./vcs.ts";
 
 /**
- * Input for the `t3_worktree_handoff` MCP tool.
- *
- * Creates a git worktree for the calling agent thread and re-points the
- * thread at it. Changing the thread's workspace detaches the live provider
- * session, so the current turn ends shortly after the handoff is recorded;
- * the conversation continues inside the worktree on the thread's next run.
+ * The server picks the location in its managed worktrees folder.
+ * Changing the thread's workspace detaches the live provider session, so the
+ * current turn ends shortly after the handoff is recorded; the conversation
+ * continues inside the worktree on the thread's next run.
  */
 export const WorktreeMcpHandoffInput = Schema.Struct({
   branch: TrimmedNonEmptyString.annotate({
@@ -31,15 +29,6 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
     WorktreeStartRemote.annotate({
       description:
         "Remote to fetch baseRef from and start at: 'origin', 'upstream' (the canonical repository in a fork workflow), or null for the local ref. Overrides startFromOrigin. A missing origin branch falls back to the local ref; a missing upstream remote or branch fails the handoff.",
-    }),
-  ),
-  path: Schema.optional(
-    TrimmedNonEmptyString.check(
-      // Absolute POSIX (/...), Windows drive (C:\ or C:/), or UNC (\\host).
-      Schema.isPattern(/^(?:[A-Za-z]:[\\/]|[\\/])/),
-    ).annotate({
-      description:
-        "Absolute filesystem path for the new worktree. Relative paths are rejected. Defaults to the server-managed worktrees directory.",
     }),
   ),
   runSetupScript: Schema.optional(

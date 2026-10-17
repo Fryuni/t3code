@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#26](https://github.com/Fryuni/t3code/issues/26)
-- Compared with upstream: `pingdotgg/t3code` at `339179f50` (2026-10-14)
+- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
 
 Upstream already discovers Forgejo and Gitea through `fj` and `tea`. The fork
 extends that discovery for installations whose SSH clone authority differs from
@@ -22,13 +22,19 @@ normal discovery and repository resolution use the same fallback.
 
 The fallback trades authenticated network requests for support of these SSH
 layouts. It runs only after ordinary matching fails, bounds the work, and caches
-results for one minute. The fork also caches unknown-provider refinement by
-context values in the
-[provider registry](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts):
-status reads create fresh context objects, so object identity would repeat CLI
-probes on every read. Requested web authorities remain separate cache inputs to
-avoid reusing one instance's result for another. The trade-off is that changed
-login or discovery state can take up to a minute to be observed.
+results for one minute.
+
+Upstream now caches unknown-provider refinement in the
+[provider registry](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts)
+itself ([pingdotgg/t3code#19692](https://github.com/pingdotgg/t3code/pull/19692)),
+which the fork's own registry cache did before. The fork dropped its cache when it
+synced onto upstream `b827ca48d` and keeps upstream's. Upstream's key keeps
+requested web authorities apart, as the fork's did, but drops the remote's trailing
+`owner/repo`, so every repository on one server shares a verdict for five minutes
+or until Settings change. This fallback answers per repository, so the first SSH
+remote read on a host without a matching `ssh_host` decides for that host: a
+repository no login can see leaves the host's other repositories unrecognized until
+the verdict expires. The fork accepts that rather than keeping a second cache.
 
 How the resolved web instance becomes repository identity is a separate decision
 in [ADR 0002](0002-forgejo-repository-identity.md).

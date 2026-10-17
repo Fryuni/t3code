@@ -194,6 +194,8 @@ async function mount({
     ],
   });
   state.registry.mount(environmentThreadShells.threadShellAtom(ref));
+  // Links read server configs at click time, so keep the seeded map mounted.
+  state.registry.mount(environmentServerConfigsAtom);
   function Probe() {
     const pr = useOpenPrLink(bindThread ? ref : undefined);
     useLayoutEffect(() => {

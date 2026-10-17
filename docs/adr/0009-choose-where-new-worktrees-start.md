@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `339179f50` (2026-10-14)
+- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on

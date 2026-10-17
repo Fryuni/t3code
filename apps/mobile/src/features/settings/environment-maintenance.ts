@@ -56,10 +56,7 @@ const Releases = Schema.Array(
 const decodeReleases = Schema.decodeUnknownSync(Releases);
 const decodeLatestRelease = Schema.decodeUnknownSync(Schema.Struct({ tag_name: Schema.String }));
 
-/**
- * Preserve the host's release channel and never offer a downgrade. A fork
- * build names its `releaseRepository`, whose latest release is the only target.
- */
+/** A fork build names its `releaseRepository`, whose latest release is the only target. */
 export async function findEnvironmentUpdate(
   currentVersion: string,
   signal: AbortSignal,
