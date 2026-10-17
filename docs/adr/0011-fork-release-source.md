@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `339179f50` (2026-10-14)
+- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -30,7 +30,12 @@ Upstream has no reason to support other release sources, and its release pipelin
 `ci.yml` and `server-linux-release.yml` in `.github/workflows`; upstream's other
 workflows need its organization's runners, secrets, and stores, so syncs drop any
 upstream adds, such as `mobile-android-apk.yml`, along with scripts only they use,
-such as `.github/scripts/mirror-play-apk.cjs`.
+such as `.github/scripts/mirror-play-apk.cjs`. `ci.yml` itself keeps the fork's
+layout for GitHub-hosted runners and the check names the `main` ruleset requires
+(`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
+code needs, such as Chromium for the web browser tests, but not Blacksmith runners
+or upstream's per-change job gating, so its `ci-changes` action and script are
+dropped as well.
 
 ## Decision
 
@@ -86,24 +91,21 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, now `0.0.45`, so
-  post-reset builds are `0.0.45-fork.*`. A `-fork.` suffix is a semver prerelease.
-  These builds sort above the existing `0.0.44-fork` release but below upstream's
-  stable `0.0.45`, which is still orchestration protocol 1, while upstream labels the
-  same V2 code `0.0.46-nightly.*`. `cliReleaseChannelOf` classifies them as stable.
-  The server-side re-target makes the order harmless for fork installs, so the scheme
-  stays. The cost is that anything resolving upstream stable from a fork build, such
-  as a lost define, would install V1, which runs on the stale pre-V2 `state.sqlite`.
-- **Protocol.** Upstream stable clients and the store apps speak protocol 1 and cannot
-  connect to a V2 fork server at all: the server answers their `/ws` upgrade with 426.
-  Only nightly and beta V2 clients and the web UI the fork server serves itself reach
-  the re-target. `IS_NIGHTLY_BUILD` ([`NightlyMobileBeta.tsx`](../../apps/web/src/components/NightlyMobileBeta.tsx))
-  is false on `-fork` versions, so the fork-served web does not show the hint that the
-  store apps cannot connect.
-  [Install the Fryuni fork](../user/install.md#install-the-fryuni-fork) says it instead.
+- **Version scheme.** The core comes from `apps/server/package.json`, now `0.1.0`, so
+  builds are `0.1.0-fork.*`. A `-fork.` suffix is a semver prerelease. These builds
+  sort above the earlier `0.0.45-fork.*` releases but below upstream's stable
+  `0.1.0`, while upstream labels newer code `0.1.1-nightly.*`. `cliReleaseChannelOf`
+  classifies them as stable. The server-side re-target makes the order harmless for
+  fork installs, so the scheme stays. The cost is that anything resolving upstream
+  stable from a fork build, such as a lost define, would leave the fork for an
+  upstream stable release that can be older than the fork's code.
+- **Protocol.** Upstream's stable `0.1.0` speaks orchestration protocol 2, so its
+  clients and the store apps connect to fork servers and reach the re-target. Older
+  protocol 1 clients still cannot connect: the server answers their `/ws` upgrade
+  with 426.
 - **Client pieces.** The `releaseRepository` checks run only in fork-built clients,
   which in practice means the web UI the fork server serves. app.t3.codes, the upstream
-  desktop app, and the beta mobile app run upstream code and keep offering upstream
+  desktop app, and the mobile apps run upstream code and keep offering upstream
   versions, and the server re-target handles them. A fork-served web connected to an
   upstream server still offers its own `-fork` version, which that server cannot
   download. This is accepted.
@@ -148,9 +150,10 @@ ships only in the desktop bundle, which has no define, so it keeps installing up
 runtimes on SSH hosts.
 
 Leaving the fork means reinstalling with the upstream installer. An explicit
-`t3 update <upstream version>` on a fork build downloads from the fork and 404s. While
-upstream stable is still protocol 1, choose upstream's nightly channel
-(`T3CODE_CHANNEL=nightly`) so the server stays on V2, then run `t3 service install`;
+`t3 update <upstream version>` on a fork build downloads from the fork and 404s.
+Choose upstream's nightly channel (`T3CODE_CHANNEL=nightly`), which builds the
+upstream `main` the fork follows, so the server does not move to older code, then
+run `t3 service install`;
 [Install the Fryuni fork](../user/install.md#install-the-fryuni-fork) tells users so.
 
 Drop this when the fork stops publishing its own builds, or when upstream supports a

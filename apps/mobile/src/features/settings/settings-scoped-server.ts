@@ -74,8 +74,6 @@ export function planMobileScopedSettingsPatch(
       target.environment.serverConfig.settings.projectSettingsOverrides[target.projectId] ?? {};
     const next: Record<string, unknown> = { ...current };
     for (const [key, value] of Object.entries(patch)) {
-      // A picker's "Inherit" sends null; for keys whose override cannot
-      // store null that means remove the override.
       if (
         value === null &&
         !isNullableProjectSettingsOverride(key as ProjectScopedServerSettingKey)
@@ -119,7 +117,6 @@ export function planMobileProjectOverridePatch(
   }));
 }
 
-/** A mixed selection has no single value to display. */
 export function uniformMobileSetting<K extends keyof ServerSettings>(
   targets: readonly Pick<ScopedMobileSettingsTarget, "settings">[],
   key: K,
