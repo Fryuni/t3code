@@ -183,6 +183,35 @@ export function parseForgejoRemote(value: string) {
     : null;
 }
 
+/**
+ * The web URL a remote is configured with. git rewrites it through `url.<base>.insteadOf`
+ * before `git remote` reports it, but fj resolves its host from the configured URL, so a web URL
+ * that git pushes over an SSH alias still names the instance its login was added for, while the
+ * alias names no login. Null unless the configured URL is HTTP: a shorthand only means
+ * something after git rewrites it.
+ */
+export const readConfiguredRemoteUrl = (
+  process: SourceControlHost.SourceControlHost["Service"]["process"],
+  cwd: string,
+  remoteName: string,
+) =>
+  process
+    .run({
+      operation: "ForgejoCli.configuredRemote",
+      command: "git",
+      args: ["config", "--get", `remote.${remoteName}.url`],
+      cwd,
+      allowNonZeroExit: true,
+      timeoutMs: 5_000,
+    })
+    .pipe(
+      Effect.map((result) => {
+        const url = result.exitCode === 0 ? result.stdout.trim() : "";
+        return /^https?:\/\//i.test(url) && parseForgejoRemote(url) ? url : null;
+      }),
+      Effect.orElseSucceed(() => null),
+    );
+
 export function matchForgejoLogin(
   logins: ReturnType<typeof parseForgejoLogins>,
   remote: NonNullable<ReturnType<typeof parseForgejoRemote>>,
@@ -546,13 +575,13 @@ export const make = Effect.gen(function* () {
     hostOnly = false,
   ) {
     const referenceRemote = input.reference ? parseForgejoRemote(input.reference) : null;
-    let remoteUrl = [input.reference, input.repository, input.context?.remoteUrl].find(
-      (value) => value && parseForgejoRemote(value),
-    );
-    let remote =
-      referenceRemote ??
-      (input.repository ? parseForgejoRemote(input.repository) : null) ??
-      (input.context ? parseForgejoRemote(input.context.remoteUrl) : null);
+    let remoteUrl =
+      [input.reference, input.repository].find((value) => value && parseForgejoRemote(value)) ??
+      (input.context
+        ? ((yield* readConfiguredRemoteUrl(process, input.cwd, input.context.remoteName)) ??
+          (parseForgejoRemote(input.context.remoteUrl) ? input.context.remoteUrl : undefined))
+        : undefined);
+    let remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
     if (!remote && (!input.repository || input.host)) {
       const result = yield* process
         .run({
@@ -592,7 +621,8 @@ export const make = Effect.gen(function* () {
               ? origins[0]
               : undefined;
       } else {
-        remoteUrl = result.stdout.trim();
+        remoteUrl =
+          (yield* readConfiguredRemoteUrl(process, input.cwd, "origin")) ?? result.stdout.trim();
       }
       remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
     }

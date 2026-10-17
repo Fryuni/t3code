@@ -607,6 +607,7 @@ it.effect("asks once for every checkout of a server no integration claims", () =
     assert.sameMembers(once, [
       "credential git.example.internal",
       "glab auth status --hostname Git.Example.Internal",
+      "git config --get remote.origin.url",
       "fj",
       "tea",
     ]);
@@ -624,7 +625,7 @@ it.effect("asks again after a check that could not answer", () =>
       remotes: [],
       process: {
         run: ({ command, cwd }) => {
-          asks += 1;
+          if (command !== "git") asks += 1;
           return Effect.fail(
             new VcsProcessTimeoutError({ operation: "test", command, cwd, timeoutMs: 1 }),
           );

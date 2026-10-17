@@ -73,20 +73,22 @@ export const makeDiscovery = Effect.gen(function* () {
     label: discovery.label,
     installHint: discovery.installHint,
     probe: Effect.fn("ForgejoSourceControlProvider.discovery")(function* (cwd: string) {
-      const remoteUrl = yield* process
-        .run({
-          operation: "source-control.discovery.remote",
-          command: "git",
-          args: ["remote", "get-url", "origin"],
-          cwd,
-          allowNonZeroExit: true,
-          timeoutMs: 5_000,
-          maxOutputBytes: 8_000,
-        })
-        .pipe(
-          Effect.map((result) => result.stdout.trim()),
-          Effect.orElseSucceed(() => ""),
-        );
+      const remoteUrl =
+        (yield* ForgejoCli.readConfiguredRemoteUrl(process, cwd, "origin")) ??
+        (yield* process
+          .run({
+            operation: "source-control.discovery.remote",
+            command: "git",
+            args: ["remote", "get-url", "origin"],
+            cwd,
+            allowNonZeroExit: true,
+            timeoutMs: 5_000,
+            maxOutputBytes: 8_000,
+          })
+          .pipe(
+            Effect.map((result) => result.stdout.trim()),
+            Effect.orElseSucceed(() => ""),
+          ));
       const credentials = yield* Effect.result(listLogins({ cwd, command: "fj", remoteUrl }));
       const logins = Result.isSuccess(credentials) ? credentials.success : [];
       const remote = ForgejoCli.parseForgejoRemote(remoteUrl);
@@ -149,15 +151,17 @@ export const makeDiscovery = Effect.gen(function* () {
         readonly cwd: string;
         readonly context: SourceControlProvider.SourceControlProviderContext;
       }) {
-        const remote = ForgejoCli.parseForgejoRemote(input.context.remoteUrl);
+        const remoteUrl =
+          (yield* ForgejoCli.readConfiguredRemoteUrl(
+            process,
+            input.cwd,
+            input.context.remoteName,
+          )) ?? input.context.remoteUrl;
+        const remote = ForgejoCli.parseForgejoRemote(remoteUrl);
         if (!remote) return null;
         let failure: ForgejoCli.ForgejoCliError | undefined;
         for (const command of ["fj", "tea"] as const) {
-          const logins = yield* listLogins({
-            cwd: input.cwd,
-            command,
-            remoteUrl: input.context.remoteUrl,
-          }).pipe(
+          const logins = yield* listLogins({ cwd: input.cwd, command, remoteUrl }).pipe(
             Effect.catchIf(
               (error) => isMissingExecutable(error.cause),
               () => Effect.succeed([]),
