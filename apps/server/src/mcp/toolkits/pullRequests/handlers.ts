@@ -100,7 +100,11 @@ function projectRepositoryOnCloneHost(
     cloneBaseUrl === undefined ||
     clonePath === null ||
     URL.parse(cloneBaseUrl)?.hostname !== link.host ||
-    (link.authority ?? link.host) === host ||
+    // Only a known web URL says which port the web host is on; without one, `host` is the
+    // canonical hostname and only hostnames compare.
+    (identity.webUrl !== undefined && /^https?:\/\//iu.test(identity.webUrl)
+      ? (link.authority ?? link.host) === host
+      : URL.parse(`https://${host}`)?.hostname === link.host) ||
     normalizeSourceControlRepository(clonePath, kind) !==
       normalizeSourceControlRepository(link.repository, kind)
   )

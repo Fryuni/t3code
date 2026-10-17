@@ -543,6 +543,27 @@ describe("pull request toolkit handlers", () => {
     }),
   );
 
+  it.effect("keeps a link on a web port when the project only knows its SSH clone host", () =>
+    Effect.gen(function* () {
+      const harness = yield* makeHarness({
+        project: makeProject({
+          canonicalKey: "git.corp.test/owner/repo",
+          locator: {
+            source: "git-remote",
+            remoteName: "origin",
+            remoteUrl: "ssh://git@git.corp.test:2222/Owner/Repo",
+          },
+          provider: "forgejo",
+          displayName: "Owner/Repo",
+        }),
+      });
+      const result = yield* harness.call("link_pull_request", {
+        url: "https://git.corp.test:3000/Owner/Repo/pulls/5",
+      });
+      expect(result.url).toBe("https://git.corp.test:3000/Owner/Repo/pulls/5");
+    }),
+  );
+
   it.effect("links a numeric Forgejo reference with its remote's web origin and mount path", () =>
     Effect.gen(function* () {
       const harness = yield* makeHarness({
