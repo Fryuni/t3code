@@ -157,9 +157,15 @@ function selectProviderContext(
   );
 }
 
+const remoteServerOf = (remoteUrl: string) =>
+  remoteUrl.trim().replace(/(?<!\/\/[^/]*)[^/:]+\/[^/:]+\/?$/u, "");
+
 /**
  * `cwd` is left out because it only matters when a probe fails there, and a failed probe
- * is not kept. Equality ignores `lookup`, so this is not a `Data.Class`.
+ * is not kept. The remote's configured URL is in: git reports it after `insteadOf` rewriting,
+ * a provider may read it as configured (Forgejo does, like `fj`), and checkouts that share a
+ * rewritten host need not share a configured one. Equality ignores `lookup`, so this is not a
+ * `Data.Class`.
  */
 class UnknownRemoteLookup {
   readonly key: string;
@@ -167,13 +173,15 @@ class UnknownRemoteLookup {
 
   constructor(
     context: SourceControlProvider.SourceControlProviderContext,
+    configuredRemoteUrl: string,
     lookup: Effect.Effect<UnknownRemoteVerdict>,
   ) {
     this.lookup = lookup;
     this.key = [
       context.provider.name,
       context.provider.baseUrl,
-      context.remoteUrl.trim().replace(/(?<!\/\/[^/]*)[^/:]+\/[^/:]+\/?$/u, ""),
+      remoteServerOf(context.remoteUrl),
+      remoteServerOf(configuredRemoteUrl),
       context.requestedHost ?? "",
     ].join("\n");
   }
@@ -259,19 +267,40 @@ export const makeWithProviders = Effect.fn("makeSourceControlProviderRegistryWit
       Effect.forkScoped,
     );
 
+    const configuredRemoteUrl = (cwd: string, remoteName: string) =>
+      process
+        .run({
+          operation: "SourceControlProviderRegistry.configuredRemote",
+          command: "git",
+          args: ["config", "--get", `remote.${remoteName}.url`],
+          cwd,
+          allowNonZeroExit: true,
+          timeoutMs: 5_000,
+        })
+        .pipe(
+          Effect.map((result) => (result.exitCode === 0 ? result.stdout.trim() : "")),
+          Effect.orElseSucceed(() => ""),
+        );
+
     const refineContext = (
       cwd: string,
       context: SourceControlProvider.SourceControlProviderContext | null,
     ): Effect.Effect<SourceControlProvider.SourceControlProviderContext | null> =>
       context === null || context.provider.kind !== "unknown"
         ? Effect.succeed(context)
-        : Cache.get(
-            unknownRemoteCache,
-            new UnknownRemoteLookup(
-              context,
-              refineUnknownRemoteProvider({ specs: discoverySpecs, process, cwd, context }),
+        : configuredRemoteUrl(cwd, context.remoteName).pipe(
+            Effect.flatMap((configured) =>
+              Cache.get(
+                unknownRemoteCache,
+                new UnknownRemoteLookup(
+                  context,
+                  configured,
+                  refineUnknownRemoteProvider({ specs: discoverySpecs, process, cwd, context }),
+                ),
+              ),
             ),
-          ).pipe(Effect.map(({ provider }) => (provider ? { ...context, provider } : context)));
+            Effect.map(({ provider }) => (provider ? { ...context, provider } : context)),
+          );
 
     const detectProviderContext = Effect.fn("SourceControlProviderRegistry.detectProviderContext")(
       function* (cwd: string) {

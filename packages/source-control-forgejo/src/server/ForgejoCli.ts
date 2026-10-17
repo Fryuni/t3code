@@ -582,6 +582,10 @@ export const make = Effect.gen(function* () {
           (parseForgejoRemote(input.context.remoteUrl) ? input.context.remoteUrl : undefined))
         : undefined);
     let remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
+    if (!remote && !input.repository && !input.host) {
+      remoteUrl = (yield* readConfiguredRemoteUrl(process, input.cwd, "origin")) ?? undefined;
+      remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
+    }
     if (!remote && (!input.repository || input.host)) {
       const result = yield* process
         .run({
@@ -621,8 +625,7 @@ export const make = Effect.gen(function* () {
               ? origins[0]
               : undefined;
       } else {
-        remoteUrl =
-          (yield* readConfiguredRemoteUrl(process, input.cwd, "origin")) ?? result.stdout.trim();
+        remoteUrl = result.stdout.trim();
       }
       remote = remoteUrl ? parseForgejoRemote(remoteUrl) : null;
     }

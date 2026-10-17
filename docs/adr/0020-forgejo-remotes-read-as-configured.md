@@ -24,6 +24,13 @@ URL: it is what `git remote` and agents see, and
 [ADR 0002](0002-forgejo-repository-identity.md) already roots the identity on
 the resolved web instance.
 
+Because the answer now depends on the checkout's configuration, the
+[provider registry](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts)
+adds the configured URL's server to its unknown-remote cache key. Otherwise a
+checkout cloned straight from the SSH alias would cache "unknown" for that host
+and hide the instance from an `insteadOf` checkout for five minutes. The key
+still drops owner/repo, so one verdict per server remains upstream's design.
+
 The MCP `link_pull_request` and `watch_pull_request` tools also move a link off
 the clone host. When a URL names the project's repository on the host of its
 SSH remote, and that host differs from the project's change-request host, the
@@ -32,6 +39,7 @@ same number on the project's host instead. Links to any other repository on that
 host are kept as given.
 
 When updating from upstream, keep the configured-URL read ahead of login
-matching and the clone-host mapping in the MCP target resolution. Remove either
+matching, the configured server in the registry's cache key, and the clone-host
+mapping in the MCP target resolution. Remove either
 one if upstream resolves `insteadOf` remotes, or SSH clone hosts in agent links,
 itself.

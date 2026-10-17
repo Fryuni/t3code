@@ -87,7 +87,7 @@ function projectRepositoryOnCloneHost(
 ): string | null {
   const identity = project?.repositoryIdentity;
   const { host, kind } = projectHostAndProvider(project);
-  if (!identity || !isSshRemoteUrl(identity.locator.remoteUrl)) return null;
+  if (!identity || host === null || !isSshRemoteUrl(identity.locator.remoteUrl)) return null;
   const cloneBaseUrl = detectSourceControlProviderFromRemoteUrl(
     identity.locator.remoteUrl,
   )?.baseUrl;
@@ -95,8 +95,8 @@ function projectRepositoryOnCloneHost(
   if (
     cloneBaseUrl === undefined ||
     clonePath === null ||
-    new URL(cloneBaseUrl).hostname !== link.host ||
-    new URL(`https://${host}`).hostname === link.host ||
+    URL.parse(cloneBaseUrl)?.hostname !== link.host ||
+    URL.parse(`https://${host}`)?.hostname === link.host ||
     normalizeSourceControlRepository(clonePath, kind) !==
       normalizeSourceControlRepository(link.repository, kind)
   )
