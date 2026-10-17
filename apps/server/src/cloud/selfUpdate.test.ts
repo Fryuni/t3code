@@ -43,9 +43,6 @@ const importForkBuild = Effect.promise(() => {
 });
 const LATEST_URL = "https://api.github.com/repos/someone/t3code/releases/latest";
 
-// The staged runtime is a release archive: the fake client serves SHA256SUMS
-// and the tarball, and the fake runner stands in for tar before it answers
-// the staged preflight.
 const archiveBytes = new TextEncoder().encode("not really a tarball");
 const releaseHttpClient = (order: string[], releaseVersion: string) =>
   HttpClient.make((request) =>
@@ -449,7 +446,6 @@ it.layer(NodeServices.layer)("server self update", (it) => {
       );
       expect(result).toEqual({ targetVersion: "1.2.0", method: "desktop-app" });
       expect(stages).toEqual(["downloading", "installing"]);
-      // The launcher staging path must not run on the desktop path.
       expect(order).toEqual([]);
     }),
   );

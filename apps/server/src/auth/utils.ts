@@ -17,15 +17,9 @@ const SESSION_COOKIE_NAME = "t3_session";
  * clobbers the first's session and both sides see "Invalid session token
  * signature" until someone clears cookies by hand.
  *
- * Remote web servers use their persisted environment identity and omit the
- * port, so the name survives state-directory moves and public port changes.
  * A loopback listener advertised through `--public-url` counts as remote: the
  * proxy origin is the only host browsers see, and the internal port behind it
  * can move on any restart.
- *
- * Desktop scans upward from 3773 for a free port and binds
- *   127.0.0.1, so a second instance lands on a different port and the same host.
- *   A desktop backend behind a proxy follows the remote rule instead.
  */
 export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
@@ -61,9 +55,6 @@ export function resolveSessionCookieName(input: {
     return `${SESSION_COOKIE_NAME}_${instanceHash}`;
   }
 
-  // Cookies are scoped by host, not port. Loopback development servers need an
-  // instance-specific name or parallel agents overwrite each other's session,
-  // and a server that later reuses the port receives a token signed elsewhere.
   return `${SESSION_COOKIE_NAME}_${input.port}_${instanceHash}`;
 }
 

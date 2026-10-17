@@ -1,8 +1,17 @@
 # ADR 0019: Search the settings project scope picker
 
-- Status: accepted
+- Status: superseded by upstream
 - Date: 2026-10-15
-- Compared with upstream: `pingdotgg/t3code` at `339179f50` (2026-10-14)
+- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
+
+**Superseded.** Upstream made the settings scope pickers searchable in
+[pingdotgg/t3code#19744](https://github.com/pingdotgg/t3code/pull/19744)
+(`6d73370ef`): once there are more than six options, the project and environment
+pickers open a combobox whose search matches each option's name, its machines or
+path, and its key. **All projects** stays in the results when the query matches
+it. The fork dropped its combobox and `filterProjectAxisItems` when it synced onto
+upstream `b827ca48d` and keeps upstream's implementation. The rest of this record
+describes the decision as it stood before.
 
 The "Applying settings for <project>" picker at the top of Settings pages was a
 plain menu listing every project. With many projects, finding the one to

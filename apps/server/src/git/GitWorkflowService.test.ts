@@ -203,7 +203,7 @@ describe("GitWorkflowService.resolveWorktreeBase", () => {
         "done",
       );
       const upstream = yield* git(cwd, ["remote", "get-url", "upstream"]);
-      yield* git(upstream, ["update-ref", "-d", "refs/heads/feature/work"]);
+      yield* git(cwd, ["--git-dir", upstream, "update-ref", "-d", "refs/heads/feature/work"]);
 
       const error = yield* Effect.flip(resolveWorktreeBase(cwd, "feature/work", "upstream"));
       assert.equal(
