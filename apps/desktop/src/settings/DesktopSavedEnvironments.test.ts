@@ -94,6 +94,7 @@ function layerSafeStorageFor(input: {
       }
       return Effect.succeed(decoded.slice("enc:".length));
     },
+    decryptLegacyString: () => Effect.succeedNone,
     selectedStorageBackend: Effect.succeedNone,
   } satisfies ElectronSafeStorage.ElectronSafeStorage["Service"]);
 }

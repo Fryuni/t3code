@@ -62,12 +62,24 @@ export class ElectronSafeStorage extends Context.Service<
       value: Uint8Array,
     ) => Effect.Effect<string, ElectronSafeStorageDecryptError>;
     readonly selectedStorageBackend: Effect.Effect<Option.Option<string>>;
+    readonly decryptLegacyString: (
+      value: Uint8Array,
+      accept: (plaintext: string) => boolean,
+    ) => Effect.Effect<Option.Option<string>, ElectronSafeStorageDecryptError>;
   }
 >()("@t3tools/desktop/electron/ElectronSafeStorage") {}
 
 /** @public Service construction is part of the canonical Effect module API. */
 export const make = Effect.gen(function* () {
   const platform = yield* HostProcess.Platform;
+  const selectedStorageBackend = Effect.sync(() => {
+    if (platform !== "linux") return Option.none<string>();
+    try {
+      return Option.fromNullishOr(Electron.safeStorage.getSelectedStorageBackend());
+    } catch {
+      return Option.none<string>();
+    }
+  });
 
   return ElectronSafeStorage.of({
     isEncryptionAvailable: Effect.try({
@@ -84,16 +96,22 @@ export const make = Effect.gen(function* () {
         try: () => Electron.safeStorage.decryptString(Buffer.from(value)),
         catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
       }),
-    selectedStorageBackend: Effect.sync(() => {
-      if (platform !== "linux") {
-        return Option.none();
-      }
-      try {
-        return Option.fromNullishOr(Electron.safeStorage.getSelectedStorageBackend());
-      } catch {
-        return Option.none();
-      }
-    }),
+    decryptLegacyString: (value, accept) =>
+      Effect.gen(function* () {
+        const backend = yield* selectedStorageBackend;
+        if (Option.isNone(backend) || backend.value !== "gnome_libsecret") {
+          return Option.none<string>();
+        }
+        return yield* Effect.tryPromise({
+          // Loading dbus-next is deferred so macOS and Windows never evaluate a D-Bus client.
+          try: async () => {
+            const { decryptString } = await import("./LinuxLegacySafeStorage.ts");
+            return decryptString(value, accept);
+          },
+          catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
+        }).pipe(Effect.map(Option.fromNullishOr));
+      }),
+    selectedStorageBackend,
   });
 });
 
