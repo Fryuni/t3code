@@ -7,10 +7,14 @@ export interface CommandPaletteLinkedThreads {
 
 const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
-/** Starts adding a project on one machine, cloning `remoteUrl` when it is set. */
+/**
+ * Starts adding a project on one machine, cloning `remoteUrl` when it is set.
+ * A clone takes `title`, so a new checkout keeps a renamed project's name.
+ */
 export interface CommandPaletteAddProjectTarget {
   readonly environmentId: EnvironmentId;
   readonly remoteUrl: string | null;
+  readonly title?: string;
 }
 
 export interface CommandPaletteOpenDetail {

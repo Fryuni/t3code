@@ -285,6 +285,7 @@ type AddProjectCloneFlow =
       readonly repositoryInput: string;
       readonly repository: SourceControlRepositoryInfo | null;
       readonly remoteUrl: string;
+      readonly title?: string;
     };
 
 function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: string): ReactNode {
@@ -1376,7 +1377,11 @@ function OpenCommandPaletteDialog(props: {
   };
 
   // Skips the repository step: the caller already knows which remote to clone.
-  const startAddProjectCloneFromUrl = (environmentId: EnvironmentId, remoteUrl: string): void => {
+  const startAddProjectCloneFromUrl = (
+    environmentId: EnvironmentId,
+    remoteUrl: string,
+    title: string | undefined,
+  ): void => {
     setAddProjectEnvironmentId(environmentId);
     setAddProjectCloneFlow({
       step: "confirm",
@@ -1385,6 +1390,7 @@ function OpenCommandPaletteDialog(props: {
       repositoryInput: remoteUrl,
       repository: null,
       remoteUrl,
+      ...(title ? { title } : {}),
     });
     pushPaletteView({
       addonIcon: remoteProjectSourceIcon("url", ADDON_ICON_CLASS),
@@ -2024,7 +2030,12 @@ function OpenCommandPaletteDialog(props: {
         setQuery("");
         if (intent.target.remoteUrl === null)
           startAddProjectSourceSelection(intent.target.environmentId);
-        else startAddProjectCloneFromUrl(intent.target.environmentId, intent.target.remoteUrl);
+        else
+          startAddProjectCloneFromUrl(
+            intent.target.environmentId,
+            intent.target.remoteUrl,
+            intent.target.title,
+          );
         return;
       case "new-thread-in":
         clearOpenIntent();
@@ -2560,7 +2571,7 @@ function OpenCommandPaletteDialog(props: {
       environmentId: addProjectCloneFlow.environmentId,
       input: {
         projectId,
-        title: inferProjectTitleFromPath(destinationPath),
+        title: addProjectCloneFlow.title ?? inferProjectTitleFromPath(destinationPath),
         createdAt: new Date().toISOString(),
         remoteUrl: addProjectCloneFlow.remoteUrl,
         destinationPath,

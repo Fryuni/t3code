@@ -33,6 +33,12 @@ repository root, a remote that only resolves on the source machine (a path or a 
 reported by an older server without
 `origin.remoteUrl`, gets no prefilled clone: the user picks a folder instead.
 
+A tracked clone also takes the title every existing checkout shares
+([`projectCheckoutTitle`](../../packages/client-runtime/src/operations/projects.ts)),
+because a member whose title differs makes a renamed group fall back to the
+repository's name. Blocking clones on older servers and the folder fallback go
+through the generic add-project flow and infer the title from the folder.
+
 - **Web and desktop:** the [settings panel](../../apps/web/src/components/settings/ProjectSettingsPanel.tsx)
   adds an **Add checkout** menu to the section header. Choosing a machine opens
   the existing command palette add-project flow through `addProjectTarget` on the

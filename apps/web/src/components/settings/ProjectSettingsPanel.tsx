@@ -14,6 +14,7 @@ import {
   canCreateProjectInEnvironment,
   projectCheckoutCloneUrl,
   projectCheckoutOptions,
+  projectCheckoutTitle,
 } from "@t3tools/client-runtime/operations/projects";
 import { AsyncResult } from "effect/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
@@ -342,6 +343,7 @@ function ProjectDetail({
   });
   const checkoutRemoteUrl =
     groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;
+  const checkoutTitle = projectCheckoutTitle(groupMembers);
   const operableCheckoutTargetIds = useEnvironmentsWithScope(
     checkoutOptions.targets,
     AuthOrchestrationOperateScope,
@@ -476,6 +478,7 @@ function ProjectDetail({
                       addProjectTarget: {
                         environmentId: environment.environmentId,
                         remoteUrl: checkoutRemoteUrl,
+                        ...(checkoutTitle ? { title: checkoutTitle } : {}),
                       },
                     })
                   }

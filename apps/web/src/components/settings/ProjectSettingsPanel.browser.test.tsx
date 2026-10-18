@@ -395,6 +395,7 @@ describe("project checkouts", () => {
         addProjectTarget: {
           environmentId: remoteId,
           remoteUrl: "https://github.com/example/shared-repo.git",
+          title: "Shared repo",
         },
       },
     ]);

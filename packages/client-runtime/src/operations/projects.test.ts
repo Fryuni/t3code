@@ -23,6 +23,7 @@ import {
   normalizePastedCloneUrl,
   projectCheckoutCloneUrl,
   projectCheckoutOptions,
+  projectCheckoutTitle,
   resolveAddProjectPath,
   sortAddProjectProviderSources,
 } from "./projects.ts";
@@ -379,6 +380,16 @@ describe("projectCheckoutOptions", () => {
   });
 });
 
+describe("projectCheckoutTitle", () => {
+  it("keeps the title every checkout shares", () => {
+    expect(projectCheckoutTitle([{ title: "My App" }, { title: "My App" }])).toBe("My App");
+  });
+
+  it("leaves the title to the clone when checkouts disagree", () => {
+    expect(projectCheckoutTitle([{ title: "My App" }, { title: "t3code" }])).toBeUndefined();
+  });
+});
+
 describe("projectCheckoutCloneUrl", () => {
   const identity = {
     canonicalKey: "github.com/t3tools/t3code",
@@ -456,6 +467,7 @@ describe("projectCheckoutCloneUrl", () => {
     "ssh://git@127.0.0.1/t3code.git",
     "ssh://git@[::1]:2222/t3code.git",
     "git@localhost:t3code.git",
+    "git@[::1]:t3code.git",
   ])("offers no clone of the machine-local remote %s", (remoteUrl) => {
     expect(
       projectCheckoutCloneUrl({
@@ -468,6 +480,7 @@ describe("projectCheckoutCloneUrl", () => {
   it("clones network remotes, including scp-like ones", () => {
     for (const remoteUrl of [
       "git@github.com:T3Tools/t3code.git",
+      "git@[2001:db8::1]:T3Tools/t3code.git",
       "ssh://git@host.test/t3code",
       "https://host.test/t3code.git",
     ]) {

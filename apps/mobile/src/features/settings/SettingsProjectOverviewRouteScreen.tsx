@@ -5,6 +5,7 @@ import {
   getCloneDirectoryName,
   projectCheckoutCloneUrl,
   projectCheckoutOptions,
+  projectCheckoutTitle,
 } from "@t3tools/client-runtime/operations/projects";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
@@ -200,6 +201,7 @@ function ProjectOverviewContent(props: {
               key={environment.environmentId}
               environment={environment}
               cloneUrl={checkoutCloneUrl}
+              projectTitle={projectCheckoutTitle(props.groupMembers)}
             />
           ))}
         </SettingsSection>
@@ -211,6 +213,7 @@ function ProjectOverviewContent(props: {
 function CheckoutTargetRow(props: {
   readonly environment: SettingsTarget;
   readonly cloneUrl: string | null;
+  readonly projectTitle: string | undefined;
 }) {
   const navigation = useNavigation();
   const { environment, cloneUrl } = props;
@@ -238,6 +241,7 @@ function CheckoutTargetRow(props: {
                   remoteUrl: cloneUrl,
                   repositoryTitle: cloneUrl,
                   repositoryName: getCloneDirectoryName(cloneUrl),
+                  ...(props.projectTitle ? { projectTitle: props.projectTitle } : {}),
                 },
               })
             : navigation.navigate("NewTaskSheet", {

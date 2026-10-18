@@ -345,10 +345,24 @@ function isNetworkRemote(remoteUrl: string): boolean {
       return false;
     }
   }
+  // scp-like `user@[host]:path` brackets an IPv6 host, colons included.
+  const bracketedHost = /^(?:[^@/]*@)?\[([^\]/]+)\]:/.exec(remoteUrl)?.[1];
+  if (bracketedHost) return !isLoopbackHost(bracketedHost);
   const colon = remoteUrl.indexOf(":");
   // A colon at index 1 is a Windows drive letter.
   if (colon <= 1 || remoteUrl.slice(0, colon).includes("/")) return false;
   return !isLoopbackHost(remoteUrl.slice(remoteUrl.lastIndexOf("@", colon) + 1, colon));
+}
+
+/**
+ * The title a new checkout should carry: the one its project's checkouts share.
+ * Without one, the clone infers a title from its folder like any other project.
+ */
+export function projectCheckoutTitle(
+  members: ReadonlyArray<{ readonly title: string }>,
+): string | undefined {
+  const title = members[0]?.title;
+  return title && members.every((member) => member.title === title) ? title : undefined;
 }
 
 /**
