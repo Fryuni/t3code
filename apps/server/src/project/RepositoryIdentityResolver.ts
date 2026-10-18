@@ -2,6 +2,7 @@ import type { RepositoryIdentity, SourceControlProviderError } from "@t3tools/co
 import {
   detectSourceControlProviderFromGitRemoteUrl,
   normalizeGitRemoteUrl,
+  withoutRemoteCredentials,
 } from "@t3tools/shared/git";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
@@ -73,31 +74,6 @@ function pickPrimaryRemote(
 
 function repositoryPathOf(canonicalKey: string): string {
   return canonicalKey.split("/").slice(1).join("/");
-}
-
-// The password runs from the user name's colon to the last `@` before the path.
-const URL_PASSWORD = /^([a-z][a-z0-9+.-]*:\/\/[^/:@]*):[^/]*@/i;
-
-/**
- * Clients clone this URL on other machines, which bring their own credentials.
- * Outside HTTP(S), git passes the path through verbatim (`?` and `..` included)
- * and user names such as `git` are part of the address, so only the password
- * is cut from the original text.
- */
-function withoutRemoteCredentials(remoteUrl: string): string {
-  try {
-    const url = new URL(remoteUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return url.password ? remoteUrl.replace(URL_PASSWORD, "$1@") : remoteUrl;
-    }
-    if (!url.username && !url.password && !url.search) return remoteUrl;
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    return url.toString();
-  } catch {
-    return remoteUrl;
-  }
 }
 
 function buildRepositoryOrigin(

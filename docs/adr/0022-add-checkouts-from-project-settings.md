@@ -22,12 +22,13 @@ The new checkout must land in the same project group, so the clone URL follows
 the group's identity. Grouping uses a fork's `origin`, while the repository
 locator prefers `upstream`, so `RepositoryOrigin` gained an optional `remoteUrl`
 that the [identity resolver](../../apps/server/src/project/RepositoryIdentityResolver.ts)
-fills with the configured origin remote, minus passwords and tokens; the
-destination machine brings its own credentials. A clone registers the repository root,
-so a project in a repository subdirectory or with an unknown repository root,
-or a fork reported by an older server
-without `origin.remoteUrl`, gets no prefilled clone: the user picks a folder
-instead.
+fills with the configured origin remote. Whichever remote is chosen goes through
+the shared [`withoutRemoteCredentials`](../../packages/shared/src/git.ts) before
+it is cloned, because the locator carries the checkout's raw remote and the
+destination machine brings its own credentials. A clone registers the
+repository root, so a project in a repository subdirectory or with an unknown
+repository root, or a fork reported by an older server without
+`origin.remoteUrl`, gets no prefilled clone: the user picks a folder instead.
 
 - **Web and desktop:** the [settings panel](../../apps/web/src/components/settings/ProjectSettingsPanel.tsx)
   adds an **Add checkout** menu to the section header. Choosing a machine opens
@@ -40,7 +41,7 @@ instead.
 - **Mobile:** the [project overview](../../apps/mobile/src/features/settings/SettingsProjectOverviewRouteScreen.tsx)
   follows the same visibility rule and adds a **Check out on** row per target,
   opening the existing clone destination screen, or the local folder screen
-  without a clone URL.
+  without a clone URL, with the same permission-based disabling.
 
 When updating from upstream, keep the section visible with a second connected
 machine, keep both clients routed through their existing add-project flows

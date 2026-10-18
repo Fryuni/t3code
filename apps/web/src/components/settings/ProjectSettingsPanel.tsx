@@ -324,7 +324,7 @@ function ProjectDetail({
       canCreateProjectInEnvironment(environment.connection.phase),
     ),
     checkoutEnvironmentIds: groupMembers.map((member) => member.environmentId),
-    checkoutCount: group.memberProjects.length,
+    checkoutCount: groupMembers.length,
     canCheckOut: !group.isScratch,
   });
   const checkoutRemoteUrl =

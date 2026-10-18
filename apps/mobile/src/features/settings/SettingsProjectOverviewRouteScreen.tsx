@@ -9,11 +9,13 @@ import {
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useNavigation } from "@react-navigation/native";
+import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3tools/contracts";
 import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { projectEnvironment } from "../../state/projects";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
 import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsScreen } from "./components/SettingsScreen";
@@ -73,12 +75,11 @@ function ProjectOverviewContent(props: {
   readonly environments: readonly SettingsTarget[];
   readonly connectedEnvironments: readonly SettingsTarget[];
 }) {
-  const navigation = useNavigation();
   const representative = props.members[0]!;
   const checkoutOptions = projectCheckoutOptions({
     connectedEnvironments: props.connectedEnvironments,
     checkoutEnvironmentIds: props.groupMembers.map((member) => member.environmentId),
-    checkoutCount: props.members.length,
+    checkoutCount: props.groupMembers.length,
     canCheckOut: !representative.isScratch,
   });
   const checkoutCloneUrl =
@@ -193,35 +194,56 @@ function ProjectOverviewContent(props: {
             );
           })}
           {checkoutOptions.targets.map((environment) => (
-            <View key={environment.environmentId} className="border-t border-border-subtle">
-              <SettingsActionRow
-                icon="plus"
-                label={`Check out on ${environment.label}`}
-                description={environment.displayUrl || environment.environmentId}
-                onPress={() =>
-                  // The add-project screens live in the new-task sheet, which also hosts the
-                  // draft they open once the project exists.
-                  checkoutCloneUrl
-                    ? navigation.navigate("NewTaskSheet", {
-                        screen: "AddProjectDestination",
-                        params: {
-                          environmentId: environment.environmentId,
-                          source: "url",
-                          remoteUrl: checkoutCloneUrl,
-                          repositoryTitle: checkoutCloneUrl,
-                          repositoryName: getCloneDirectoryName(checkoutCloneUrl),
-                        },
-                      })
-                    : navigation.navigate("NewTaskSheet", {
-                        screen: "AddProjectLocal",
-                        params: { environmentId: environment.environmentId },
-                      })
-                }
-              />
-            </View>
+            <CheckoutTargetRow
+              key={environment.environmentId}
+              environment={environment}
+              cloneUrl={checkoutCloneUrl}
+            />
           ))}
         </SettingsSection>
       ) : null}
     </>
+  );
+}
+
+function CheckoutTargetRow(props: {
+  readonly environment: SettingsTarget;
+  readonly cloneUrl: string | null;
+}) {
+  const navigation = useNavigation();
+  const { environment, cloneUrl } = props;
+  const canCreateProject = useEnvironmentScope(
+    environment.environmentId,
+    AuthOrchestrationOperateScope,
+  );
+  const canClone = useEnvironmentScope(environment.environmentId, AuthSourceControlWriteScope);
+  return (
+    <View className="border-t border-border-subtle">
+      <SettingsActionRow
+        icon="plus"
+        label={`Check out on ${environment.label}`}
+        description={environment.displayUrl || environment.environmentId}
+        disabled={!canCreateProject || (cloneUrl !== null && !canClone)}
+        onPress={() =>
+          // The add-project screens live in the new-task sheet, which also hosts the
+          // draft they open once the project exists.
+          cloneUrl
+            ? navigation.navigate("NewTaskSheet", {
+                screen: "AddProjectDestination",
+                params: {
+                  environmentId: environment.environmentId,
+                  source: "url",
+                  remoteUrl: cloneUrl,
+                  repositoryTitle: cloneUrl,
+                  repositoryName: getCloneDirectoryName(cloneUrl),
+                },
+              })
+            : navigation.navigate("NewTaskSheet", {
+                screen: "AddProjectLocal",
+                params: { environmentId: environment.environmentId },
+              })
+        }
+      />
+    </View>
   );
 }

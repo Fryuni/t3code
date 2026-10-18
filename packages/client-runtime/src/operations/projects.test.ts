@@ -415,6 +415,21 @@ describe("projectCheckoutCloneUrl", () => {
     ).toBeNull();
   });
 
+  it("clones without the source machine's credentials", () => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code",
+        repositoryIdentity: {
+          ...identity,
+          locator: {
+            ...identity.locator,
+            remoteUrl: "https://julius:ghp_token@github.com/T3Tools/t3code.git",
+          },
+        },
+      }),
+    ).toBe("https://github.com/T3Tools/t3code.git");
+  });
+
   it("offers no clone when the repository root is unknown", () => {
     const { rootPath: _rootPath, ...withoutRoot } = identity;
     expect(

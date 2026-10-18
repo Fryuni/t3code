@@ -10,6 +10,7 @@ import type {
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
+import { withoutRemoteCredentials } from "@t3tools/shared/git";
 import { newProjectFolderName, normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
@@ -338,6 +339,7 @@ export function projectCheckoutCloneUrl(project: {
     return null;
   }
   // Grouping follows a fork's origin, while the locator prefers its upstream.
-  if (identity.origin) return identity.origin.remoteUrl ?? null;
-  return identity.locator.remoteUrl;
+  const remoteUrl = identity.origin ? identity.origin.remoteUrl : identity.locator.remoteUrl;
+  // The locator is the checkout's raw remote; its token must not follow it elsewhere.
+  return remoteUrl ? withoutRemoteCredentials(remoteUrl) : null;
 }

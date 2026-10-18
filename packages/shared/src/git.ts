@@ -195,6 +195,31 @@ function parseGitConfigValue(raw: string): string {
   return out.trim();
 }
 
+// The password runs from the user name's colon to the last `@` before the path.
+const URL_PASSWORD = /^([a-z][a-z0-9+.-]*:\/\/[^/:@]*):[^/]*@/i;
+
+/**
+ * A remote as another machine should clone it: that machine brings its own credentials.
+ * Outside HTTP(S), git passes the path through verbatim (`?` and `..` included)
+ * and user names such as `git` are part of the address, so only the password
+ * is cut from the original text.
+ */
+export function withoutRemoteCredentials(remoteUrl: string): string {
+  try {
+    const url = new URL(remoteUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return url.password ? remoteUrl.replace(URL_PASSWORD, "$1@") : remoteUrl;
+    }
+    if (!url.username && !url.password && !url.search) return remoteUrl;
+    url.username = "";
+    url.password = "";
+    url.search = "";
+    return url.toString();
+  } catch {
+    return remoteUrl;
+  }
+}
+
 export function parseOriginUrlFromGitConfig(configText: string): string | null {
   let section: string | null = null;
   let originUrl: string | null = null;
