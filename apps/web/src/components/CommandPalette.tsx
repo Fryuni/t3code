@@ -2010,8 +2010,19 @@ function OpenCommandPaletteDialog(props: {
         return;
       case "add-project":
         clearOpenIntent();
-        if (!intent.target) openAddProjectFlow();
-        else if (intent.target.remoteUrl === null)
+        if (!intent.target) {
+          openAddProjectFlow();
+          return;
+        }
+        // The dialog keeps its flows across closes; a leftover one would take over this target.
+        browseNavigation.invalidate();
+        cloneLookupGeneration.current += 1;
+        setIsRemoteProjectLookingUp(false);
+        setAddProjectCloneFlow(null);
+        setNewProjectFlow(null);
+        setViewStack([]);
+        setQuery("");
+        if (intent.target.remoteUrl === null)
           startAddProjectSourceSelection(intent.target.environmentId);
         else startAddProjectCloneFromUrl(intent.target.environmentId, intent.target.remoteUrl);
         return;
