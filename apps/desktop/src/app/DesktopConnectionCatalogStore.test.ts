@@ -298,6 +298,46 @@ describe("DesktopConnectionCatalogStore", () => {
       }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
+  it.effect.each([
+    {
+      name: "recovers a legacy catalog when the current key yields invalid plaintext",
+      legacy: Option.some(
+        '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}',
+      ),
+    },
+    {
+      name: "returns the current plaintext unchanged when no legacy key applies",
+      legacy: Option.none<string>(),
+    },
+  ])("$name", ({ legacy }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-padding-collision-test-",
+      });
+      const catalogPath = path.join(baseDir, "userdata", "connection-catalog.json");
+      yield* fileSystem.makeDirectory(path.dirname(catalogPath), { recursive: true });
+      yield* fileSystem.writeFileString(
+        catalogPath,
+        JSON.stringify({
+          version: 1,
+          encryptedCatalog: Base64.encode(textEncoder.encode("encrypted:wrong-key-garbage")),
+        }),
+      );
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(layerFor(baseDir, true, null, NodeServices.layer, Effect.succeed(legacy))),
+      );
+      const expected = Option.isSome(legacy) ? legacy : Option.some("wrong-key-garbage");
+
+      assert.deepStrictEqual(yield* store.get, expected);
+      const reopened = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(layerFor(baseDir)),
+      );
+      assert.deepStrictEqual(yield* reopened.get, expected);
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
   it.effect("persists, reads, and clears an encrypted connection catalog", () =>
     withStore(
       Effect.gen(function* () {

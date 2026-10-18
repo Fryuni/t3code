@@ -7,8 +7,6 @@ import * as Schema from "effect/Schema";
 import * as Electron from "electron";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 
-import * as LinuxLegacySafeStorage from "./LinuxLegacySafeStorage.ts";
-
 const electronSafeStorageErrorFields = {
   cause: Schema.Defect(),
 };
@@ -104,7 +102,11 @@ export const make = Effect.gen(function* () {
           return Option.none<string>();
         }
         return yield* Effect.tryPromise({
-          try: () => LinuxLegacySafeStorage.decryptString(value),
+          // Loading dbus-next is deferred so macOS and Windows never evaluate a D-Bus client.
+          try: async () => {
+            const { decryptString } = await import("./LinuxLegacySafeStorage.ts");
+            return decryptString(value);
+          },
           catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
         }).pipe(Effect.map(Option.fromNullishOr));
       }),

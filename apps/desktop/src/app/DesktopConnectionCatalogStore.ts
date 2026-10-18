@@ -20,6 +20,7 @@ import * as FileSystem from "effect/FileSystem";
 import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
+import * as Result from "effect/Result";
 import * as Schema from "effect/Schema";
 import * as Semaphore from "effect/Semaphore";
 
@@ -478,6 +479,52 @@ export const make = Effect.gen(function* () {
     return Option.some(encoded);
   });
 
+  const findLegacyCatalog = Effect.fn("desktop.connectionCatalogStore.findLegacyCatalog")(
+    function* (encryptedCatalog: Uint8Array) {
+      const legacy = yield* safeStorage.decryptLegacyString(encryptedCatalog).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreMigrationError({
+              operation: "decrypt-legacy-catalog",
+              catalogPath,
+              cause,
+            }),
+        ),
+      );
+      if (Option.isNone(legacy)) return legacy;
+      yield* decodeRuntimeConnectionCatalogDocumentJson(legacy.value).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreMigrationError({
+              operation: "decode-legacy-catalog",
+              catalogPath,
+              cause,
+            }),
+        ),
+      );
+      return legacy;
+    },
+  );
+
+  const persistLegacyCatalog = Effect.fn("desktop.connectionCatalogStore.persistLegacyCatalog")(
+    function* (catalog: string) {
+      yield* writeCatalog(catalog).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreMigrationError({
+              operation: "persist-catalog",
+              catalogPath,
+              cause,
+            }),
+        ),
+      );
+      yield* Effect.logInfo(
+        "Migrated the desktop connection catalog from a legacy encryption key.",
+      );
+      return Option.some(catalog);
+    },
+  );
+
   return DesktopConnectionCatalogStore.of({
     get: Effect.gen(function* () {
       const document = yield* readDocument(fileSystem, catalogPath);
@@ -487,61 +534,40 @@ export const make = Effect.gen(function* () {
       if (!(yield* encryptionAvailable)) {
         return Option.none<string>();
       }
-      const decrypted = yield* decodeSecretBytes(catalogPath, document.value.encryptedCatalog).pipe(
-        Effect.flatMap((encryptedCatalog) =>
-          safeStorage.decryptString(encryptedCatalog).pipe(
-            Effect.mapError(
-              (cause) =>
-                new DesktopConnectionCatalogStoreProtectionError({
-                  operation: "decrypt-catalog",
-                  catalogPath,
-                  cause,
-                }),
-            ),
-            Effect.catchTags({
-              DesktopConnectionCatalogStoreProtectionError: (originalError) =>
-                Effect.gen(function* () {
-                  const legacy = yield* safeStorage.decryptLegacyString(encryptedCatalog).pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new DesktopConnectionCatalogStoreMigrationError({
-                          operation: "decrypt-legacy-catalog",
-                          catalogPath,
-                          cause,
-                        }),
-                    ),
-                  );
-                  if (Option.isNone(legacy)) return yield* originalError;
-                  yield* decodeRuntimeConnectionCatalogDocumentJson(legacy.value).pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new DesktopConnectionCatalogStoreMigrationError({
-                          operation: "decode-legacy-catalog",
-                          catalogPath,
-                          cause,
-                        }),
-                    ),
-                  );
-                  yield* writeCatalog(legacy.value).pipe(
-                    Effect.mapError(
-                      (cause) =>
-                        new DesktopConnectionCatalogStoreMigrationError({
-                          operation: "persist-catalog",
-                          catalogPath,
-                          cause,
-                        }),
-                    ),
-                  );
-                  yield* Effect.logInfo(
-                    "Migrated the desktop connection catalog from a legacy encryption key.",
-                  );
-                  return legacy.value;
-                }),
+      const encryptedCatalog = yield* decodeSecretBytes(
+        catalogPath,
+        document.value.encryptedCatalog,
+      );
+      const decrypted = yield* safeStorage.decryptString(encryptedCatalog).pipe(
+        Effect.mapError(
+          (cause) =>
+            new DesktopConnectionCatalogStoreProtectionError({
+              operation: "decrypt-catalog",
+              catalogPath,
+              cause,
             }),
-          ),
+        ),
+        Effect.result,
+      );
+      if (Result.isFailure(decrypted)) {
+        const legacy = yield* findLegacyCatalog(encryptedCatalog);
+        if (Option.isNone(legacy)) return yield* decrypted.failure;
+        return yield* persistLegacyCatalog(legacy.value);
+      }
+      if (yield* Effect.isSuccess(decodeRuntimeConnectionCatalogDocumentJson(decrypted.success))) {
+        return Option.some(decrypted.success);
+      }
+      // AES-CBC with the wrong key passes padding about 1 in 256 times, so invalid plaintext
+      // may still be a legacy-key catalog that a caller would otherwise replace with an empty one.
+      const legacy = yield* findLegacyCatalog(encryptedCatalog).pipe(
+        Effect.catch((error) =>
+          Effect.logWarning("Could not check the connection catalog against legacy keys.", {
+            error,
+          }).pipe(Effect.as(Option.none<string>())),
         ),
       );
-      return Option.some(decrypted);
+      if (Option.isNone(legacy)) return Option.some(decrypted.success);
+      return yield* persistLegacyCatalog(legacy.value);
     }).pipe(mutex.withPermits(1), Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
       if (!(yield* encryptionAvailable)) {
