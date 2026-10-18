@@ -139,8 +139,8 @@ on each selected environment, and reset returns to the environment's shared list
 
 **Checkouts** appears once a second machine is connected. **Add checkout** lists connected
 machines without a checkout of the project; choosing one opens the command palette to clone the
-project's Git remote on that machine. Projects without a remote, or opened from a folder inside a
-repository, ask for a folder on that machine instead.
+project's Git remote on that machine. For projects without a remote, or opened from a folder
+inside a repository, choose **Local folder** there to add an existing folder instead.
 
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the

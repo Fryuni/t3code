@@ -8,7 +8,7 @@ import {
 } from "@t3tools/client-runtime/operations/projects";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
-import { StackActions, useNavigation } from "@react-navigation/native";
+import { useNavigation } from "@react-navigation/native";
 import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -197,20 +197,25 @@ function ProjectOverviewContent(props: {
               <SettingsActionRow
                 icon="plus"
                 label={`Check out on ${environment.label}`}
+                description={environment.displayUrl || environment.environmentId}
                 onPress={() =>
-                  navigation.dispatch(
-                    checkoutCloneUrl
-                      ? StackActions.push("AddProjectDestination", {
+                  // The add-project screens live in the new-task sheet, which also hosts the
+                  // draft they open once the project exists.
+                  checkoutCloneUrl
+                    ? navigation.navigate("NewTaskSheet", {
+                        screen: "AddProjectDestination",
+                        params: {
                           environmentId: environment.environmentId,
                           source: "url",
                           remoteUrl: checkoutCloneUrl,
                           repositoryTitle: checkoutCloneUrl,
                           repositoryName: getCloneDirectoryName(checkoutCloneUrl),
-                        })
-                      : StackActions.push("AddProjectLocal", {
-                          environmentId: environment.environmentId,
-                        }),
-                  )
+                        },
+                      })
+                    : navigation.navigate("NewTaskSheet", {
+                        screen: "AddProjectLocal",
+                        params: { environmentId: environment.environmentId },
+                      })
                 }
               />
             </View>
