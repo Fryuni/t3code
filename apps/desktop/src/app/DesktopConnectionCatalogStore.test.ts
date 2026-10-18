@@ -331,16 +331,24 @@ describe("DesktopConnectionCatalogStore", () => {
   );
 
   it.effect.each([
-    { name: "no legacy key matches", legacy: Effect.succeedNone },
+    {
+      name: "no legacy key matches",
+      legacy: Effect.succeedNone,
+      error: { _tag: "DesktopConnectionCatalogStoreProtectionError", operation: "decode-catalog" },
+    },
     {
       name: "the legacy keyring lookup fails",
+      error: {
+        _tag: "DesktopConnectionCatalogStoreMigrationError",
+        operation: "decrypt-legacy-catalog",
+      },
       legacy: Effect.fail(
         new ElectronSafeStorage.ElectronSafeStorageDecryptError({
           cause: new Error("Legacy keyring lookup timed out."),
         }),
       ),
     },
-  ])("preserves invalid current-key plaintext when $name", ({ legacy }) =>
+  ])("preserves invalid current-key plaintext when $name", ({ legacy, error: expected }) =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -358,7 +366,9 @@ describe("DesktopConnectionCatalogStore", () => {
         Effect.provide(layerFor(baseDir, true, null, NodeServices.layer, legacy)),
       );
 
-      assert.isTrue(yield* Effect.isFailure(store.get));
+      const error = yield* store.get.pipe(Effect.flip);
+      assert.equal(error._tag, expected._tag);
+      assert.propertyVal(error, "operation", expected.operation);
       assert.equal(yield* fileSystem.readFileString(catalogPath), original);
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
