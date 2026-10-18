@@ -7,8 +7,15 @@ export interface CommandPaletteLinkedThreads {
 
 const COMMAND_PALETTE_OPEN_EVENT = "t3code:open-command-palette";
 
+/** Starts adding a project on one machine, cloning `remoteUrl` when it is set. */
+export interface CommandPaletteAddProjectTarget {
+  readonly environmentId: EnvironmentId;
+  readonly remoteUrl: string | null;
+}
+
 export interface CommandPaletteOpenDetail {
   readonly open?: "add-project" | "new-thread-in";
+  readonly addProjectTarget?: CommandPaletteAddProjectTarget;
   readonly query?: string;
   readonly linkedThreads?: CommandPaletteLinkedThreads;
 }
