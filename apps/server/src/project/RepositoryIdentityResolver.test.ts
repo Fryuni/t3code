@@ -337,6 +337,9 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(yield* resolveOrigin("ssh://git:s3cret@host.test/team/repo?release.git")).toBe(
         "ssh://git@host.test/team/repo?release.git",
       );
+      expect(yield* resolveOrigin("ssh://git:s3cret@host.test/team/link/../repo.git")).toBe(
+        "ssh://git@host.test/team/link/../repo.git",
+      );
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 

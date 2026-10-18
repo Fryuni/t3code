@@ -75,21 +75,25 @@ function repositoryPathOf(canonicalKey: string): string {
   return canonicalKey.split("/").slice(1).join("/");
 }
 
+// The password runs from the user name's colon to the last `@` before the path.
+const URL_PASSWORD = /^([a-z][a-z0-9+.-]*:\/\/[^/:@]*):[^/]*@/i;
+
 /**
  * Clients clone this URL on other machines, which bring their own credentials.
- * Outside HTTP(S), git reads `?` as part of the path and user names such as
- * `git` are part of the address, so only a password goes.
+ * Outside HTTP(S), git passes the path through verbatim (`?` and `..` included)
+ * and user names such as `git` are part of the address, so only the password
+ * is cut from the original text.
  */
 function withoutRemoteCredentials(remoteUrl: string): string {
   try {
     const url = new URL(remoteUrl);
-    const isHttp = url.protocol === "http:" || url.protocol === "https:";
-    if (isHttp ? !url.username && !url.password && !url.search : !url.password) return remoteUrl;
-    if (isHttp) {
-      url.username = "";
-      url.search = "";
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return url.password ? remoteUrl.replace(URL_PASSWORD, "$1@") : remoteUrl;
     }
+    if (!url.username && !url.password && !url.search) return remoteUrl;
+    url.username = "";
     url.password = "";
+    url.search = "";
     return url.toString();
   } catch {
     return remoteUrl;
