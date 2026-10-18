@@ -41,6 +41,8 @@ function keyring(passwords = ["alpha-key"]) {
   return { bus, service };
 }
 
+const accept = () => true;
+
 afterEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
@@ -49,31 +51,40 @@ afterEach(() => {
 it("decrypts Alpha v11 data using an existing key without creating or changing keyring entries", async () => {
   const { bus, service } = keyring();
   const catalog = '{"schemaVersion":1,"targets":[]}';
-  expect(await decryptString(encrypt(catalog, "alpha-key"))).toBe(catalog);
+  expect(await decryptString(encrypt(catalog, "alpha-key"), accept)).toBe(catalog);
   expect(service.SearchItems).toHaveBeenCalledWith({ application: "T3 Code (Alpha)" });
   expect(bus.disconnect).toHaveBeenCalledOnce();
 });
 
 it("tries remaining matching keys when the first key does not decrypt", async () => {
   keyring(["wrong-key", "alpha-key"]);
-  expect(await decryptString(encrypt("saved catalog", "alpha-key"))).toBe("saved catalog");
+  expect(await decryptString(encrypt("saved catalog", "alpha-key"), accept)).toBe("saved catalog");
+});
+
+it("keeps trying keys when a decrypted candidate is rejected", async () => {
+  keyring(["alpha-key", "alpha-key"]);
+  const rejectFirst = vi.fn().mockReturnValueOnce(false).mockReturnValue(true);
+  expect(await decryptString(encrypt("saved catalog", "alpha-key"), rejectFirst)).toBe(
+    "saved catalog",
+  );
+  expect(rejectFirst).toHaveBeenCalledTimes(2);
 });
 
 it("returns no recovery when no legacy key decrypts the ciphertext", async () => {
   const { bus } = keyring(["wrong-key"]);
-  expect(await decryptString(encrypt("saved catalog", "alpha-key"))).toBeNull();
+  expect(await decryptString(encrypt("saved catalog", "alpha-key"), accept)).toBeNull();
   expect(bus.disconnect).toHaveBeenCalledOnce();
 });
 
 it("does not contact the keyring for a different encryption format", async () => {
-  expect(await decryptString(Buffer.from("v10-ciphertext"))).toBeNull();
+  expect(await decryptString(Buffer.from("v10-ciphertext"), accept)).toBeNull();
   expect(sessionBus).not.toHaveBeenCalled();
 });
 
 it("leaves locked legacy keys untouched when no unlocked key is available", async () => {
   const { service } = keyring([]);
   service.SearchItems.mockResolvedValueOnce([[], ["/locked/key"]]);
-  expect(await decryptString(encrypt("saved catalog", "alpha-key"))).toBeNull();
+  expect(await decryptString(encrypt("saved catalog", "alpha-key"), accept)).toBeNull();
   expect(service.GetSecrets).not.toHaveBeenCalled();
 });
 
@@ -81,9 +92,9 @@ it("bounds the lookup and disconnects when the keyring never responds", async ()
   vi.useFakeTimers();
   const { bus } = keyring();
   bus.getProxyObject.mockImplementationOnce(() => new Promise(() => {}));
-  const result = expect(decryptString(encrypt("saved catalog", "alpha-key"))).rejects.toThrow(
-    "timed out",
-  );
+  const result = expect(
+    decryptString(encrypt("saved catalog", "alpha-key"), accept),
+  ).rejects.toThrow("timed out");
   await vi.advanceTimersByTimeAsync(5_000);
   await result;
   expect(bus.disconnect).toHaveBeenCalledOnce();
@@ -95,7 +106,7 @@ it("disconnects and rejects if the keyring connection fails", async () => {
     bus.emit("error", new Error("keyring disconnected"));
     throw new Error("keyring disconnected");
   });
-  await expect(decryptString(encrypt("saved catalog", "alpha-key"))).rejects.toThrow(
+  await expect(decryptString(encrypt("saved catalog", "alpha-key"), accept)).rejects.toThrow(
     "keyring disconnected",
   );
   expect(bus.disconnect).toHaveBeenCalledOnce();

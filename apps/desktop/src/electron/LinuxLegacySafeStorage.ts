@@ -30,7 +30,11 @@ function decryptWithPassword(ciphertext: Uint8Array, password: Uint8Array): stri
   }
 }
 
-export async function decryptString(ciphertext: Uint8Array): Promise<string | null> {
+// An obsolete key can still pass padding and UTF-8 checks, so callers decide which plaintext is real.
+export async function decryptString(
+  ciphertext: Uint8Array,
+  accept: (plaintext: string) => boolean,
+): Promise<string | null> {
   if (
     Buffer.from(ciphertext.subarray(0, 3)).toString() !== "v11" ||
     ciphertext.length <= 3 ||
@@ -59,7 +63,7 @@ export async function decryptString(ciphertext: Uint8Array): Promise<string | nu
           const secret = secrets[item];
           if (secret === undefined) continue;
           const plaintext = decryptWithPassword(ciphertext, secret[2]);
-          if (plaintext !== null) return plaintext;
+          if (plaintext !== null && accept(plaintext)) return plaintext;
         }
       } finally {
         for (const secret of Object.values(secrets)) secret[2].fill(0);

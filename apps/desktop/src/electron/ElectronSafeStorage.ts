@@ -64,6 +64,7 @@ export class ElectronSafeStorage extends Context.Service<
     readonly selectedStorageBackend: Effect.Effect<Option.Option<string>>;
     readonly decryptLegacyString: (
       value: Uint8Array,
+      accept: (plaintext: string) => boolean,
     ) => Effect.Effect<Option.Option<string>, ElectronSafeStorageDecryptError>;
   }
 >()("@t3tools/desktop/electron/ElectronSafeStorage") {}
@@ -95,7 +96,7 @@ export const make = Effect.gen(function* () {
         try: () => Electron.safeStorage.decryptString(Buffer.from(value)),
         catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
       }),
-    decryptLegacyString: (value) =>
+    decryptLegacyString: (value, accept) =>
       Effect.gen(function* () {
         const backend = yield* selectedStorageBackend;
         if (Option.isNone(backend) || backend.value !== "gnome_libsecret") {
@@ -105,7 +106,7 @@ export const make = Effect.gen(function* () {
           // Loading dbus-next is deferred so macOS and Windows never evaluate a D-Bus client.
           try: async () => {
             const { decryptString } = await import("./LinuxLegacySafeStorage.ts");
-            return decryptString(value);
+            return decryptString(value, accept);
           },
           catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
         }).pipe(Effect.map(Option.fromNullishOr));

@@ -50,6 +50,11 @@ const encodeRuntimeConnectionCatalogDocumentJson = Schema.encodeEffect(
 const decodeRuntimeConnectionCatalogDocumentJson = Schema.decodeEffect(
   RuntimeConnectionCatalogDocumentJson,
 );
+const decodeRuntimeConnectionCatalogDocumentJsonOption = Schema.decodeOption(
+  RuntimeConnectionCatalogDocumentJson,
+);
+const isRuntimeConnectionCatalogDocumentJson = (catalog: string) =>
+  Option.isSome(decodeRuntimeConnectionCatalogDocumentJsonOption(catalog));
 
 const DesktopConnectionCatalogStoreWriteOperation = Schema.Literals([
   "create-temporary-file-name",
@@ -482,16 +487,18 @@ export const make = Effect.gen(function* () {
 
   const findLegacyCatalog = Effect.fn("desktop.connectionCatalogStore.findLegacyCatalog")(
     function* (encryptedCatalog: Uint8Array) {
-      const legacy = yield* safeStorage.decryptLegacyString(encryptedCatalog).pipe(
-        Effect.mapError(
-          (cause) =>
-            new DesktopConnectionCatalogStoreMigrationError({
-              operation: "decrypt-legacy-catalog",
-              catalogPath,
-              cause,
-            }),
-        ),
-      );
+      const legacy = yield* safeStorage
+        .decryptLegacyString(encryptedCatalog, isRuntimeConnectionCatalogDocumentJson)
+        .pipe(
+          Effect.mapError(
+            (cause) =>
+              new DesktopConnectionCatalogStoreMigrationError({
+                operation: "decrypt-legacy-catalog",
+                catalogPath,
+                cause,
+              }),
+          ),
+        );
       if (Option.isNone(legacy)) return legacy;
       yield* decodeRuntimeConnectionCatalogDocumentJson(legacy.value).pipe(
         Effect.mapError(
