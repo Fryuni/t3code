@@ -137,8 +137,8 @@ checkouts and removal. Actions belong to a project: editing them creates the pro
 on each selected environment, and reset returns to the environment's shared list. A project's
 `t3.json` actions can be imported there.
 
-**Checkouts** appears once a second machine is connected, unless the project's grouping is
-**Keep separate**. **Add checkout** lists connected
+**Checkouts** appears when the project has several checkouts, or when a connected machine has
+none yet, unless the project's grouping is **Keep separate**. **Add checkout** lists connected
 machines without a checkout of the project; choosing one opens the command palette to clone the
 project's Git remote on that machine. For projects without a network remote, or opened from a folder
 inside a repository, choose **Local folder** there to add an existing folder instead.
