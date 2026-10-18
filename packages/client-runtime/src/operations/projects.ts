@@ -300,6 +300,8 @@ export function buildProjectCreateCommand(input: {
 /**
  * Checkouts are listed whenever a second machine could hold one. Machines that
  * are connected but lack a checkout of the project can receive a new one.
+ * Scratch and separately grouped projects never gain another checkout, since a
+ * copy elsewhere would be a project of its own.
  */
 export function projectCheckoutOptions<
   TEnvironment extends { readonly environmentId: string },
@@ -311,7 +313,8 @@ export function projectCheckoutOptions<
 }): { readonly visible: boolean; readonly targets: ReadonlyArray<TEnvironment> } {
   const checkedOut = new Set(input.checkoutEnvironmentIds);
   return {
-    visible: input.checkoutCount > 1 || input.connectedEnvironments.length > 1,
+    visible:
+      input.checkoutCount > 1 || (input.canCheckOut && input.connectedEnvironments.length > 1),
     targets: input.canCheckOut
       ? input.connectedEnvironments.filter(
           (environment) => !checkedOut.has(environment.environmentId),

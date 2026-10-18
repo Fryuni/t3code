@@ -23,6 +23,8 @@ import { ChevronDownIcon, InfoIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
 import { openCommandPalette } from "../../commandPaletteBus";
+import { useClientSettings } from "../../hooks/useSettings";
+import { resolveProjectGroupingMode } from "../../logicalProject";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { readLocalApi } from "../../localApi";
@@ -319,13 +321,24 @@ function ProjectDetail({
     setIsSavingFavicon(false);
   };
 
+  const sidebarProjectGroupingMode = useClientSettings(
+    (settings) => settings.sidebarProjectGroupingMode,
+  );
+  const sidebarProjectGroupingOverrides = useClientSettings(
+    (settings) => settings.sidebarProjectGroupingOverrides,
+  );
   const checkoutOptions = projectCheckoutOptions({
     connectedEnvironments: environments.filter((environment) =>
       canCreateProjectInEnvironment(environment.connection.phase),
     ),
     checkoutEnvironmentIds: groupMembers.map((member) => member.environmentId),
     checkoutCount: groupMembers.length,
-    canCheckOut: !group.isScratch,
+    canCheckOut:
+      !group.isScratch &&
+      resolveProjectGroupingMode(group, {
+        sidebarProjectGroupingMode,
+        sidebarProjectGroupingOverrides,
+      }) !== "separate",
   });
   const checkoutRemoteUrl =
     groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;

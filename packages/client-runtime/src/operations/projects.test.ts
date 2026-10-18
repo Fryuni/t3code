@@ -357,8 +357,18 @@ describe("projectCheckoutOptions", () => {
     ).toBe(true);
   });
 
-  it("offers nothing for projects that cannot be checked out", () => {
-    expect(options({ canCheckOut: false }).targets).toEqual([]);
+  it("hides the section for a lone checkout that cannot gain another", () => {
+    expect(options({ canCheckOut: false })).toEqual({ visible: false, targets: [] });
+  });
+
+  it("keeps listing several checkouts that cannot gain another", () => {
+    expect(
+      options({
+        canCheckOut: false,
+        checkoutEnvironmentIds: ["laptop", "server"],
+        checkoutCount: 2,
+      }),
+    ).toEqual({ visible: true, targets: [] });
   });
 });
 

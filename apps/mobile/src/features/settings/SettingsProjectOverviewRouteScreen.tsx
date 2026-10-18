@@ -7,6 +7,7 @@ import {
   projectCheckoutOptions,
 } from "@t3tools/client-runtime/operations/projects";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
+import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useNavigation } from "@react-navigation/native";
 import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3tools/contracts";
@@ -76,11 +77,12 @@ function ProjectOverviewContent(props: {
   readonly connectedEnvironments: readonly SettingsTarget[];
 }) {
   const representative = props.members[0]!;
+  const groupingMode = useMobileProjectGroupingSettings().sidebarProjectGroupingMode;
   const checkoutOptions = projectCheckoutOptions({
     connectedEnvironments: props.connectedEnvironments,
     checkoutEnvironmentIds: props.groupMembers.map((member) => member.environmentId),
     checkoutCount: props.groupMembers.length,
-    canCheckOut: !representative.isScratch,
+    canCheckOut: !representative.isScratch && groupingMode !== "separate",
   });
   const checkoutCloneUrl =
     props.groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;

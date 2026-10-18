@@ -14,8 +14,9 @@ Project settings now show **Checkouts** whenever more than one machine is
 connected, or the project has several checkouts, and offer each connected
 machine without a checkout of the project. Targets are computed across the
 whole project group rather than the selected machine scope, disappear once
-every connected machine has a checkout, and are never offered for scratch
-projects. The shared rules live in
+every connected machine has a checkout. Scratch projects and projects set to
+**Keep separate** grouping never gain a checkout this way, since a copy elsewhere would be a
+project of its own, so a lone checkout of one keeps the section hidden. The shared rules live in
 [`projectCheckoutOptions` and `projectCheckoutCloneUrl`](../../packages/client-runtime/src/operations/projects.ts).
 
 The new checkout must land in the same project group, so the clone URL follows
