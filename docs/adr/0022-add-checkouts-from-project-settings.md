@@ -10,9 +10,10 @@ hint that it could live on another, and adding it there meant leaving settings,
 opening the command palette, choosing the machine and clone source, and pasting
 the remote by hand.
 
-Project settings now show **Checkouts** whenever more than one machine is
-connected, or the project has several checkouts, and offer each connected
-machine without a checkout of the project. Targets are computed across the
+Project settings now show **Checkouts** whenever a connected machine lacks a
+checkout of the project, even while the existing checkout's machine is offline,
+or the project has several checkouts, and offer each such machine. With a
+single connected machine holding the only checkout, the section stays hidden. Targets are computed across the
 whole project group rather than the selected machine scope, disappear once
 every connected machine has a checkout. Scratch projects and projects set to
 **Keep separate** grouping never gain a checkout this way, since a copy elsewhere would be a

@@ -340,6 +340,13 @@ describe("projectCheckoutOptions", () => {
     });
   });
 
+  it("offers the connected machine while the only checkout's machine is offline", () => {
+    expect(options({ connectedEnvironments: [server] })).toEqual({
+      visible: true,
+      targets: [server],
+    });
+  });
+
   it("hides the section when only one machine is connected", () => {
     expect(options({ connectedEnvironments: [laptop] })).toEqual({
       visible: false,

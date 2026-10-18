@@ -298,8 +298,9 @@ export function buildProjectCreateCommand(input: {
 }
 
 /**
- * Checkouts are listed whenever a second machine could hold one. Machines that
- * are connected but lack a checkout of the project can receive a new one.
+ * Checkouts are listed while the project has several, or a connected machine
+ * lacks one and can receive a new one, even when the existing checkout's
+ * machine is offline.
  * Scratch and separately grouped projects never gain another checkout, since a
  * copy elsewhere would be a project of its own.
  */
@@ -312,15 +313,13 @@ export function projectCheckoutOptions<
   readonly canCheckOut: boolean;
 }): { readonly visible: boolean; readonly targets: ReadonlyArray<TEnvironment> } {
   const checkedOut = new Set(input.checkoutEnvironmentIds);
-  return {
-    visible:
-      input.checkoutCount > 1 || (input.canCheckOut && input.connectedEnvironments.length > 1),
-    targets: input.canCheckOut
-      ? input.connectedEnvironments.filter(
-          (environment) => !checkedOut.has(environment.environmentId),
-        )
-      : [],
-  };
+  const targets = input.canCheckOut
+    ? input.connectedEnvironments.filter(
+        (environment) => !checkedOut.has(environment.environmentId),
+      )
+    : [];
+  // With two machines connected, one lacks a checkout or the project has two.
+  return { visible: input.checkoutCount > 1 || targets.length > 0, targets };
 }
 
 // git's own rule: a URL scheme, or scp-like `host:path` with no slash before the
