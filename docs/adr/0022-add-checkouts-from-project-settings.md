@@ -29,7 +29,7 @@ the shared [`withoutRemoteCredentials`](../../packages/shared/src/git.ts) before
 it is cloned, because the locator carries the checkout's raw remote and the
 destination machine brings its own credentials. A clone registers the
 repository root, so a project in a repository subdirectory or with an unknown
-repository root, a remote that is a path on the source machine, or a fork
+repository root, a remote that only resolves on the source machine (a path or a loopback host), or a fork
 reported by an older server without
 `origin.remoteUrl`, gets no prefilled clone: the user picks a folder instead.
 

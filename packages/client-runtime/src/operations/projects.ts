@@ -322,14 +322,33 @@ export function projectCheckoutOptions<
   return { visible: input.checkoutCount > 1 || targets.length > 0, targets };
 }
 
+// A loopback host names whichever machine runs the clone, not the source machine.
+function isLoopbackHost(host: string): boolean {
+  const name = host.toLowerCase().replace(/^\[|\]$/g, "");
+  return (
+    name === "localhost" ||
+    name.endsWith(".localhost") ||
+    name === "::1" ||
+    /^127\.\d+\.\d+\.\d+$/.test(name)
+  );
+}
+
 // git's own rule: a URL scheme, or scp-like `host:path` with no slash before the
 // colon. Anything else is a path that names a different place on another machine.
 function isNetworkRemote(remoteUrl: string): boolean {
   const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(remoteUrl)?.[1];
-  if (scheme) return scheme.toLowerCase() !== "file";
+  if (scheme) {
+    if (scheme.toLowerCase() === "file") return false;
+    try {
+      return !isLoopbackHost(new URL(remoteUrl).hostname);
+    } catch {
+      return false;
+    }
+  }
   const colon = remoteUrl.indexOf(":");
   // A colon at index 1 is a Windows drive letter.
-  return colon > 1 && !remoteUrl.slice(0, colon).includes("/");
+  if (colon <= 1 || remoteUrl.slice(0, colon).includes("/")) return false;
+  return !isLoopbackHost(remoteUrl.slice(remoteUrl.lastIndexOf("@", colon) + 1, colon));
 }
 
 /**

@@ -452,6 +452,10 @@ describe("projectCheckoutCloneUrl", () => {
     "../t3code.git",
     "file:///srv/git/t3code.git",
     "C:\\git\\t3code",
+    "https://localhost/t3code.git",
+    "ssh://git@127.0.0.1/t3code.git",
+    "ssh://git@[::1]:2222/t3code.git",
+    "git@localhost:t3code.git",
   ])("offers no clone of the machine-local remote %s", (remoteUrl) => {
     expect(
       projectCheckoutCloneUrl({
