@@ -4,12 +4,14 @@ import type {
   EnvironmentId,
   ProjectMutation,
   ProjectId,
+  RepositoryIdentity,
   ServerConfig,
   SourceControlDiscoveryResult,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
-import { newProjectFolderName } from "@t3tools/shared/path";
+import { withoutRemoteCredentials } from "@t3tools/shared/git";
+import { newProjectFolderName, normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
@@ -293,4 +295,109 @@ export function buildProjectCreateCommand(input: {
     createWorkspaceRootIfMissing: true,
     defaultModelSelection: null,
   };
+}
+
+/**
+ * Checkouts are listed while the project has several, or a connected machine
+ * lacks one and can receive a new one, even when the existing checkout's
+ * machine is offline.
+ * Scratch and separately grouped projects never gain another checkout, since a
+ * copy elsewhere would be a project of its own.
+ */
+export function projectCheckoutOptions<
+  TEnvironment extends { readonly environmentId: string },
+>(input: {
+  readonly connectedEnvironments: ReadonlyArray<TEnvironment>;
+  readonly checkoutEnvironmentIds: ReadonlyArray<string>;
+  readonly checkoutCount: number;
+  readonly canCheckOut: boolean;
+}): { readonly visible: boolean; readonly targets: ReadonlyArray<TEnvironment> } {
+  const checkedOut = new Set(input.checkoutEnvironmentIds);
+  const targets = input.canCheckOut
+    ? input.connectedEnvironments.filter(
+        (environment) => !checkedOut.has(environment.environmentId),
+      )
+    : [];
+  // With two machines connected, one lacks a checkout or the project has two.
+  return { visible: input.checkoutCount > 1 || targets.length > 0, targets };
+}
+
+// A loopback host names whichever machine runs the clone, not the source machine.
+function isLoopbackHost(host: string): boolean {
+  let name: string;
+  try {
+    // The URL parser canonicalizes IPv4 shorthand, hex and octal (`127.1`, `0x7f.1`).
+    name = new URL(`http://${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}`)
+      .hostname;
+  } catch {
+    return false;
+  }
+  return (
+    name === "localhost" ||
+    name.endsWith(".localhost") ||
+    /^127\.\d+\.\d+\.\d+$/.test(name) ||
+    name === "[::1]" ||
+    // IPv4-mapped 127.0.0.0/8.
+    name.startsWith("[::ffff:7f")
+  );
+}
+
+// Transports git speaks itself. Any other `<scheme>://` runs a remote helper the
+// other machine may lack.
+const NETWORK_SCHEMES = new Set(["http", "https", "ssh", "git", "git+ssh", "ssh+git"]);
+
+// git's own rule: a URL scheme, or scp-like `host:path` with no slash before the
+// colon. Anything else is a path that names a different place on another machine.
+function isNetworkRemote(remoteUrl: string): boolean {
+  // `<transport>::<address>` runs a remote helper the other machine may lack.
+  if (/^[a-z][a-z0-9+.-]*::/i.test(remoteUrl)) return false;
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(remoteUrl)?.[1];
+  if (scheme) {
+    if (!NETWORK_SCHEMES.has(scheme.toLowerCase())) return false;
+    // Userinfo runs to the last `@` before the path; a password may contain `@`.
+    const host = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/]*@)?(\[[^\]/]+\]|[^/:@]*)/i.exec(remoteUrl)?.[1];
+    return host !== undefined && host.length > 0 && !isLoopbackHost(host);
+  }
+  // scp-like `user@[host]:path` brackets an IPv6 host, colons included.
+  const bracketedHost = /^(?:[^@/]*@)?\[([^\]/]+)\]:/.exec(remoteUrl)?.[1];
+  if (bracketedHost) return !isLoopbackHost(bracketedHost);
+  const colon = remoteUrl.indexOf(":");
+  // A colon at index 1 is a Windows drive letter.
+  if (colon <= 1 || remoteUrl.slice(0, colon).includes("/")) return false;
+  return !isLoopbackHost(remoteUrl.slice(remoteUrl.lastIndexOf("@", colon) + 1, colon));
+}
+
+/**
+ * The title a new checkout should carry: the one its project's checkouts share.
+ * Without one, the clone infers a title from its folder like any other project.
+ */
+export function projectCheckoutTitle(
+  members: ReadonlyArray<{ readonly title: string }>,
+): string | undefined {
+  const title = members[0]?.title;
+  return title && members.every((member) => member.title === title) ? title : undefined;
+}
+
+/**
+ * The remote whose clone becomes another checkout of this project, or null when
+ * cloning would register a different project and the user should pick a folder.
+ */
+export function projectCheckoutCloneUrl(project: {
+  readonly workspaceRoot: string;
+  readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
+}): string | null {
+  const identity = project.repositoryIdentity;
+  if (!identity) return null;
+  // A clone is registered at the repository root, not at this project's subdirectory.
+  if (
+    identity.rootPath === undefined ||
+    normalizeProjectPathForComparison(identity.rootPath) !==
+      normalizeProjectPathForComparison(project.workspaceRoot)
+  ) {
+    return null;
+  }
+  // Grouping follows a fork's origin, while the locator prefers its upstream.
+  const remoteUrl = identity.origin ? identity.origin.remoteUrl : identity.locator.remoteUrl;
+  // The locator is the checkout's raw remote; its token must not follow it elsewhere.
+  return remoteUrl && isNetworkRemote(remoteUrl) ? withoutRemoteCredentials(remoteUrl) : null;
 }

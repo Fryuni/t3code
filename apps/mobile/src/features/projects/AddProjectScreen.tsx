@@ -1306,6 +1306,8 @@ export function AddProjectDestinationScreen(props: {
   readonly remoteUrl?: string | string[];
   readonly repositoryTitle?: string | string[];
   readonly repositoryName?: string | string[];
+  // A new checkout keeps its renamed project's name instead of the folder's.
+  readonly projectTitle?: string | string[];
   readonly prompt?: string | string[];
 }) {
   const cloneRepository = useAtomCommand(sourceControlEnvironment.cloneRepository, {
@@ -1328,6 +1330,7 @@ export function AddProjectDestinationScreen(props: {
   const createProject = useCreateProject(environment);
   const remoteUrl = stringParam(props.remoteUrl);
   const repositoryTitle = stringParam(props.repositoryTitle);
+  const projectTitle = stringParam(props.projectTitle);
   const prompt = stringParam(props.prompt);
   const repositoryName = stringParam(props.repositoryName)?.trim() ?? "";
   const { isBrowseNavigating, navigateToBrowsePath, pathInput, setPathInput } = useBrowsePathInput(
@@ -1362,7 +1365,7 @@ export function AddProjectDestinationScreen(props: {
     setIsSubmitting(true);
     if (environment.supportsCloneTracking) {
       const projectId = ProjectId.make(uuidv4());
-      const title = inferProjectTitleFromPath(resolved.path);
+      const title = projectTitle ?? inferProjectTitleFromPath(resolved.path);
       const startResult = await startProjectClone({
         environmentId: environment.environmentId,
         input: {
@@ -1429,6 +1432,7 @@ export function AddProjectDestinationScreen(props: {
     isSubmitting,
     navigation,
     pathInput,
+    projectTitle,
     prompt,
     remoteUrl,
     startProjectClone,

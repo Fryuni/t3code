@@ -1,14 +1,25 @@
 import { ScreenScrollView as ScrollView } from "../../components/ui/ScreenScrollView";
 import { AppText as Text, AppTextInput } from "../../components/ui/AppText";
 import { ProjectFavicon } from "../../components/ProjectFavicon";
+import {
+  getCloneDirectoryName,
+  projectCheckoutCloneUrl,
+  projectCheckoutOptions,
+  projectCheckoutTitle,
+} from "@t3tools/client-runtime/operations/projects";
 import { deriveProjectGroupLabel } from "@t3tools/client-runtime/state/project-grouping";
+import { useMobileProjectGroupingSettings } from "../../state/project-grouping";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
+import { useNavigation } from "@react-navigation/native";
+import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3tools/contracts";
 import { useState } from "react";
 import { Platform, Pressable, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { projectEnvironment } from "../../state/projects";
+import { useEnvironmentScope } from "../../state/session";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { SettingsActionRow } from "./components/SettingsActionRow";
 import { SettingsScreen } from "./components/SettingsScreen";
 import { SettingsSection } from "./components/SettingsSection";
 import {
@@ -19,13 +30,14 @@ import { useSettingsEnvironmentFilter, type SettingsTarget } from "./settings-en
 
 export function SettingsProjectOverviewRouteScreen() {
   const insets = useSafeAreaInsets();
-  const { selectedTargets, projectGroups, selectedProjectKey } = useSettingsEnvironmentFilter();
+  const { availableTargets, selectedTargets, projectGroups, selectedProjectKey } =
+    useSettingsEnvironmentFilter();
   const group = projectGroups.find((entry) => entry.key === selectedProjectKey);
   const selectedEnvironmentIds = new Set(selectedTargets.map((entry) => entry.environmentId));
-  const members =
-    group?.members
-      .map((entry) => entry.project)
-      .filter((project) => selectedEnvironmentIds.has(project.environmentId)) ?? [];
+  const groupMembers = group?.members.map((entry) => entry.project) ?? [];
+  const members = groupMembers.filter((project) =>
+    selectedEnvironmentIds.has(project.environmentId),
+  );
 
   return (
     <>
@@ -47,7 +59,9 @@ export function SettingsProjectOverviewRouteScreen() {
             <ProjectOverviewContent
               key={`${selectedProjectKey}:${members.map((member) => member.id).join(",")}`}
               members={members}
+              groupMembers={groupMembers}
               environments={selectedTargets}
+              connectedEnvironments={availableTargets}
             />
           )}
         </ScrollView>
@@ -58,9 +72,21 @@ export function SettingsProjectOverviewRouteScreen() {
 
 function ProjectOverviewContent(props: {
   readonly members: readonly EnvironmentProject[];
+  // Every checkout of the project, including environments the filter hides.
+  readonly groupMembers: readonly EnvironmentProject[];
   readonly environments: readonly SettingsTarget[];
+  readonly connectedEnvironments: readonly SettingsTarget[];
 }) {
   const representative = props.members[0]!;
+  const groupingMode = useMobileProjectGroupingSettings().sidebarProjectGroupingMode;
+  const checkoutOptions = projectCheckoutOptions({
+    connectedEnvironments: props.connectedEnvironments,
+    checkoutEnvironmentIds: props.groupMembers.map((member) => member.environmentId),
+    checkoutCount: props.groupMembers.length,
+    canCheckOut: !representative.isScratch && groupingMode !== "separate",
+  });
+  const checkoutCloneUrl =
+    props.groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;
   const displayName = deriveProjectGroupLabel({ representative, members: props.members });
   const [draftName, setDraftName] = useState<string | null>(null);
   const [isSaving, setIsSaving] = useState(false);
@@ -139,37 +165,91 @@ function ProjectOverviewContent(props: {
         </View>
       </SettingsSection>
 
-      <SettingsSection title="Checkouts">
-        {props.members.map((member, index) => {
-          const environment = props.environments.find(
-            (entry) => entry.environmentId === member.environmentId,
-          );
-          return (
-            <View
-              key={`${member.environmentId}:${member.id}`}
-              className={index === 0 ? "gap-1 p-4" : "gap-1 border-t border-border-subtle p-4"}
-            >
-              <Text
-                className={
-                  Platform.OS === "android"
-                    ? "text-base text-foreground"
-                    : "text-lg text-foreground"
-                }
+      {checkoutOptions.visible ? (
+        <SettingsSection title="Checkouts">
+          {props.members.map((member, index) => {
+            const environment = props.environments.find(
+              (entry) => entry.environmentId === member.environmentId,
+            );
+            return (
+              <View
+                key={`${member.environmentId}:${member.id}`}
+                className={index === 0 ? "gap-1 p-4" : "gap-1 border-t border-border-subtle p-4"}
               >
-                {environment?.label ?? "Environment"}
-              </Text>
-              {environment?.displayUrl ? (
-                <Text className="text-sm leading-normal text-foreground-muted">
-                  {environment.displayUrl}
+                <Text
+                  className={
+                    Platform.OS === "android"
+                      ? "text-base text-foreground"
+                      : "text-lg text-foreground"
+                  }
+                >
+                  {environment?.label ?? "Environment"}
                 </Text>
-              ) : null}
-              <Text className="text-sm leading-normal text-foreground-muted" selectable>
-                {member.workspaceRoot}
-              </Text>
-            </View>
-          );
-        })}
-      </SettingsSection>
+                {environment?.displayUrl ? (
+                  <Text className="text-sm leading-normal text-foreground-muted">
+                    {environment.displayUrl}
+                  </Text>
+                ) : null}
+                <Text className="text-sm leading-normal text-foreground-muted" selectable>
+                  {member.workspaceRoot}
+                </Text>
+              </View>
+            );
+          })}
+          {checkoutOptions.targets.map((environment) => (
+            <CheckoutTargetRow
+              key={environment.environmentId}
+              environment={environment}
+              cloneUrl={checkoutCloneUrl}
+              projectTitle={projectCheckoutTitle(props.groupMembers)}
+            />
+          ))}
+        </SettingsSection>
+      ) : null}
     </>
+  );
+}
+
+function CheckoutTargetRow(props: {
+  readonly environment: SettingsTarget;
+  readonly cloneUrl: string | null;
+  readonly projectTitle: string | undefined;
+}) {
+  const navigation = useNavigation();
+  const { environment, cloneUrl } = props;
+  const canCreateProject = useEnvironmentScope(
+    environment.environmentId,
+    AuthOrchestrationOperateScope,
+  );
+  const canClone = useEnvironmentScope(environment.environmentId, AuthSourceControlWriteScope);
+  return (
+    <View className="border-t border-border-subtle">
+      <SettingsActionRow
+        icon="plus"
+        label={`Check out on ${environment.label}`}
+        description={environment.displayUrl || environment.environmentId}
+        disabled={!canCreateProject || (cloneUrl !== null && !canClone)}
+        onPress={() =>
+          // The add-project screens live in the new-task sheet, which also hosts the
+          // draft they open once the project exists.
+          cloneUrl
+            ? navigation.navigate("NewTaskSheet", {
+                screen: "AddProjectDestination",
+                params: {
+                  environmentId: environment.environmentId,
+                  source: "url",
+                  remoteUrl: cloneUrl,
+                  repositoryTitle: cloneUrl,
+                  repositoryName: getCloneDirectoryName(cloneUrl),
+                  ...(props.projectTitle ? { projectTitle: props.projectTitle } : {}),
+                },
+              })
+            : navigation.navigate("NewTaskSheet", {
+                screen: "AddProjectLocal",
+                params: { environmentId: environment.environmentId },
+              })
+        }
+      />
+    </View>
   );
 }

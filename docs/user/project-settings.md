@@ -41,7 +41,8 @@ the **Server settings** categories and auto-settle controls in **Thread behavior
 selected environments' defaults. Choosing a project edits its overrides on the selected
 environments. Use **Use defaults** in a page to remove that page's project overrides.
 Open **Settings → Projects & threads → Overview** to rename the project across its selected
-connected checkouts and see where those checkouts live.
+connected checkouts, see where those checkouts live, and check it out on another connected
+environment.
 Settings that are environment-wide stay read-only while a project is selected. When selected
 targets disagree, a control shows **Mixed** until you choose one value. Appearance, keyboard,
 and other phone-only settings ignore the filter.
@@ -135,6 +136,12 @@ The Project category, shown while a project is selected, holds the project's nam
 checkouts and removal. Actions belong to a project: editing them creates the project's own list
 on each selected environment, and reset returns to the environment's shared list. A project's
 `t3.json` actions can be imported there.
+
+**Checkouts** appears when the project has several checkouts, or when a connected machine has
+none yet, unless the project's grouping is **Keep separate**. **Add checkout** lists connected
+machines without a checkout of the project; choosing one opens the command palette to clone the
+project's Git remote on that machine. For projects without a network remote, or opened from a folder
+inside a repository, choose **Local folder** there to add an existing folder instead.
 
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the

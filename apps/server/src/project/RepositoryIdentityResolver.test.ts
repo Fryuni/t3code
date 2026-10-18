@@ -308,7 +308,38 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(identity?.origin).toEqual({
         canonicalKey: "github.com/julius/t3code-fork",
         displayName: "julius/t3code-fork",
+        remoteUrl: "git@github.com:julius/t3code-fork.git",
       });
+    }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
+  );
+
+  it.effect("drops credentials from a fork's origin URL but keeps SSH user names", () =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const resolver = yield* RepositoryIdentityResolver.RepositoryIdentityResolver;
+      const resolveOrigin = (originUrl: string) =>
+        Effect.gen(function* () {
+          const cwd = yield* fileSystem.makeTempDirectoryScoped({
+            prefix: "t3-repository-identity-fork-credentials-test-",
+          });
+          yield* git(cwd, ["init"]);
+          yield* git(cwd, ["remote", "add", "origin", originUrl]);
+          yield* git(cwd, ["remote", "add", "upstream", "git@github.com:T3Tools/t3code.git"]);
+          return (yield* resolver.resolve(cwd))?.origin?.remoteUrl;
+        });
+
+      expect(yield* resolveOrigin("https://julius:s3cret@github.com/julius/t3code-fork.git")).toBe(
+        "https://github.com/julius/t3code-fork.git",
+      );
+      expect(yield* resolveOrigin("ssh://git@github.com/julius/t3code-fork.git")).toBe(
+        "ssh://git@github.com/julius/t3code-fork.git",
+      );
+      expect(yield* resolveOrigin("ssh://git:s3cret@host.test/team/repo?release.git")).toBe(
+        "ssh://git@host.test/team/repo?release.git",
+      );
+      expect(yield* resolveOrigin("ssh://git:s3cret@host.test/team/link/../repo.git")).toBe(
+        "ssh://git@host.test/team/link/../repo.git",
+      );
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );
 

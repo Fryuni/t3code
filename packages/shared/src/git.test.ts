@@ -14,6 +14,7 @@ import {
   resolveAutoFeatureBranchName,
   sanitizeFeatureBranchName,
   WORKTREE_BRANCH_PREFIX,
+  withoutRemoteCredentials,
 } from "./git.ts";
 
 describe("normalizeGitRemoteUrl", () => {
@@ -84,6 +85,23 @@ describe("normalizeGitRemoteUrl", () => {
     expect(normalizeGitRemoteUrl("git@ssh.dev.azure.com:v3/T3Tools/T3Code")).toBe(
       "ssh.dev.azure.com/v3/t3tools/t3code",
     );
+  });
+});
+
+describe("withoutRemoteCredentials", () => {
+  it.each([
+    ["https://julius:ghp_token@github.com/o/r.git", "https://github.com/o/r.git"],
+    ["https://julius@github.com/o/r.git", "https://github.com/o/r.git"],
+    ["https://github.com/o/r.git?access_token=secret", "https://github.com/o/r.git"],
+    [
+      "ssh://git:pw@host.test/team/link/../repo?release.git",
+      "ssh://git@host.test/team/link/../repo?release.git",
+    ],
+    ["git+ssh://git:p@ss@host.test:22/o/r.git", "git+ssh://git@host.test:22/o/r.git"],
+    ["ssh://git@host.test/o/r.git", "ssh://git@host.test/o/r.git"],
+    ["git@github.com:o/r.git", "git@github.com:o/r.git"],
+  ])("clones %s as %s", (remoteUrl, expected) => {
+    expect(withoutRemoteCredentials(remoteUrl)).toBe(expected);
   });
 });
 

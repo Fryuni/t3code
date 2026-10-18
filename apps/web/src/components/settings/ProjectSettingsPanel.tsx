@@ -1,6 +1,6 @@
 import { useComposerMenuState } from "../chat/useComposerMenuState";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
-import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3tools/contracts";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
 import {
   isAtomCommandInterrupted,
@@ -10,13 +10,22 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
+import {
+  canCreateProjectInEnvironment,
+  projectCheckoutCloneUrl,
+  projectCheckoutOptions,
+  projectCheckoutTitle,
+} from "@t3tools/client-runtime/operations/projects";
 import { AsyncResult } from "effect/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
-import { InfoIcon, Trash2Icon } from "lucide-react";
+import { ChevronDownIcon, InfoIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 
+import { openCommandPalette } from "../../commandPaletteBus";
+import { useClientSettings } from "../../hooks/useSettings";
+import { resolveProjectGroupingMode } from "../../logicalProject";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { readLocalApi } from "../../localApi";
@@ -31,6 +40,7 @@ import { ProjectFavicon } from "../ProjectFavicon";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
+import { Menu, MenuGroup, MenuGroupLabel, MenuItem, MenuPopup, MenuTrigger } from "../ui/menu";
 import { stackedThreadToast, toastManager } from "../ui/toast";
 import { Tooltip, TooltipPopup, TooltipTrigger } from "../ui/tooltip";
 import {
@@ -151,6 +161,7 @@ export function ProjectSettingsPanel({
     <ProjectDetail
       key={`${selected.projectKey}:${environmentId ?? "all"}:${checkoutKey ?? "all"}`}
       group={scopedGroup}
+      groupMembers={selected.memberProjects}
       hasOtherMembers={members.length < selected.memberProjects.length}
     />
   );
@@ -158,9 +169,12 @@ export function ProjectSettingsPanel({
 
 function ProjectDetail({
   group,
+  groupMembers,
   hasOtherMembers,
 }: {
   group: SidebarProjectSnapshot;
+  // Every checkout of the project, including those outside the selected scope.
+  groupMembers: ReadonlyArray<SidebarProjectGroupMember>;
   hasOtherMembers: boolean;
 }) {
   const navigate = useNavigate({ from: "/settings" });
@@ -308,7 +322,36 @@ function ProjectDetail({
     setIsSavingFavicon(false);
   };
 
-  const hasMultipleCheckouts = group.memberProjects.length > 1;
+  const sidebarProjectGroupingMode = useClientSettings(
+    (settings) => settings.sidebarProjectGroupingMode,
+  );
+  const sidebarProjectGroupingOverrides = useClientSettings(
+    (settings) => settings.sidebarProjectGroupingOverrides,
+  );
+  const checkoutOptions = projectCheckoutOptions({
+    connectedEnvironments: environments.filter((environment) =>
+      canCreateProjectInEnvironment(environment.connection.phase),
+    ),
+    checkoutEnvironmentIds: groupMembers.map((member) => member.environmentId),
+    checkoutCount: groupMembers.length,
+    canCheckOut:
+      !group.isScratch &&
+      resolveProjectGroupingMode(group, {
+        sidebarProjectGroupingMode,
+        sidebarProjectGroupingOverrides,
+      }) !== "separate",
+  });
+  const checkoutRemoteUrl =
+    groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;
+  const checkoutTitle = projectCheckoutTitle(groupMembers);
+  const operableCheckoutTargetIds = useEnvironmentsWithScope(
+    checkoutOptions.targets,
+    AuthOrchestrationOperateScope,
+  );
+  const cloneableCheckoutTargetIds = useEnvironmentsWithScope(
+    checkoutOptions.targets,
+    AuthSourceControlWriteScope,
+  );
 
   const removeMembers = async (members: ReadonlyArray<SidebarProjectGroupMember>) => {
     if (checkProjectAccess(members, "Failed to remove project")) return;
@@ -408,8 +451,53 @@ function ProjectDetail({
       Remove
     </Button>
   );
+  const addCheckoutMenu =
+    checkoutOptions.targets.length > 0 ? (
+      <Menu>
+        <MenuTrigger render={<Button size="xs" variant="outline" type="button" />}>
+          <PlusIcon className="size-3.5" />
+          Add checkout
+          <ChevronDownIcon className="size-3.5" />
+        </MenuTrigger>
+        <MenuPopup align="end">
+          <MenuGroup>
+            <MenuGroupLabel>Check out on</MenuGroupLabel>
+            {checkoutOptions.targets.map((environment) => {
+              const labels = settingsScopeEnvironmentLabels(environment, environments);
+              return (
+                <MenuItem
+                  key={environment.environmentId}
+                  disabled={
+                    !operableCheckoutTargetIds.has(environment.environmentId) ||
+                    (checkoutRemoteUrl !== null &&
+                      !cloneableCheckoutTargetIds.has(environment.environmentId))
+                  }
+                  onClick={() =>
+                    openCommandPalette({
+                      open: "add-project",
+                      addProjectTarget: {
+                        environmentId: environment.environmentId,
+                        remoteUrl: checkoutRemoteUrl,
+                        ...(checkoutTitle ? { title: checkoutTitle } : {}),
+                      },
+                    })
+                  }
+                >
+                  <span className="min-w-0 truncate">{labels.primary}</span>
+                  {labels.secondary ? (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {labels.secondary}
+                    </span>
+                  ) : null}
+                </MenuItem>
+              );
+            })}
+          </MenuGroup>
+        </MenuPopup>
+      </Menu>
+    ) : null;
   const checkoutChoices = (
-    <SettingsSection title="Checkouts">
+    <SettingsSection title="Checkouts" headerAction={addCheckoutMenu}>
       {Array.from(checkoutsByEnvironment, ([environmentId, members]) => {
         if (checkoutsByEnvironment.size === 1) {
           return members.map((member) => (
@@ -569,7 +657,7 @@ function ProjectDetail({
         </SettingsSection>
         <ProjectDefaultsSettings category="project" />
         <ProjectActionsSettings />
-        {hasMultipleCheckouts ? checkoutChoices : null}
+        {checkoutOptions.visible ? checkoutChoices : null}
         <SettingsSection title="Danger">
           <SettingsRow
             title={

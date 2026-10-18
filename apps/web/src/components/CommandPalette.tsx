@@ -144,7 +144,7 @@ import {
   isUnsupportedWindowsProjectPath,
   resolveProjectPathForDispatch,
 } from "../lib/projectPaths";
-import { onOpenCommandPalette } from "../commandPaletteBus";
+import { onOpenCommandPalette, type CommandPaletteAddProjectTarget } from "../commandPaletteBus";
 import { isPreviewFocused } from "../lib/previewFocus";
 import { isTerminalFocused } from "../lib/terminalFocus";
 import {
@@ -285,6 +285,7 @@ type AddProjectCloneFlow =
       readonly repositoryInput: string;
       readonly repository: SourceControlRepositoryInfo | null;
       readonly remoteUrl: string;
+      readonly title?: string;
     };
 
 function remoteProjectSourceIcon(source: AddProjectRemoteSource, className: string): ReactNode {
@@ -490,7 +491,8 @@ export function CommandPalette({ children }: { children: ReactNode }) {
   });
   const setOpen = (open: boolean) => dispatch({ _tag: "SetOpen", open });
   const toggleMode = (mode: SearchOverlayMode) => dispatch({ _tag: "ToggleMode", mode });
-  const openAddProject = () => dispatch({ _tag: "OpenAddProject" });
+  const openAddProject = (target?: CommandPaletteAddProjectTarget) =>
+    dispatch({ _tag: "OpenAddProject", ...(target ? { target } : {}) });
   const openNewThreadIn = () => dispatch({ _tag: "OpenNewThreadIn" });
   const clearOpenIntent = () => dispatch({ _tag: "ClearOpenIntent" });
   const keybindings = useAtomValue(primaryServerKeybindingsAtom);
@@ -604,7 +606,7 @@ export function CommandPalette({ children }: { children: ReactNode }) {
         if (detail.open === "new-thread-in") {
           openNewThreadIn();
         } else if (detail.open === "add-project") {
-          openAddProject();
+          openAddProject(detail.addProjectTarget);
         } else if (detail.query !== undefined) {
           dispatch({
             _tag: "OpenSearch",
@@ -1374,6 +1376,37 @@ function OpenCommandPaletteDialog(props: {
     });
   };
 
+  // Skips the repository step: the caller already knows which remote to clone.
+  const startAddProjectCloneFromUrl = (
+    environmentId: EnvironmentId,
+    remoteUrl: string,
+    title: string | undefined,
+  ): void => {
+    setAddProjectEnvironmentId(environmentId);
+    setAddProjectCloneFlow({
+      step: "confirm",
+      environmentId,
+      source: "url",
+      repositoryInput: remoteUrl,
+      repository: null,
+      remoteUrl,
+      ...(title ? { title } : {}),
+    });
+    pushPaletteView({
+      addonIcon: remoteProjectSourceIcon("url", ADDON_ICON_CLASS),
+      groups: [],
+      initialQuery: "",
+    });
+    setHighlightedItemValue(null);
+    setQuery(
+      getCloneDestinationPath(
+        getAddProjectInitialQueryForEnvironment(environmentId),
+        getCloneDirectoryName(remoteUrl),
+      ),
+    );
+    setBrowseGeneration((generation) => generation + 1);
+  };
+
   const newProjectsRootFor = (environmentId: EnvironmentId | null): string | null =>
     environments.find((environment) => environment.environmentId === environmentId)?.serverConfig
       ?.newProjectsRoot ?? null;
@@ -1983,7 +2016,26 @@ function OpenCommandPaletteDialog(props: {
         return;
       case "add-project":
         clearOpenIntent();
-        openAddProjectFlow();
+        if (!intent.target) {
+          openAddProjectFlow();
+          return;
+        }
+        // The dialog keeps its flows across closes; a leftover one would take over this target.
+        browseNavigation.invalidate();
+        cloneLookupGeneration.current += 1;
+        setIsRemoteProjectLookingUp(false);
+        setAddProjectCloneFlow(null);
+        setNewProjectFlow(null);
+        setViewStack([]);
+        setQuery("");
+        if (intent.target.remoteUrl === null)
+          startAddProjectSourceSelection(intent.target.environmentId);
+        else
+          startAddProjectCloneFromUrl(
+            intent.target.environmentId,
+            intent.target.remoteUrl,
+            intent.target.title,
+          );
         return;
       case "new-thread-in":
         clearOpenIntent();
@@ -2519,7 +2571,7 @@ function OpenCommandPaletteDialog(props: {
       environmentId: addProjectCloneFlow.environmentId,
       input: {
         projectId,
-        title: inferProjectTitleFromPath(destinationPath),
+        title: addProjectCloneFlow.title ?? inferProjectTitleFromPath(destinationPath),
         createdAt: new Date().toISOString(),
         remoteUrl: addProjectCloneFlow.remoteUrl,
         destinationPath,

@@ -21,6 +21,9 @@ import {
   getNewProjectPublishTarget,
   getNewProjectPublishTargets,
   normalizePastedCloneUrl,
+  projectCheckoutCloneUrl,
+  projectCheckoutOptions,
+  projectCheckoutTitle,
   resolveAddProjectPath,
   sortAddProjectProviderSources,
 } from "./projects.ts";
@@ -312,5 +315,199 @@ describe("new project publish targets", () => {
     expect(
       getNewProjectPublishTarget(targets, SourceControlProviderKind.make("gitlab"))?.owner,
     ).toBe("group");
+  });
+});
+
+describe("projectCheckoutOptions", () => {
+  const laptop = { environmentId: "laptop" };
+  const server = { environmentId: "server" };
+  const options = (overrides: Partial<Parameters<typeof projectCheckoutOptions>[0]> = {}) =>
+    projectCheckoutOptions({
+      connectedEnvironments: [laptop, server],
+      checkoutEnvironmentIds: ["laptop"],
+      checkoutCount: 1,
+      canCheckOut: true,
+      ...overrides,
+    });
+
+  it("offers connected machines without a checkout", () => {
+    expect(options()).toEqual({ visible: true, targets: [server] });
+  });
+
+  it("offers no machine once every connected one has a checkout", () => {
+    expect(options({ checkoutEnvironmentIds: ["laptop", "server"], checkoutCount: 2 })).toEqual({
+      visible: true,
+      targets: [],
+    });
+  });
+
+  it("offers the connected machine while the only checkout's machine is offline", () => {
+    expect(options({ connectedEnvironments: [server] })).toEqual({
+      visible: true,
+      targets: [server],
+    });
+  });
+
+  it("hides the section when only one machine is connected", () => {
+    expect(options({ connectedEnvironments: [laptop] })).toEqual({
+      visible: false,
+      targets: [],
+    });
+  });
+
+  it("keeps listing several checkouts when only one machine is connected", () => {
+    expect(
+      options({
+        connectedEnvironments: [laptop],
+        checkoutEnvironmentIds: ["laptop", "laptop"],
+        checkoutCount: 2,
+      }).visible,
+    ).toBe(true);
+  });
+
+  it("hides the section for a lone checkout that cannot gain another", () => {
+    expect(options({ canCheckOut: false })).toEqual({ visible: false, targets: [] });
+  });
+
+  it("keeps listing several checkouts that cannot gain another", () => {
+    expect(
+      options({
+        canCheckOut: false,
+        checkoutEnvironmentIds: ["laptop", "server"],
+        checkoutCount: 2,
+      }),
+    ).toEqual({ visible: true, targets: [] });
+  });
+});
+
+describe("projectCheckoutTitle", () => {
+  it("keeps the title every checkout shares", () => {
+    expect(projectCheckoutTitle([{ title: "My App" }, { title: "My App" }])).toBe("My App");
+  });
+
+  it("leaves the title to the clone when checkouts disagree", () => {
+    expect(projectCheckoutTitle([{ title: "My App" }, { title: "t3code" }])).toBeUndefined();
+  });
+});
+
+describe("projectCheckoutCloneUrl", () => {
+  const identity = {
+    canonicalKey: "github.com/t3tools/t3code",
+    locator: {
+      source: "git-remote" as const,
+      remoteName: "upstream",
+      remoteUrl: "git@github.com:T3Tools/t3code.git",
+    },
+    rootPath: "/work/t3code",
+  };
+
+  it("clones the repository remote for a project at the repository root", () => {
+    expect(
+      projectCheckoutCloneUrl({ workspaceRoot: "/work/t3code/", repositoryIdentity: identity }),
+    ).toBe("git@github.com:T3Tools/t3code.git");
+  });
+
+  it("clones a fork from its origin rather than its upstream", () => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code",
+        repositoryIdentity: {
+          ...identity,
+          origin: {
+            canonicalKey: "github.com/julius/t3code-fork",
+            remoteUrl: "git@github.com:julius/t3code-fork.git",
+          },
+        },
+      }),
+    ).toBe("git@github.com:julius/t3code-fork.git");
+  });
+
+  it("offers no clone when a fork's origin URL is unknown", () => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code",
+        repositoryIdentity: {
+          ...identity,
+          origin: { canonicalKey: "github.com/julius/t3code-fork" },
+        },
+      }),
+    ).toBeNull();
+  });
+
+  it("offers no clone for a project in a repository subdirectory", () => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code/apps/web",
+        repositoryIdentity: identity,
+      }),
+    ).toBeNull();
+  });
+
+  it("clones without the source machine's credentials", () => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code",
+        repositoryIdentity: {
+          ...identity,
+          locator: {
+            ...identity.locator,
+            remoteUrl: "https://julius:ghp_token@github.com/T3Tools/t3code.git",
+          },
+        },
+      }),
+    ).toBe("https://github.com/T3Tools/t3code.git");
+  });
+
+  it.each([
+    "/srv/git/t3code.git",
+    "../t3code.git",
+    "file:///srv/git/t3code.git",
+    "C:\\git\\t3code",
+    "https://localhost/t3code.git",
+    "ssh://git@127.0.0.1/t3code.git",
+    "ssh://git@[::1]:2222/t3code.git",
+    "git@localhost:t3code.git",
+    "git@[::1]:t3code.git",
+    "custom::/srv/git/t3code",
+    "codecommit::us-east-1://t3code",
+    "custom://host.test/t3code",
+    "git@127.1:t3code.git",
+    "ssh://git@0x7f.1/t3code.git",
+    "ssh://git@[::ffff:127.0.0.1]/t3code.git",
+  ])("offers no clone of the machine-local remote %s", (remoteUrl) => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code",
+        repositoryIdentity: { ...identity, locator: { ...identity.locator, remoteUrl } },
+      }),
+    ).toBeNull();
+  });
+
+  it("clones network remotes, including scp-like ones", () => {
+    for (const remoteUrl of [
+      "git@github.com:T3Tools/t3code.git",
+      "git@[2001:db8::1]:T3Tools/t3code.git",
+      "ssh://git@host.test/t3code",
+      "https://host.test/t3code.git",
+      "git://host.test/t3code.git",
+    ]) {
+      expect(
+        projectCheckoutCloneUrl({
+          workspaceRoot: "/work/t3code",
+          repositoryIdentity: { ...identity, locator: { ...identity.locator, remoteUrl } },
+        }),
+      ).toBe(remoteUrl);
+    }
+  });
+
+  it("offers no clone when the repository root is unknown", () => {
+    const { rootPath: _rootPath, ...withoutRoot } = identity;
+    expect(
+      projectCheckoutCloneUrl({ workspaceRoot: "/work/t3code", repositoryIdentity: withoutRoot }),
+    ).toBeNull();
+  });
+
+  it("offers no clone without a repository", () => {
+    expect(projectCheckoutCloneUrl({ workspaceRoot: "/work/notes" })).toBeNull();
   });
 });

@@ -2,6 +2,7 @@ import type { RepositoryIdentity, SourceControlProviderError } from "@t3tools/co
 import {
   detectSourceControlProviderFromGitRemoteUrl,
   normalizeGitRemoteUrl,
+  withoutRemoteCredentials,
 } from "@t3tools/shared/git";
 import * as Cache from "effect/Cache";
 import * as Context from "effect/Context";
@@ -83,7 +84,11 @@ function buildRepositoryOrigin(
   const originKey = normalizeGitRemoteUrl(originUrl);
   if (originKey === canonicalKey) return undefined;
   const displayName = repositoryPathOf(originKey);
-  return { canonicalKey: originKey, ...(displayName ? { displayName } : {}) };
+  return {
+    canonicalKey: originKey,
+    ...(displayName ? { displayName } : {}),
+    remoteUrl: withoutRemoteCredentials(originUrl),
+  };
 }
 
 function buildRepositoryIdentity(input: {

@@ -250,6 +250,15 @@ describe("reduceCommandPaletteUiState", () => {
       mode: "command",
       openIntent: { kind: "add-project" },
     });
+    const target = {
+      environmentId: EnvironmentId.make("remote"),
+      remoteUrl: "git@example.com:a/b",
+    };
+    expect(reduceCommandPaletteUiState(filesOpen, { _tag: "OpenAddProject", target })).toEqual({
+      open: true,
+      mode: "command",
+      openIntent: { kind: "add-project", target },
+    });
     expect(reduceCommandPaletteUiState(filesOpen, { _tag: "OpenNewThreadIn" })).toEqual({
       open: true,
       mode: "command",

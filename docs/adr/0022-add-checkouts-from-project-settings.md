@@ -1,0 +1,59 @@
+# ADR 0022: Add checkouts from project settings
+
+- Status: accepted
+- Date: 2026-10-18
+- Compared with upstream: `pingdotgg/t3code` at `13aa882c2` (2026-10-17)
+
+The **Checkouts** section in a project's settings appeared only when the project
+already had more than one checkout. A project checked out on one machine gave no
+hint that it could live on another, and adding it there meant leaving settings,
+opening the command palette, choosing the machine and clone source, and pasting
+the remote by hand.
+
+Project settings now show **Checkouts** whenever a connected machine lacks a
+checkout of the project, even while the existing checkout's machine is offline,
+or the project has several checkouts, and offer each such machine. With a
+single connected machine holding the only checkout, the section stays hidden. Targets are computed across the
+whole project group rather than the selected machine scope, disappear once
+every connected machine has a checkout. Scratch projects and projects set to
+**Keep separate** grouping never gain a checkout this way, since a copy elsewhere would be a
+project of its own, so a lone checkout of one keeps the section hidden. The shared rules live in
+[`projectCheckoutOptions` and `projectCheckoutCloneUrl`](../../packages/client-runtime/src/operations/projects.ts).
+
+The new checkout must land in the same project group, so the clone URL follows
+the group's identity. Grouping uses a fork's `origin`, while the repository
+locator prefers `upstream`, so `RepositoryOrigin` gained an optional `remoteUrl`
+that the [identity resolver](../../apps/server/src/project/RepositoryIdentityResolver.ts)
+fills with the configured origin remote. Whichever remote is chosen goes through
+the shared [`withoutRemoteCredentials`](../../packages/shared/src/git.ts) before
+it is cloned, because the locator carries the checkout's raw remote and the
+destination machine brings its own credentials. A clone registers the
+repository root, so a project in a repository subdirectory or with an unknown
+repository root, a remote that only resolves on the source machine (a path, a loopback host or a remote-helper address), or a fork
+reported by an older server without
+`origin.remoteUrl`, gets no prefilled clone: the user picks a folder instead.
+
+A tracked clone also takes the title every existing checkout shares
+([`projectCheckoutTitle`](../../packages/client-runtime/src/operations/projects.ts)),
+because a member whose title differs makes a renamed group fall back to the
+repository's name. Blocking clones on older servers and the folder fallback go
+through the generic add-project flow and infer the title from the folder.
+
+- **Web and desktop:** the [settings panel](../../apps/web/src/components/settings/ProjectSettingsPanel.tsx)
+  adds an **Add checkout** menu to the section header. Choosing a machine opens
+  the existing command palette add-project flow through `addProjectTarget` on the
+  [palette bus](../../apps/web/src/commandPaletteBus.ts): the clone destination
+  step for the clone URL, or the machine's add-project sources without one. The
+  palette keeps owning path choice, permission checks and clone tracking.
+  Machines whose grant lacks `orchestration:operate`, or `source-control:write`
+  when cloning, are listed but disabled.
+- **Mobile:** the [project overview](../../apps/mobile/src/features/settings/SettingsProjectOverviewRouteScreen.tsx)
+  follows the same visibility rule and adds a **Check out on** row per target,
+  opening the existing clone destination screen, or the local folder screen
+  without a clone URL, with the same permission-based disabling.
+
+When updating from upstream, keep the section visible with a second connected
+machine, keep both clients routed through their existing add-project flows
+rather than a second clone flow, and keep `origin.remoteUrl` until upstream
+exposes the fork's clone URL another way. Remove this fork change if upstream
+adds its own way to check a project out on another machine from settings.

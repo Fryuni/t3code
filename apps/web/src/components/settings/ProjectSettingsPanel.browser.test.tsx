@@ -6,6 +6,7 @@ import type {
 import {
   AuthOrchestrationOperateScope,
   AuthSettingsWriteScope,
+  AuthSourceControlWriteScope,
   EnvironmentId,
   ProjectId,
   ProviderInstanceId,
@@ -114,6 +115,7 @@ vi.mock(import("./ProjectActionsSettings"), async (original) => ({
   ProjectActionsSettings: (() => null) as never,
 }));
 
+import { onOpenCommandPalette, type CommandPaletteOpenDetail } from "../../commandPaletteBus";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { buildSidebarProjectSnapshots } from "../../sidebarProjectGrouping";
@@ -125,7 +127,7 @@ const instanceId = ProviderInstanceId.make("codex");
 const environments = [primaryId, remoteId].map((environmentId) => ({
   environmentId,
   label: environmentId,
-  connection: { phase: "connected" },
+  connection: { phase: "connected" as string },
   serverConfig: { keybindings: DEFAULT_RESOLVED_KEYBINDINGS },
 }));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({
@@ -172,6 +174,7 @@ beforeEach(() => {
         remoteName: "origin",
         remoteUrl: "https://github.com/example/shared-repo.git",
       },
+      rootPath: `/work/${environmentId}`,
     },
     defaultModelSelection: { instanceId, model: "gpt-5-codex" },
     createdAt: "2026-01-01T00:00:00.000Z",
@@ -196,6 +199,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  for (const environment of environments) environment.connection.phase = "connected";
   await act(async () => root.unmount());
   container.remove();
   vi.unstubAllGlobals();
@@ -355,4 +359,73 @@ describe("project settings permissions", () => {
       expect(state.update).toHaveBeenCalledTimes(2);
     },
   );
+});
+
+describe("project checkouts", () => {
+  const checkoutsHeading = () =>
+    [...container.querySelectorAll("h2")].find((heading) => heading.textContent === "Checkouts");
+  const addCheckout = () =>
+    [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.includes("Add checkout"),
+    );
+  const checkoutTarget = (label: string) =>
+    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
+      (item) => item.textContent === label,
+    );
+
+  it("offers to check out a lone checkout on a connected machine without one", async () => {
+    state.projects = state.projects.filter((project) => project.environmentId === primaryId);
+    await grant(
+      remoteId,
+      AsyncResult.success(session([AuthOrchestrationOperateScope, AuthSourceControlWriteScope])),
+    );
+    const opened: CommandPaletteOpenDetail[] = [];
+    const stopListening = onOpenCommandPalette((detail) => opened.push(detail));
+    await mountPanel();
+
+    expect(checkoutsHeading()).toBeDefined();
+    await userEvent.click(addCheckout()!);
+    await vi.waitFor(() => expect(checkoutTarget(remoteId)).toBeDefined());
+    await userEvent.click(checkoutTarget(remoteId)!);
+    stopListening();
+
+    expect(opened).toEqual([
+      {
+        open: "add-project",
+        addProjectTarget: {
+          environmentId: remoteId,
+          remoteUrl: "https://github.com/example/shared-repo.git",
+          title: "Shared repo",
+        },
+      },
+    ]);
+  });
+
+  it("disables a machine whose grant cannot clone the project", async () => {
+    state.projects = state.projects.filter((project) => project.environmentId === primaryId);
+    await grant(
+      remoteId,
+      AsyncResult.success({
+        ...session([AuthOrchestrationOperateScope]),
+        permissions: [AuthOrchestrationOperateScope],
+      }),
+    );
+    await mountPanel();
+    await userEvent.click(addCheckout()!);
+    await vi.waitFor(() => expect(checkoutTarget(remoteId)).toBeDefined());
+    expect(checkoutTarget(remoteId)!.hasAttribute("data-disabled")).toBe(true);
+  });
+
+  it("drops the add button once every connected machine has a checkout", async () => {
+    await mountPanel();
+    expect(checkoutsHeading()).toBeDefined();
+    expect(addCheckout()).toBeUndefined();
+  });
+
+  it("hides checkouts when only one machine is connected", async () => {
+    state.projects = state.projects.filter((project) => project.environmentId === primaryId);
+    environments[1]!.connection.phase = "disconnected";
+    await mountPanel();
+    expect(checkoutsHeading()).toBeUndefined();
+  });
 });

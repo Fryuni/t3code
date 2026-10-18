@@ -179,6 +179,8 @@ export type RepositoryIdentityLocator = typeof RepositoryIdentityLocator.Type;
 export const RepositoryOrigin = Schema.Struct({
   canonicalKey: TrimmedNonEmptyString,
   displayName: Schema.optionalKey(TrimmedNonEmptyString),
+  // The origin remote as configured, so clients can clone the fork itself.
+  remoteUrl: Schema.optionalKey(TrimmedNonEmptyString),
 });
 export type RepositoryOrigin = typeof RepositoryOrigin.Type;
 
