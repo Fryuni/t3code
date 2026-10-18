@@ -468,6 +468,8 @@ describe("projectCheckoutCloneUrl", () => {
     "ssh://git@[::1]:2222/t3code.git",
     "git@localhost:t3code.git",
     "git@[::1]:t3code.git",
+    "custom::/srv/git/t3code",
+    "codecommit::us-east-1://t3code",
   ])("offers no clone of the machine-local remote %s", (remoteUrl) => {
     expect(
       projectCheckoutCloneUrl({

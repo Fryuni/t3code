@@ -336,6 +336,8 @@ function isLoopbackHost(host: string): boolean {
 // git's own rule: a URL scheme, or scp-like `host:path` with no slash before the
 // colon. Anything else is a path that names a different place on another machine.
 function isNetworkRemote(remoteUrl: string): boolean {
+  // `<transport>::<address>` runs a remote helper the other machine may lack.
+  if (/^[a-z][a-z0-9+.-]*::/i.test(remoteUrl)) return false;
   const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(remoteUrl)?.[1];
   if (scheme) {
     if (scheme.toLowerCase() === "file") return false;
