@@ -174,6 +174,7 @@ beforeEach(() => {
         remoteName: "origin",
         remoteUrl: "https://github.com/example/shared-repo.git",
       },
+      rootPath: `/work/${environmentId}`,
     },
     defaultModelSelection: { instanceId, model: "gpt-5-codex" },
     createdAt: "2026-01-01T00:00:00.000Z",

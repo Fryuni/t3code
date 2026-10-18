@@ -22,8 +22,10 @@ The new checkout must land in the same project group, so the clone URL follows
 the group's identity. Grouping uses a fork's `origin`, while the repository
 locator prefers `upstream`, so `RepositoryOrigin` gained an optional `remoteUrl`
 that the [identity resolver](../../apps/server/src/project/RepositoryIdentityResolver.ts)
-fills with the configured origin remote. A clone registers the repository root,
-so a project in a repository subdirectory, or a fork reported by an older server
+fills with the configured origin remote, minus passwords and tokens; the
+destination machine brings its own credentials. A clone registers the repository root,
+so a project in a repository subdirectory or with an unknown repository root,
+or a fork reported by an older server
 without `origin.remoteUrl`, gets no prefilled clone: the user picks a folder
 instead.
 

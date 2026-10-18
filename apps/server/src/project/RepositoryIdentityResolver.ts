@@ -75,6 +75,26 @@ function repositoryPathOf(canonicalKey: string): string {
   return canonicalKey.split("/").slice(1).join("/");
 }
 
+/**
+ * Clients clone this URL on other machines, which bring their own credentials.
+ * SSH user names such as `git` are part of the address and stay.
+ */
+function withoutRemoteCredentials(remoteUrl: string): string {
+  try {
+    const url = new URL(remoteUrl);
+    const isHttp = url.protocol === "http:" || url.protocol === "https:";
+    if (url.password.length === 0 && url.search.length === 0 && !(isHttp && url.username)) {
+      return remoteUrl;
+    }
+    if (isHttp) url.username = "";
+    url.password = "";
+    url.search = "";
+    return url.toString();
+  } catch {
+    return remoteUrl;
+  }
+}
+
 function buildRepositoryOrigin(
   originUrl: string | undefined,
   canonicalKey: string,
@@ -83,7 +103,11 @@ function buildRepositoryOrigin(
   const originKey = normalizeGitRemoteUrl(originUrl);
   if (originKey === canonicalKey) return undefined;
   const displayName = repositoryPathOf(originKey);
-  return { canonicalKey: originKey, ...(displayName ? { displayName } : {}), remoteUrl: originUrl };
+  return {
+    canonicalKey: originKey,
+    ...(displayName ? { displayName } : {}),
+    remoteUrl: withoutRemoteCredentials(originUrl),
+  };
 }
 
 function buildRepositoryIdentity(input: {

@@ -331,7 +331,7 @@ export function projectCheckoutCloneUrl(project: {
   if (!identity) return null;
   // A clone is registered at the repository root, not at this project's subdirectory.
   if (
-    identity.rootPath !== undefined &&
+    identity.rootPath === undefined ||
     normalizeProjectPathForComparison(identity.rootPath) !==
       normalizeProjectPathForComparison(project.workspaceRoot)
   ) {

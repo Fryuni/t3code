@@ -415,6 +415,13 @@ describe("projectCheckoutCloneUrl", () => {
     ).toBeNull();
   });
 
+  it("offers no clone when the repository root is unknown", () => {
+    const { rootPath: _rootPath, ...withoutRoot } = identity;
+    expect(
+      projectCheckoutCloneUrl({ workspaceRoot: "/work/t3code", repositoryIdentity: withoutRoot }),
+    ).toBeNull();
+  });
+
   it("offers no clone without a repository", () => {
     expect(projectCheckoutCloneUrl({ workspaceRoot: "/work/notes" })).toBeNull();
   });
