@@ -324,14 +324,27 @@ export function projectCheckoutOptions<
 
 // A loopback host names whichever machine runs the clone, not the source machine.
 function isLoopbackHost(host: string): boolean {
-  const name = host.toLowerCase().replace(/^\[|\]$/g, "");
+  let name: string;
+  try {
+    // The URL parser canonicalizes IPv4 shorthand, hex and octal (`127.1`, `0x7f.1`).
+    name = new URL(`http://${host.includes(":") && !host.startsWith("[") ? `[${host}]` : host}`)
+      .hostname;
+  } catch {
+    return false;
+  }
   return (
     name === "localhost" ||
     name.endsWith(".localhost") ||
-    name === "::1" ||
-    /^127\.\d+\.\d+\.\d+$/.test(name)
+    /^127\.\d+\.\d+\.\d+$/.test(name) ||
+    name === "[::1]" ||
+    // IPv4-mapped 127.0.0.0/8.
+    name.startsWith("[::ffff:7f")
   );
 }
+
+// Transports git speaks itself. Any other `<scheme>://` runs a remote helper the
+// other machine may lack.
+const NETWORK_SCHEMES = new Set(["http", "https", "ssh", "git", "git+ssh", "ssh+git"]);
 
 // git's own rule: a URL scheme, or scp-like `host:path` with no slash before the
 // colon. Anything else is a path that names a different place on another machine.
@@ -340,12 +353,10 @@ function isNetworkRemote(remoteUrl: string): boolean {
   if (/^[a-z][a-z0-9+.-]*::/i.test(remoteUrl)) return false;
   const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(remoteUrl)?.[1];
   if (scheme) {
-    if (scheme.toLowerCase() === "file") return false;
-    try {
-      return !isLoopbackHost(new URL(remoteUrl).hostname);
-    } catch {
-      return false;
-    }
+    if (!NETWORK_SCHEMES.has(scheme.toLowerCase())) return false;
+    // Userinfo runs to the last `@` before the path; a password may contain `@`.
+    const host = /^[a-z][a-z0-9+.-]*:\/\/(?:[^/]*@)?(\[[^\]/]+\]|[^/:@]*)/i.exec(remoteUrl)?.[1];
+    return host !== undefined && host.length > 0 && !isLoopbackHost(host);
   }
   // scp-like `user@[host]:path` brackets an IPv6 host, colons included.
   const bracketedHost = /^(?:[^@/]*@)?\[([^\]/]+)\]:/.exec(remoteUrl)?.[1];

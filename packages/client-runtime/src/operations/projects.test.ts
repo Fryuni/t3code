@@ -470,6 +470,10 @@ describe("projectCheckoutCloneUrl", () => {
     "git@[::1]:t3code.git",
     "custom::/srv/git/t3code",
     "codecommit::us-east-1://t3code",
+    "custom://host.test/t3code",
+    "git@127.1:t3code.git",
+    "ssh://git@0x7f.1/t3code.git",
+    "ssh://git@[::ffff:127.0.0.1]/t3code.git",
   ])("offers no clone of the machine-local remote %s", (remoteUrl) => {
     expect(
       projectCheckoutCloneUrl({
@@ -485,6 +489,7 @@ describe("projectCheckoutCloneUrl", () => {
       "git@[2001:db8::1]:T3Tools/t3code.git",
       "ssh://git@host.test/t3code",
       "https://host.test/t3code.git",
+      "git://host.test/t3code.git",
     ]) {
       expect(
         projectCheckoutCloneUrl({
