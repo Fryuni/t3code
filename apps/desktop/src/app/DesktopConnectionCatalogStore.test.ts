@@ -298,18 +298,7 @@ describe("DesktopConnectionCatalogStore", () => {
       }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
-  it.effect.each([
-    {
-      name: "recovers a legacy catalog when the current key yields invalid plaintext",
-      legacy: Option.some(
-        '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}',
-      ),
-    },
-    {
-      name: "returns the current plaintext unchanged when no legacy key applies",
-      legacy: Option.none<string>(),
-    },
-  ])("$name", ({ legacy }) =>
+  it.effect("recovers a legacy catalog when the current key yields invalid plaintext", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -325,16 +314,52 @@ describe("DesktopConnectionCatalogStore", () => {
           encryptedCatalog: Base64.encode(textEncoder.encode("encrypted:wrong-key-garbage")),
         }),
       );
+      const catalog =
+        '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}';
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
-        Effect.provide(layerFor(baseDir, true, null, NodeServices.layer, Effect.succeed(legacy))),
+        Effect.provide(
+          layerFor(baseDir, true, null, NodeServices.layer, Effect.succeedSome(catalog)),
+        ),
       );
-      const expected = Option.isSome(legacy) ? legacy : Option.some("wrong-key-garbage");
 
-      assert.deepStrictEqual(yield* store.get, expected);
+      assert.deepStrictEqual(yield* store.get, Option.some(catalog));
       const reopened = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
         Effect.provide(layerFor(baseDir)),
       );
-      assert.deepStrictEqual(yield* reopened.get, expected);
+      assert.deepStrictEqual(yield* reopened.get, Option.some(catalog));
+    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+  );
+
+  it.effect.each([
+    { name: "no legacy key matches", legacy: Effect.succeedNone },
+    {
+      name: "the legacy keyring lookup fails",
+      legacy: Effect.fail(
+        new ElectronSafeStorage.ElectronSafeStorageDecryptError({
+          cause: new Error("Legacy keyring lookup timed out."),
+        }),
+      ),
+    },
+  ])("preserves invalid current-key plaintext when $name", ({ legacy }) =>
+    Effect.gen(function* () {
+      const fileSystem = yield* FileSystem.FileSystem;
+      const path = yield* Path.Path;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-invalid-current-key-test-",
+      });
+      const catalogPath = path.join(baseDir, "userdata", "connection-catalog.json");
+      const original = JSON.stringify({
+        version: 1,
+        encryptedCatalog: Base64.encode(textEncoder.encode("encrypted:wrong-key-garbage")),
+      });
+      yield* fileSystem.makeDirectory(path.dirname(catalogPath), { recursive: true });
+      yield* fileSystem.writeFileString(catalogPath, original);
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(layerFor(baseDir, true, null, NodeServices.layer, legacy)),
+      );
+
+      assert.isTrue(yield* Effect.isFailure(store.get));
+      assert.equal(yield* fileSystem.readFileString(catalogPath), original);
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
@@ -342,7 +367,8 @@ describe("DesktopConnectionCatalogStore", () => {
     withStore(
       Effect.gen(function* () {
         const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
-        const catalog = '{"schemaVersion":1,"targets":[]}';
+        const catalog =
+          '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}';
 
         assert.isTrue(yield* store.set(catalog));
         assert.deepStrictEqual(yield* store.get, Option.some(catalog));
@@ -655,7 +681,11 @@ describe("DesktopConnectionCatalogStore", () => {
         Effect.provide(layer),
       );
 
-      assert.isTrue(yield* store.set('{"schemaVersion":1,"targets":[]}'));
+      assert.isTrue(
+        yield* store.set(
+          '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}',
+        ),
+      );
       yield* Ref.set(failDecrypt, true);
       const error = yield* store.get.pipe(Effect.flip);
       assert.instanceOf(
@@ -674,7 +704,12 @@ describe("DesktopConnectionCatalogStore", () => {
       );
       assert.notEqual(error.message, decryptError.message);
       yield* Ref.set(failDecrypt, false);
-      assert.deepStrictEqual(yield* store.get, Option.some('{"schemaVersion":1,"targets":[]}'));
+      assert.deepStrictEqual(
+        yield* store.get,
+        Option.some(
+          '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}',
+        ),
+      );
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 });

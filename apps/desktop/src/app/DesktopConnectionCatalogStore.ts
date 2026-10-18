@@ -72,6 +72,7 @@ const DesktopConnectionCatalogStoreProtectionOperation = Schema.Literals([
   "check-encryption-availability",
   "encrypt-catalog",
   "decrypt-catalog",
+  "decode-catalog",
 ]);
 
 export class DesktopConnectionCatalogStoreWriteError extends Schema.TaggedError<DesktopConnectionCatalogStoreWriteError>()(
@@ -538,6 +539,8 @@ export const make = Effect.gen(function* () {
         catalogPath,
         document.value.encryptedCatalog,
       );
+      // AES-CBC with the wrong key passes padding about 1 in 256 times, so invalid plaintext is
+      // treated like a failed decryption rather than handed to a caller that would discard it.
       const decrypted = yield* safeStorage.decryptString(encryptedCatalog).pipe(
         Effect.mapError(
           (cause) =>
@@ -547,26 +550,23 @@ export const make = Effect.gen(function* () {
               cause,
             }),
         ),
+        Effect.tap((catalog) =>
+          decodeRuntimeConnectionCatalogDocumentJson(catalog).pipe(
+            Effect.mapError(
+              (cause) =>
+                new DesktopConnectionCatalogStoreProtectionError({
+                  operation: "decode-catalog",
+                  catalogPath,
+                  cause,
+                }),
+            ),
+          ),
+        ),
         Effect.result,
       );
-      if (Result.isFailure(decrypted)) {
-        const legacy = yield* findLegacyCatalog(encryptedCatalog);
-        if (Option.isNone(legacy)) return yield* decrypted.failure;
-        return yield* persistLegacyCatalog(legacy.value);
-      }
-      if (yield* Effect.isSuccess(decodeRuntimeConnectionCatalogDocumentJson(decrypted.success))) {
-        return Option.some(decrypted.success);
-      }
-      // AES-CBC with the wrong key passes padding about 1 in 256 times, so invalid plaintext
-      // may still be a legacy-key catalog that a caller would otherwise replace with an empty one.
-      const legacy = yield* findLegacyCatalog(encryptedCatalog).pipe(
-        Effect.catch((error) =>
-          Effect.logWarning("Could not check the connection catalog against legacy keys.", {
-            error,
-          }).pipe(Effect.as(Option.none<string>())),
-        ),
-      );
-      if (Option.isNone(legacy)) return Option.some(decrypted.success);
+      if (Result.isSuccess(decrypted)) return Option.some(decrypted.success);
+      const legacy = yield* findLegacyCatalog(encryptedCatalog);
+      if (Option.isNone(legacy)) return yield* decrypted.failure;
       return yield* persistLegacyCatalog(legacy.value);
     }).pipe(mutex.withPermits(1), Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {

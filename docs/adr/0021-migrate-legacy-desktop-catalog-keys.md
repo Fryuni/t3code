@@ -20,9 +20,9 @@ writes, and clears so migration cannot overwrite a newer connection update.
 Recovery only reads already-unlocked legacy entries: it never creates keys,
 changes keyring contents, or treats an unreadable catalog as an empty one.
 Missing keys, unsupported platforms/backends, invalid documents, and failed
-writes preserve the original encrypted file and surface an error. When the
-current key produced the plaintext and no legacy key matches, return that
-plaintext unchanged. Bound the legacy keyring lookup so an unavailable secret
+writes preserve the original encrypted file and surface an error, including
+when the current key yields plaintext that is not a valid connection document:
+the web client would otherwise replace it with an empty catalog. Bound the legacy keyring lookup so an unavailable secret
 service cannot hang startup, and load the D-Bus client only through a dynamic
 import so other platforms never evaluate it.
 
