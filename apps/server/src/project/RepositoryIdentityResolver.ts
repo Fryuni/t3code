@@ -77,18 +77,19 @@ function repositoryPathOf(canonicalKey: string): string {
 
 /**
  * Clients clone this URL on other machines, which bring their own credentials.
- * SSH user names such as `git` are part of the address and stay.
+ * Outside HTTP(S), git reads `?` as part of the path and user names such as
+ * `git` are part of the address, so only a password goes.
  */
 function withoutRemoteCredentials(remoteUrl: string): string {
   try {
     const url = new URL(remoteUrl);
     const isHttp = url.protocol === "http:" || url.protocol === "https:";
-    if (url.password.length === 0 && url.search.length === 0 && !(isHttp && url.username)) {
-      return remoteUrl;
+    if (isHttp ? !url.username && !url.password && !url.search : !url.password) return remoteUrl;
+    if (isHttp) {
+      url.username = "";
+      url.search = "";
     }
-    if (isHttp) url.username = "";
     url.password = "";
-    url.search = "";
     return url.toString();
   } catch {
     return remoteUrl;
