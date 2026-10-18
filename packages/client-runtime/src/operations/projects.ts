@@ -323,6 +323,16 @@ export function projectCheckoutOptions<
   };
 }
 
+// git's own rule: a URL scheme, or scp-like `host:path` with no slash before the
+// colon. Anything else is a path that names a different place on another machine.
+function isNetworkRemote(remoteUrl: string): boolean {
+  const scheme = /^([a-z][a-z0-9+.-]*):\/\//i.exec(remoteUrl)?.[1];
+  if (scheme) return scheme.toLowerCase() !== "file";
+  const colon = remoteUrl.indexOf(":");
+  // A colon at index 1 is a Windows drive letter.
+  return colon > 1 && !remoteUrl.slice(0, colon).includes("/");
+}
+
 /**
  * The remote whose clone becomes another checkout of this project, or null when
  * cloning would register a different project and the user should pick a folder.
@@ -344,5 +354,5 @@ export function projectCheckoutCloneUrl(project: {
   // Grouping follows a fork's origin, while the locator prefers its upstream.
   const remoteUrl = identity.origin ? identity.origin.remoteUrl : identity.locator.remoteUrl;
   // The locator is the checkout's raw remote; its token must not follow it elsewhere.
-  return remoteUrl ? withoutRemoteCredentials(remoteUrl) : null;
+  return remoteUrl && isNetworkRemote(remoteUrl) ? withoutRemoteCredentials(remoteUrl) : null;
 }

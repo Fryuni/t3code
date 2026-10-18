@@ -440,6 +440,35 @@ describe("projectCheckoutCloneUrl", () => {
     ).toBe("https://github.com/T3Tools/t3code.git");
   });
 
+  it.each([
+    "/srv/git/t3code.git",
+    "../t3code.git",
+    "file:///srv/git/t3code.git",
+    "C:\\git\\t3code",
+  ])("offers no clone of the machine-local remote %s", (remoteUrl) => {
+    expect(
+      projectCheckoutCloneUrl({
+        workspaceRoot: "/work/t3code",
+        repositoryIdentity: { ...identity, locator: { ...identity.locator, remoteUrl } },
+      }),
+    ).toBeNull();
+  });
+
+  it("clones network remotes, including scp-like ones", () => {
+    for (const remoteUrl of [
+      "git@github.com:T3Tools/t3code.git",
+      "ssh://git@host.test/t3code",
+      "https://host.test/t3code.git",
+    ]) {
+      expect(
+        projectCheckoutCloneUrl({
+          workspaceRoot: "/work/t3code",
+          repositoryIdentity: { ...identity, locator: { ...identity.locator, remoteUrl } },
+        }),
+      ).toBe(remoteUrl);
+    }
+  });
+
   it("offers no clone when the repository root is unknown", () => {
     const { rootPath: _rootPath, ...withoutRoot } = identity;
     expect(
