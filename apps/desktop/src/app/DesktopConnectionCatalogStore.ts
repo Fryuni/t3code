@@ -21,6 +21,7 @@ import * as Layer from "effect/Layer";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import * as Schema from "effect/Schema";
+import * as Semaphore from "effect/Semaphore";
 
 import * as ElectronSafeStorage from "../electron/ElectronSafeStorage.ts";
 import * as DesktopSavedEnvironments from "../settings/DesktopSavedEnvironments.ts";
@@ -45,6 +46,9 @@ const RuntimeConnectionCatalogDocumentJson = Schema.fromJsonString(
 const encodeRuntimeConnectionCatalogDocumentJson = Schema.encodeEffect(
   RuntimeConnectionCatalogDocumentJson,
 );
+const decodeRuntimeConnectionCatalogDocumentJson = Schema.decodeEffect(
+  RuntimeConnectionCatalogDocumentJson,
+);
 
 const DesktopConnectionCatalogStoreWriteOperation = Schema.Literals([
   "create-temporary-file-name",
@@ -59,6 +63,8 @@ const DesktopConnectionCatalogStoreMigrationOperation = Schema.Literals([
   "read-legacy-secret",
   "encode-catalog",
   "persist-catalog",
+  "decrypt-legacy-catalog",
+  "decode-legacy-catalog",
 ]);
 
 const DesktopConnectionCatalogStoreProtectionOperation = Schema.Literals([
@@ -385,6 +391,7 @@ export const make = Effect.gen(function* () {
   const crypto = yield* Crypto.Crypto;
   const savedEnvironments = yield* DesktopSavedEnvironments.DesktopSavedEnvironments;
   const catalogPath = path.join(environment.stateDir, "connection-catalog.json");
+  const mutex = yield* Semaphore.make(1);
   const encryptionAvailable = safeStorage.isEncryptionAvailable.pipe(
     Effect.mapError(
       (cause) =>
@@ -491,19 +498,60 @@ export const make = Effect.gen(function* () {
                   cause,
                 }),
             ),
+            Effect.catchTags({
+              DesktopConnectionCatalogStoreProtectionError: (originalError) =>
+                Effect.gen(function* () {
+                  const legacy = yield* safeStorage.decryptLegacyString(encryptedCatalog).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new DesktopConnectionCatalogStoreMigrationError({
+                          operation: "decrypt-legacy-catalog",
+                          catalogPath,
+                          cause,
+                        }),
+                    ),
+                  );
+                  if (Option.isNone(legacy)) return yield* originalError;
+                  yield* decodeRuntimeConnectionCatalogDocumentJson(legacy.value).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new DesktopConnectionCatalogStoreMigrationError({
+                          operation: "decode-legacy-catalog",
+                          catalogPath,
+                          cause,
+                        }),
+                    ),
+                  );
+                  yield* writeCatalog(legacy.value).pipe(
+                    Effect.mapError(
+                      (cause) =>
+                        new DesktopConnectionCatalogStoreMigrationError({
+                          operation: "persist-catalog",
+                          catalogPath,
+                          cause,
+                        }),
+                    ),
+                  );
+                  yield* Effect.logInfo(
+                    "Migrated the desktop connection catalog from a legacy encryption key.",
+                  );
+                  return legacy.value;
+                }),
+            }),
           ),
         ),
       );
       return Option.some(decrypted);
-    }).pipe(Effect.withSpan("desktop.connectionCatalogStore.get")),
+    }).pipe(mutex.withPermits(1), Effect.withSpan("desktop.connectionCatalogStore.get")),
     set: Effect.fn("desktop.connectionCatalogStore.set")(function* (catalog) {
       if (!(yield* encryptionAvailable)) {
         return false;
       }
-      yield* writeCatalog(catalog);
+      yield* writeCatalog(catalog).pipe(mutex.withPermits(1));
       return true;
     }),
     clear: fileSystem.remove(catalogPath, { force: true }).pipe(
+      mutex.withPermits(1),
       Effect.catch((error) =>
         Effect.logWarning("Could not clear the desktop connection catalog.", {
           catalogPath,
