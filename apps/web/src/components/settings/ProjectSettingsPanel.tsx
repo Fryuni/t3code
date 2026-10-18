@@ -10,7 +10,11 @@ import {
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { canCreateProjectInEnvironment } from "@t3tools/client-runtime/operations/projects";
+import {
+  canCreateProjectInEnvironment,
+  projectCheckoutCloneUrl,
+  projectCheckoutOptions,
+} from "@t3tools/client-runtime/operations/projects";
 import { AsyncResult } from "effect/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
@@ -48,7 +52,7 @@ import {
 } from "./ProjectFaviconPickerDialog";
 import { ProjectActionsSettings } from "./ProjectActionsSettings";
 import { ProjectDefaultsSettings } from "./ProjectDefaultsSettings";
-import { projectCheckoutOptions, projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
+import { projectGroupTitleNeedsUpdate } from "./ProjectSettingsPanel.logic";
 import { useSettingsProjectGroups } from "./useSettingsProjectGroups";
 import { settingsScopeEnvironmentLabels } from "./settingsScopeAxis";
 
@@ -324,8 +328,7 @@ function ProjectDetail({
     canCheckOut: !group.isScratch,
   });
   const checkoutRemoteUrl =
-    groupMembers.find((member) => member.repositoryIdentity)?.repositoryIdentity?.locator
-      .remoteUrl ?? null;
+    groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;
   const operableCheckoutTargetIds = useEnvironmentsWithScope(
     checkoutOptions.targets,
     AuthOrchestrationOperateScope,

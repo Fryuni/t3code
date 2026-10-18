@@ -308,6 +308,7 @@ it.layer(NodeServices.layer)("RepositoryIdentityResolverLive", (it) => {
       expect(identity?.origin).toEqual({
         canonicalKey: "github.com/julius/t3code-fork",
         displayName: "julius/t3code-fork",
+        remoteUrl: "git@github.com:julius/t3code-fork.git",
       });
     }).pipe(Effect.provide(RepositoryIdentityResolver.layer)),
   );

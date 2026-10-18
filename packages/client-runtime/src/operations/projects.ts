@@ -4,12 +4,13 @@ import type {
   EnvironmentId,
   ProjectMutation,
   ProjectId,
+  RepositoryIdentity,
   ServerConfig,
   SourceControlDiscoveryResult,
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
-import { newProjectFolderName } from "@t3tools/shared/path";
+import { newProjectFolderName, normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import * as Arr from "effect/Array";
 import * as Option from "effect/Option";
 import * as Order from "effect/Order";
@@ -293,4 +294,50 @@ export function buildProjectCreateCommand(input: {
     createWorkspaceRootIfMissing: true,
     defaultModelSelection: null,
   };
+}
+
+/**
+ * Checkouts are listed whenever a second machine could hold one. Machines that
+ * are connected but lack a checkout of the project can receive a new one.
+ */
+export function projectCheckoutOptions<
+  TEnvironment extends { readonly environmentId: string },
+>(input: {
+  readonly connectedEnvironments: ReadonlyArray<TEnvironment>;
+  readonly checkoutEnvironmentIds: ReadonlyArray<string>;
+  readonly checkoutCount: number;
+  readonly canCheckOut: boolean;
+}): { readonly visible: boolean; readonly targets: ReadonlyArray<TEnvironment> } {
+  const checkedOut = new Set(input.checkoutEnvironmentIds);
+  return {
+    visible: input.checkoutCount > 1 || input.connectedEnvironments.length > 1,
+    targets: input.canCheckOut
+      ? input.connectedEnvironments.filter(
+          (environment) => !checkedOut.has(environment.environmentId),
+        )
+      : [],
+  };
+}
+
+/**
+ * The remote whose clone becomes another checkout of this project, or null when
+ * cloning would register a different project and the user should pick a folder.
+ */
+export function projectCheckoutCloneUrl(project: {
+  readonly workspaceRoot: string;
+  readonly repositoryIdentity?: RepositoryIdentity | null | undefined;
+}): string | null {
+  const identity = project.repositoryIdentity;
+  if (!identity) return null;
+  // A clone is registered at the repository root, not at this project's subdirectory.
+  if (
+    identity.rootPath !== undefined &&
+    normalizeProjectPathForComparison(identity.rootPath) !==
+      normalizeProjectPathForComparison(project.workspaceRoot)
+  ) {
+    return null;
+  }
+  // Grouping follows a fork's origin, while the locator prefers its upstream.
+  if (identity.origin) return identity.origin.remoteUrl ?? null;
+  return identity.locator.remoteUrl;
 }
