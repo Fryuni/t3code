@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
+- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its

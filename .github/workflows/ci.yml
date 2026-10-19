@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # The web build otherwise links desktop releases to GITHUB_REPOSITORY. The fork
+  # publishes no desktop builds (ADR 0011), so they stay on upstream's releases.
+  T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
+
 concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#26](https://github.com/Fryuni/t3code/issues/26)
-- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
+- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
 
 Upstream already discovers Forgejo and Gitea through `fj` and `tea`. The fork
 extends that discovery for installations whose SSH clone authority differs from

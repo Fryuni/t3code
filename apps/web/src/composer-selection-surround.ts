@@ -28,9 +28,18 @@ export function surroundComposerSelection(
 ) {
   // Composition replaces provisional text, sometimes after composing turns
   // false. Its replacement range is not a user selection to surround.
-  if (view.composing || view.state.selection.empty || text.length !== 1) return false;
+  if (view.composing || text.length !== 1) return false;
   const closer = SURROUND_CLOSE[text];
-  if (!closer || from === to) return false;
+  const { selection } = view.state;
+  if (
+    !closer ||
+    !(selection instanceof TextSelection) ||
+    selection.empty ||
+    selection.from !== from ||
+    selection.to !== to
+  ) {
+    return false;
+  }
   // A final DOM replacement can retain the pre-composition selection after
   // compositionend. ProseMirror keeps its composition id on the default edit.
   if (defaultTransaction().getMeta("composition") != null) return false;

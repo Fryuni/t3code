@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
+- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -35,7 +35,12 @@ layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
 code needs, such as Chromium for the web browser tests, but not Blacksmith runners
 or upstream's per-change job gating, so its `ci-changes` action and script are
-dropped as well.
+dropped as well. Upstream's web build links desktop update releases to
+`T3CODE_DESKTOP_UPDATE_REPOSITORY`, falling back to `GITHUB_REPOSITORY`
+([pingdotgg/t3code#21210](https://github.com/pingdotgg/t3code/pull/21210)). The fork
+publishes no desktop builds, so both workflows pin it to `pingdotgg/t3code`; otherwise
+the fork's builds would link to desktop releases that do not exist, and upstream's
+tests for those links fail in the fork's CI.
 
 ## Decision
 
