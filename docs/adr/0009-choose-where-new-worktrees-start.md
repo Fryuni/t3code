@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
+- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -58,6 +58,14 @@ are replaced whole, so a client without the key, including upstream's published
 mobile app and app.t3.codes, also erases it whenever it saves another override for
 the same project. Keeping unknown keys on the server would break the
 clear-by-omission writes that remove overrides.
+
+Mobile's server settings screen queues a setting saved while another write is pending
+and resends it over the same targets afterwards
+([pingdotgg/t3code#18381](https://github.com/pingdotgg/t3code/pull/18381)). That
+queue holds environment-scoped patches, which cannot carry this project-only key, so
+the base branch field is not queued: it saves only when no write is pending, and like
+clearing a page's overrides it drops any queued patch, which would otherwise be
+replayed over overrides read before the field's write.
 
 ## Start from upstream
 
@@ -115,7 +123,11 @@ original change also refreshed status with `git fetch --all`; that was not porte
 because a background fetch of every remote on each stale status poll costs too much on
 repositories with many or slow remotes, and the launch fetches the chosen remote
 anyway. Branch searches also list an exact local match, then an exact remote match,
-before partial matches, so the ref a picker selects matches the name typed.
+before partial matches, so the ref a picker selects matches the name typed. Upstream's
+test for finding a PR worktree beyond the first ref page
+([pingdotgg/t3code#18407](https://github.com/pingdotgg/t3code/pull/18407)) pushes the
+branch off page one with alphabetically earlier partial matches; in the fork the exact
+match stays on page one, and that test asserts so.
 
 Drop the default base branch when upstream lets a project choose the base branch for
 new worktrees, and the upstream source when upstream can start a new worktree from a

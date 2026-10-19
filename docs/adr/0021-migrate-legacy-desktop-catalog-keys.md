@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `81493efb7` (Alpha-to-Beta branding change)
+- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18); the rename landed in `81493efb7`
 
 On Linux, Electron selects its libsecret encryption key using the application's
 name. Changing the packaged name from `T3 Code (Alpha)` to `T3 Code (Beta)` leaves

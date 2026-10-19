@@ -40,6 +40,7 @@ import {
   uniformMobileSetting,
   type ScopedMobileSettingsTarget,
 } from "./settings-scoped-server";
+import { PullRequestGlyph } from "../pull-requests/pullRequestGlyphs";
 
 type SettingsPage = "new-threads" | "source-control" | "agent-behavior" | "maintenance";
 
@@ -152,6 +153,12 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
   );
   const [pendingWrites, setPendingWrites] = useState(0);
   const writeInFlight = useRef(false);
+  // A closing view can still save its drafts while a write is pending, after
+  // the controls disabled. Those patches run once the current write settles.
+  const queuedPatch = useRef<{ key: string; patch: ServerSettingsPatch } | null>(null);
+  const targetsKey = targets
+    .map((target) => `${target.environment.environmentId}:${target.projectId}`)
+    .join(",");
   const [pendingTargets, setPendingTargets] = useState<
     readonly ScopedMobileSettingsTarget[] | null
   >(null);
@@ -171,7 +178,10 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
     label: "environment settings update",
     reportFailure: true,
   });
-  const persist = (writes: ReturnType<typeof planMobileScopedSettingsClear>) => {
+  const persist = (
+    writes: ReturnType<typeof planMobileScopedSettingsClear>,
+    onSettled: () => void,
+  ) => {
     if (
       writeInFlight.current ||
       !targets.every((target) =>
@@ -191,20 +201,40 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
       writeInFlight.current = false;
       setPendingTargets(null);
       setPendingWrites((count) => count - 1);
+      onSettled();
     });
   };
   const write = (patch: ServerSettingsPatch) => {
+    if (writeInFlight.current) {
+      const queued = queuedPatch.current;
+      queuedPatch.current = {
+        key: targetsKey,
+        patch: queued?.key === targetsKey ? { ...queued.patch, ...patch } : patch,
+      };
+      return;
+    }
     if (!hasConnectedSelection) return;
-    persist(planMobileScopedSettingsPatch(targets, projectSelected, patch));
+    persist(planMobileScopedSettingsPatch(targets, projectSelected, patch), () => {
+      const queued = queuedPatch.current;
+      queuedPatch.current = null;
+      // These targets may not show this write yet, so send it again with the
+      // queued patch; project overrides are replaced whole.
+      if (queued?.key === targetsKey) write({ ...patch, ...queued.patch });
+    });
+  };
+  // Resending a draft over these pre-write targets would undo the write.
+  const dropQueuedPatch = () => {
+    queuedPatch.current = null;
   };
   const clearProjectOverrides = () => {
-    persist(planMobileScopedSettingsClear(targets, PAGE_PROJECT_KEYS[props.page]));
+    persist(planMobileScopedSettingsClear(targets, PAGE_PROJECT_KEYS[props.page]), dropQueuedPatch);
   };
   const writeDefaultBaseBranch = (branch: string | null) => {
     persist(
       branch === null
         ? planMobileScopedSettingsClear(targets, ["defaultThreadBaseBranch"])
         : planMobileProjectOverridePatch(targets, { defaultThreadBaseBranch: branch }),
+      dropQueuedPatch,
     );
   };
   const supportsProjectOverrides = targets.every(
@@ -341,9 +371,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
               {props.page === "source-control" ? (
                 <>
                   <BranchNamingSettings
-                    key={targets
-                      .map((target) => `${target.environment.environmentId}:${target.projectId}`)
-                      .join(",")}
+                    key={targetsKey}
                     mode={uniform("branchNamingMode")}
                     prefix={uniform("branchNamePrefix")}
                     instructions={uniform("branchNameInstructions")}
@@ -352,7 +380,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   />
                   <SettingsSection title="Pull requests">
                     <SettingsSwitchRow
-                      icon="arrow.triangle.merge"
+                      icon={PullRequestGlyph.merged}
                       label="Remove agent credits when merging"
                       subtitle="Remove recognized agent credits from GitHub merge and squash messages, keeping human co-authors. Includes auto-merge. Excludes merge queues, stack merges, and existing commits."
                       value={uniform("removeAgentCreditsOnMerge")}
@@ -373,11 +401,7 @@ function ServerSettingsDetail(props: { readonly page: SettingsPage }) {
                   <SettingsSection title="Worktrees">
                     {projectSelected ? (
                       <DefaultBaseBranchField
-                        key={targets
-                          .map(
-                            (target) => `${target.environment.environmentId}:${target.projectId}`,
-                          )
-                          .join(",")}
+                        key={targetsKey}
                         value={
                           displayTargets.every(
                             (target) =>

@@ -2,14 +2,18 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `b827ca48d` (2026-10-17)
+- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
 
 Upstream stores a scheduled task's full model selection, including provider
-options such as reasoning effort or fast mode, and every run passes it unchanged
-to the thread it launches or wakes. Only the mobile editor can set those options.
-The web editor keeps the model as an `instanceId:model` string plus a hidden copy
-of the original selection, so options survive an edit but can never be chosen,
-and every task created there runs on the model's defaults. The `schedule_task`
+options such as reasoning effort or fast mode, and passes it unchanged to the
+thread an unbound run launches. A thread-bound run follows the thread's current
+provider and passes none
+([pingdotgg/t3code#18467](https://github.com/pingdotgg/t3code/pull/18467)), so
+stored options only take effect on tasks that launch their own thread. Only the
+mobile editor can set those options. The web editor keeps the model as an
+`instanceId:model` string plus a hidden copy of the original selection, so options
+survive an edit but can never be chosen, and every task created there runs on the
+model's defaults. The `schedule_task`
 and `update_scheduled_task` MCP tools inherit the calling thread's selection with
 no way to pass a different one.
 
@@ -33,6 +37,9 @@ the previous unvalidated inheritance, so a task saved without one keeps working
 while its provider is briefly unavailable; an explicit target is validated
 against the advertised option descriptors exactly like delegation. Task summaries
 report the provider, model, and options so an agent can read back what it set.
+Because schedule tools reach the resolver too, its unusable-provider error says the
+provider "cannot be used" rather than upstream's "cannot run a child task", and the
+fork's copy of upstream's delegation test expects that wording.
 
 Upstream later let projects turn provider instances on or off
 ([pingdotgg/t3code#17879](https://github.com/pingdotgg/t3code/pull/17879)). Its
