@@ -58,6 +58,8 @@ jobs:
       contents: write
     env:
       T3CODE_RELEASE_REPOSITORY: ${{ github.repository }}
+      # The fork publishes no desktop builds; see ci.yml.
+      T3CODE_DESKTOP_UPDATE_REPOSITORY: pingdotgg/t3code
     steps:
       - name: Checkout
         uses: actions/checkout@v6
