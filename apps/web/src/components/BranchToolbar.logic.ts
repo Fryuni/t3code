@@ -3,11 +3,10 @@ import type {
   EnvironmentMachineKind,
   VcsRef,
   ProjectId,
-  WorktreeStartRemote,
   WorktreeSubmodules,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
-import { deriveLocalBranchNameFromRemoteRef, sanitizeNewRefName } from "@t3tools/shared/git";
+import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { toSortableTimestamp } from "../lib/threadSort";
 export {
   dedupeRemoteBranchesWithLocalMatches,
@@ -22,6 +21,10 @@ export interface EnvironmentOption {
   isPrimary: boolean;
   machine: EnvironmentMachineKind;
 }
+
+/** "Add to another machine" stays muted until hovered: easy to find, quieter than the machines. */
+export const ADD_TO_MACHINE_LABEL_CLASS =
+  "flex min-w-0 items-center gap-1.5 opacity-55 in-data-highlighted:opacity-100 in-data-popup-open:opacity-100";
 
 export const EnvMode = Schema.Literals(["local", "worktree"]);
 export type EnvMode = typeof EnvMode.Type;
@@ -240,8 +243,7 @@ export function resolveBranchTriggerLabel(input: {
   effectiveEnvMode: EnvMode;
   resolvedActiveBranch: string | null;
   resolvedActiveBranchIsRemote: boolean | null;
-  resolvedActiveBranchRemoteName?: string | null;
-  startFromRemote: WorktreeStartRemote;
+  startFromOrigin: boolean;
   createNewBranch?: boolean;
 }): string {
   const {
@@ -249,25 +251,18 @@ export function resolveBranchTriggerLabel(input: {
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    resolvedActiveBranchRemoteName,
-    startFromRemote,
+    startFromOrigin,
     createNewBranch = true,
   } = input;
   if (!resolvedActiveBranch) {
     return "Select ref";
   }
+  // Checking out an existing branch shows that branch, not a base.
   if (effectiveEnvMode === "worktree" && !activeWorktreePath && createNewBranch) {
-    // Until the ref is known to be local or remote, the selected name is shown as is.
-    if (startFromRemote === null || resolvedActiveBranchIsRemote === null) {
-      return `From ${resolvedActiveBranch}`;
-    }
-    const branchName = !resolvedActiveBranchIsRemote
-      ? resolvedActiveBranch
-      : resolvedActiveBranchRemoteName &&
-          resolvedActiveBranch.startsWith(`${resolvedActiveBranchRemoteName}/`)
-        ? resolvedActiveBranch.slice(resolvedActiveBranchRemoteName.length + 1)
-        : deriveLocalBranchNameFromRemoteRef(resolvedActiveBranch);
-    return `From ${startFromRemote}/${branchName}`;
+    // Only the server can determine a local branch's configured remote.
+    return startFromOrigin && resolvedActiveBranchIsRemote === false
+      ? `From ${resolvedActiveBranch} (remote)`
+      : `From ${resolvedActiveBranch}`;
   }
   return resolvedActiveBranch;
 }

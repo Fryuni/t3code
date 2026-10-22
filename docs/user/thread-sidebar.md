@@ -14,14 +14,12 @@ its title in the chat header. On mobile, long-press the thread.
 
 To work on an existing branch in a new directory, choose **New worktree**, open
 the branch selector, and turn off **Create new branch**. Select a local branch
-that is not already checked out; **Start from origin** applies only when creating
+that is not already checked out; **Start from remote** applies only when creating
 a new branch.
 
-In a repository with remotes named `origin` and `upstream`, the branch selector
-offers **Off**, **origin**, and **upstream** under **Start from remote**. Choose
-**upstream** to start a new worktree from the latest matching branch on upstream
-instead of your fork. If that branch is missing on upstream, the thread fails to
-start. Starting from origin falls back to your local branch when origin lacks it.
+**Start from remote** starts a new worktree from the latest commit of the remote
+branch its base tracks. In a fork, pick `upstream/main` as the base to start from
+the upstream repository instead of your fork.
 
 When you change a new thread's project, T3 Code stays in the current environment
 if that project exists there. Otherwise it selects an environment that has it.
@@ -65,7 +63,7 @@ On web and desktop, unpinning, settling, snoozing, and archiving a thread each s
 a notification with **Undo** for five seconds. Undo restores the thread's previous
 state, including its pinned position, and reopens an archived thread you were
 viewing. Discarding an unsent draft from the sidebar works the same way: Undo brings
-back its text and attachments. `mod+z` triggers the most recent Undo when no text field is focused; see
+back its text and attachments. `mod+z` triggers the most recent Undo, even from the composer; see
 [Keybindings](./keybindings.md#commands-with-special-behavior).
 
 On web and desktop, you can also drag files from your computer onto any thread row:
@@ -162,7 +160,8 @@ Press `Escape` while dragging to cancel.
 
 By default, environments settle inactive threads after three days and settle
 threads whose pull request merged. A closed pull request can also settle an idle
-thread. Work in progress, pending questions or approvals, and live background work
+thread. An empty thread's inactivity counts from when it was created.
+Work in progress, pending questions or approvals, and live background work
 prevent automatic settlement. An open pull request does not prevent inactivity
 settlement unless you turn on **Keep threads with a PR** in **Settings → General**,
 but an old closed or merged pull request does not settle work you
@@ -219,8 +218,8 @@ continuation. You can cancel it from the thread. Enable **Auto-resume limited
 threads** in **Settings → General** on web and desktop, or **Settings → Thread
 behavior** on mobile, to schedule limit stops by default.
 The environment must be running when the reset arrives; it resumes overdue
-continuations after a restart. Sending a new message, archiving, or settling the
-thread prevents a pending continuation from starting.
+continuations after a restart. Stopping the thread, sending a new message,
+archiving, or settling it prevents a pending continuation from starting.
 
 Choose **Snooze until reset** to hide the thread until its allowance returns.
 Snooze and auto-resume are independent: snooze alone wakes the thread without
@@ -246,3 +245,6 @@ Choose **Snooze → Custom…** from a thread's menu to pick a date and time in 
 local time zone, or a duration in minutes, hours, or days. Durations start when
 you confirm; one day means 24 hours. On web and desktop, you can also snooze
 several selected threads together. Choose **Wake thread** to bring a thread back early.
+A snoozed thread keeps working and stays hidden until its wake time, even while
+its agent wakes itself for background work. It comes back early only when it needs
+an approval or answer from you, when a run fails, or when you send it a message.

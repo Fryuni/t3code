@@ -1,7 +1,7 @@
 import { EnvironmentId, ProjectId, ThreadId, type VcsRef } from "@t3tools/contracts";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, expect, it, vi } from "vite-plus/test";
+import { expect, it, vi } from "vite-plus/test";
+
+import { render } from "../../test/render";
 
 const state = vi.hoisted(() => ({
   serverThread: null as {
@@ -120,11 +120,8 @@ import { BranchToolbarBranchSelector } from "./BranchToolbarBranchSelector";
 const environmentId = EnvironmentId.make("local");
 const projectId = ProjectId.make("project");
 const threadId = ThreadId.make("thread");
-let root: Root | null = null;
-let container: HTMLDivElement | null = null;
 
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+function resetState() {
   vi.clearAllMocks();
   state.serverThread = null;
   state.draftThread = null;
@@ -133,39 +130,25 @@ beforeEach(() => {
     getDraftThreadByRef: (() => state.draftThread) as never,
     setDraftThreadContext: state.setDraftThreadContext,
   });
-});
+}
 
-afterEach(async () => {
-  await act(() => root?.unmount());
-  root = null;
-  container?.remove();
-  container = null;
-  vi.unstubAllGlobals();
-});
-
-async function render(options: { envLocked: boolean; createNewBranch?: boolean }) {
-  await act(() => {
-    const selector = (
-      <BranchToolbarBranchSelector
-        environmentId={environmentId}
-        threadId={threadId}
-        effectiveEnvModeOverride="worktree"
-        envLocked={options.envLocked}
-        onActiveThreadBranchOverrideChange={state.setBranchOverride}
-        createNewBranch={options.createNewBranch ?? true}
-        startFromRemote={null}
-        onStartFromRemoteChange={vi.fn()}
-      />
-    );
-    if (!root) {
-      container = document.body.appendChild(document.createElement("div"));
-      root = createRoot(container);
-    }
-    root.render(selector);
-  });
+function selector(options: { envLocked: boolean; createNewBranch?: boolean }) {
+  return (
+    <BranchToolbarBranchSelector
+      environmentId={environmentId}
+      threadId={threadId}
+      effectiveEnvModeOverride="worktree"
+      envLocked={options.envLocked}
+      onActiveThreadBranchOverrideChange={state.setBranchOverride}
+      createNewBranch={options.createNewBranch ?? true}
+      startFromOrigin={false}
+      onStartFromOriginChange={vi.fn()}
+    />
+  );
 }
 
 it("does not reset a launched worktree from its initial unprovisioned shell", async () => {
+  resetState();
   state.serverThread = {
     id: threadId,
     environmentId,
@@ -175,14 +158,14 @@ it("does not reset a launched worktree from its initial unprovisioned shell", as
     runtime: null,
   };
 
-  await render({ envLocked: true });
+  await using screen = await render(selector({ envLocked: true }));
 
   state.serverThread = {
     ...state.serverThread,
     branch: "t3/abcd1234",
     worktreePath: "/repo-worktrees/temp",
   };
-  await render({ envLocked: true });
+  await screen.rerender(selector({ envLocked: true }));
 
   expect(state.updateMetadata).not.toHaveBeenCalled();
   expect(state.stopSession).not.toHaveBeenCalled();
@@ -190,6 +173,7 @@ it("does not reset a launched worktree from its initial unprovisioned shell", as
 });
 
 it("clears an unavailable existing branch in an empty thread's pending selection", async () => {
+  resetState();
   state.serverThread = {
     id: threadId,
     environmentId,
@@ -199,7 +183,7 @@ it("clears an unavailable existing branch in an empty thread's pending selection
     runtime: null,
   };
 
-  await render({ envLocked: false, createNewBranch: false });
+  await using _screen = await render(selector({ envLocked: false, createNewBranch: false }));
 
   expect(state.updateMetadata).not.toHaveBeenCalled();
   expect(state.stopSession).not.toHaveBeenCalled();
@@ -207,6 +191,7 @@ it("clears an unavailable existing branch in an empty thread's pending selection
 });
 
 it("defaults an empty thread's pending worktree base without changing its workspace", async () => {
+  resetState();
   state.serverThread = {
     id: threadId,
     environmentId,
@@ -216,7 +201,7 @@ it("defaults an empty thread's pending worktree base without changing its worksp
     runtime: null,
   };
 
-  await render({ envLocked: false });
+  await using _screen = await render(selector({ envLocked: false }));
 
   expect(state.setBranchOverride).toHaveBeenCalledWith("main");
   expect(state.updateMetadata).not.toHaveBeenCalled();
@@ -224,6 +209,7 @@ it("defaults an empty thread's pending worktree base without changing its worksp
 });
 
 it("still defaults a new worktree draft to the repository's base branch", async () => {
+  resetState();
   state.draftThread = {
     environmentId,
     projectId,
@@ -233,7 +219,7 @@ it("still defaults a new worktree draft to the repository's base branch", async 
     environmentSelection: "auto",
   };
 
-  await render({ envLocked: false });
+  await using _screen = await render(selector({ envLocked: false }));
 
   expect(state.setDraftThreadContext).toHaveBeenCalledWith(
     { environmentId, threadId },
@@ -249,6 +235,7 @@ it("still defaults a new worktree draft to the repository's base branch", async 
 });
 
 it("still clears an unavailable existing branch in a draft", async () => {
+  resetState();
   state.draftThread = {
     environmentId,
     projectId,
@@ -258,7 +245,7 @@ it("still clears an unavailable existing branch in a draft", async () => {
     environmentSelection: "auto",
   };
 
-  await render({ envLocked: false, createNewBranch: false });
+  await using _screen = await render(selector({ envLocked: false, createNewBranch: false }));
 
   expect(state.setDraftThreadContext).toHaveBeenCalledWith(
     { environmentId, threadId },

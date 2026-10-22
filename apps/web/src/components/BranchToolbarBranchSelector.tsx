@@ -4,10 +4,7 @@ import { useSupportsMultiplePullRequests } from "~/hooks/useSupportsMultiplePull
 import { resolveThreadCurrentPullRequestLink } from "@t3tools/shared/threadPullRequests";
 import { useRightPanelStore } from "../rightPanelStore";
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
-import {
-  canCheckoutBranchInNewWorktree,
-  canStartWorktreeFromUpstream,
-} from "@t3tools/client-runtime/state/vcs";
+import { canCheckoutBranchInNewWorktree } from "@t3tools/client-runtime/state/vcs";
 import {
   isAtomCommandInterrupted,
   squashAtomCommandFailure,
@@ -20,7 +17,6 @@ import {
   type EnvironmentId,
   type ThreadId,
   type VcsRef,
-  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
@@ -97,8 +93,8 @@ interface BranchToolbarBranchSelectorProps {
   createNewBranch: boolean;
   /** Omitted when the server cannot check out an existing branch, which hides the toggle. */
   onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
-  startFromRemote: WorktreeStartRemote;
-  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
+  startFromOrigin: boolean;
+  onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
   onComposerFocusRequest?: () => void;
 }
@@ -121,8 +117,8 @@ export function BranchToolbarBranchSelector({
   onActiveThreadBranchOverrideChange,
   createNewBranch: createNewBranchProp,
   onCreateNewBranchChange,
-  startFromRemote,
-  onStartFromRemoteChange,
+  startFromOrigin,
+  onStartFromOriginChange,
   onCheckoutPullRequestRequest,
   onComposerFocusRequest,
 }: BranchToolbarBranchSelectorProps) {
@@ -574,8 +570,7 @@ export function BranchToolbarBranchSelector({
     effectiveEnvMode,
     resolvedActiveBranch,
     resolvedActiveBranchIsRemote,
-    resolvedActiveBranchRemoteName: selectedBranchRef?.remoteName ?? null,
-    startFromRemote,
+    startFromOrigin,
     createNewBranch,
   });
 
@@ -727,13 +722,9 @@ export function BranchToolbarBranchSelector({
             }
           : undefined
       }
-      remoteControl={
+      originControl={
         isSelectingWorktreeBase && createNewBranch
-          ? {
-              value: startFromRemote,
-              upstreamAvailable: canStartWorktreeFromUpstream(branchStatusQuery.data?.remoteNames),
-              onChange: onStartFromRemoteChange,
-            }
+          ? { checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }
           : undefined
       }
       popupProps={{

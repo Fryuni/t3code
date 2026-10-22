@@ -14,13 +14,11 @@ import {
   type ProviderDriverKind,
   type ProviderInteractionMode,
   ProjectId,
-  resolveWorktreeStartRemote,
   type RunId,
   type RuntimeMode,
   type ScheduledTaskId,
   ThreadId,
   type VcsListRefsResult,
-  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import * as Cause from "effect/Cause";
 import * as Context from "effect/Context";
@@ -66,8 +64,6 @@ export type ThreadLaunchWorkspaceStrategy =
       readonly baseRef: string;
       readonly branch?: string | undefined;
       readonly startFromOrigin?: boolean | undefined;
-      /** Overrides `startFromOrigin`; see `resolveWorktreeStartRemote`. */
-      readonly startFromRemote?: WorktreeStartRemote | undefined;
       /** False checks out `baseRef` as an existing local branch instead of creating one. */
       readonly createBranch?: boolean | undefined;
     };
@@ -283,7 +279,7 @@ const make = Effect.gen(function* () {
         projectId: input.projectId,
         message,
       });
-    if (strategy.branch !== undefined || resolveWorktreeStartRemote(strategy) !== null) {
+    if (strategy.branch !== undefined || strategy.startFromOrigin === true) {
       return yield* reject(
         "Checking out an existing branch cannot also name a new branch or start from a remote.",
       );
@@ -301,26 +297,6 @@ const make = Effect.gen(function* () {
       return yield* reject(
         `Branch "${strategy.baseRef}" is already checked out at ${ref.worktreePath}. Select another branch, or enable Create new branch.`,
       );
-    }
-  });
-
-  // Upstream is an explicit choice, so a missing remote is rejected before the
-  // thread exists instead of failing its preparation afterwards.
-  const validateStartRemote = Effect.fn("ThreadLaunchService.validateStartRemote")(function* (
-    input: ThreadLaunchInput,
-    cwd: string,
-  ) {
-    const strategy = input.workspaceStrategy;
-    if (strategy.type !== "worktree" || resolveWorktreeStartRemote(strategy) !== "upstream") return;
-    const upstreamExists = yield* git
-      .remoteExists({ cwd, remoteName: "upstream" })
-      .pipe(Effect.mapError(mapError(input, "provision-worktree")));
-    if (!upstreamExists) {
-      return yield* new ThreadLaunchWorkspaceError({
-        commandId: input.commandId,
-        projectId: input.projectId,
-        message: GitWorkflow.UPSTREAM_REMOTE_NOT_CONFIGURED,
-      });
     }
   });
 
@@ -362,8 +338,10 @@ const make = Effect.gen(function* () {
       // `git worktree add` reads `-` as the previous checkout.
       if (yield* git.hasCommit({ cwd, refName: baseRef === "-" ? "@{-1}" : baseRef }))
         return undefined;
-      const startRemote = resolveWorktreeStartRemote(strategy);
-      if (startRemote !== null && (yield* git.remoteExists({ cwd, remoteName: startRemote })))
+      if (
+        strategy.startFromOrigin === true &&
+        (yield* git.resolveWorktreeBaseRemote({ cwd, refName: baseRef })) !== null
+      )
         return undefined;
       // `git worktree add` also starts from a remote-tracking branch of that
       // name; any ref carrying it is reason enough to let Git decide.
@@ -427,8 +405,8 @@ const make = Effect.gen(function* () {
     }
     yield* Effect.gen(function* () {
       const initialMessage = input.initialMessage;
-      const generateBranchNameFor = (cwd: string, message: ThreadLaunchInitialMessage) =>
-        Effect.gen(function* () {
+      const generateBranchNameFor = Effect.fn("ThreadLaunchService.generateBranchNameFor")(
+        function* (cwd: string, message: ThreadLaunchInitialMessage) {
           const settings = resolveProjectSettings(
             yield* serverSettings.getSettings,
             input.projectId,
@@ -460,7 +438,8 @@ const make = Effect.gen(function* () {
                 exactName: settings.branchNamingMode === "custom",
               })),
             );
-        });
+        },
+      );
 
       const requestedBranch = input.workspaceStrategy.branch;
       let branch: string | null;
@@ -488,25 +467,43 @@ const make = Effect.gen(function* () {
             })
             .pipe(Effect.mapError(mapError(input, "update-thread", threadId)));
         }
-        const base = yield* git
-          .resolveWorktreeBase(
-            {
+        let startRef = input.workspaceStrategy.baseRef;
+        let baseRefName = input.workspaceStrategy.baseRef;
+        const baseRemote =
+          existingBranch === null && input.workspaceStrategy.startFromOrigin === true
+            ? yield* git
+                .resolveWorktreeBaseRemote({
+                  cwd: project.workspaceRoot,
+                  refName: input.workspaceStrategy.baseRef,
+                })
+                .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
+            : null;
+        yield* setupTracker.stageStatus(threadId, "fetch", baseRemote ? "running" : "skipped");
+        if (baseRemote) {
+          const remoteBase = yield* git
+            .fetchWorktreeBaseCommit({
               cwd: project.workspaceRoot,
-              baseBranch: input.workspaceStrategy.baseRef,
-              startFromRemote:
-                existingBranch === null
-                  ? resolveWorktreeStartRemote(input.workspaceStrategy)
-                  : null,
-            },
-            { onFetchStart: () => setupTracker.stageStatus(threadId, "fetch", "running") },
-          )
-          .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
-        yield* setupTracker.stageStatus(
-          threadId,
-          "fetch",
-          base.fetchStatus,
-          base.fetchDetail ?? null,
-        );
+              refName: input.workspaceStrategy.baseRef,
+            })
+            .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
+          if (remoteBase !== null) {
+            startRef = remoteBase.commitSha;
+            baseRefName = `refs/remotes/${remoteBase.remoteRefName}`;
+            yield* setupTracker.stageStatus(
+              threadId,
+              "fetch",
+              "done",
+              `${remoteBase.remoteRefName} at ${remoteBase.commitSha.slice(0, 7)}`,
+            );
+          } else {
+            yield* setupTracker.stageStatus(
+              threadId,
+              "fetch",
+              "warning",
+              `${baseRemote.remoteName}/${baseRemote.branchName} not found, using local branch`,
+            );
+          }
+        }
         if (
           existingBranch === null &&
           branch !== null &&
@@ -526,9 +523,9 @@ const make = Effect.gen(function* () {
             existingBranch === null
               ? {
                   cwd: project.workspaceRoot,
-                  refName: base.baseRef,
+                  refName: startRef,
                   newRefName: branch!,
-                  baseRefName: input.workspaceStrategy.baseRef,
+                  baseRefName,
                   path: null,
                 }
               : { cwd: project.workspaceRoot, refName: existingBranch, path: null },
@@ -906,7 +903,14 @@ const make = Effect.gen(function* () {
   });
 
   const launch: ThreadLaunchService["Service"]["launch"] = Effect.fn("ThreadLaunchService.launch")(
-    function* (input) {
+    function* (request) {
+      // Scratch has no Git repository. Normalize before folder allocation so
+      // durable preparation and retries use the thread's own Scratch folder.
+      const input: ThreadLaunchInput =
+        request.workspaceStrategy.type === "worktree" &&
+        (yield* managedFolders.isScratchProject(request.projectId))
+          ? { ...request, workspaceStrategy: { type: "root" } }
+          : request;
       yield* ProjectCloneTracker.rejectCommandsDuringClone(cloneTracker, {
         type: "thread.create",
         projectId: input.projectId,
@@ -928,11 +932,10 @@ const make = Effect.gen(function* () {
       }
 
       const launchReceipt = yield* readReceipt(input, input.commandId);
-      // A retry replays a launch these checks already passed, and would find
+      // A retry replays a launch this check already passed, and would find
       // the branch occupied by its own first attempt.
       if (Option.isNone(launchReceipt)) {
         yield* validateExistingBranchCheckout(input, project.workspaceRoot);
-        yield* validateStartRemote(input, project.workspaceRoot);
       }
       yield* threads.assertProviderInstanceEnabled({
         projectId: input.projectId,

@@ -1,13 +1,19 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { afterEach, assert, it, vi } from "@effect/vitest";
+import { assert, it } from "@effect/vitest";
+import * as HostProcess from "@t3tools/shared/HostProcess";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
 import * as Option from "effect/Option";
 import * as Path from "effect/Path";
 import { HttpClient, HttpClientResponse } from "effect/http";
-import * as HostProcess from "@t3tools/shared/HostProcess";
+import { afterEach, vi } from "vite-plus/test";
 
-import { repointLauncher, resolveLauncherPath, resolveUpdateTarget } from "./update.ts";
+import {
+  repointLauncher,
+  resolveLauncherPath,
+  resolveNewestVersion,
+  resolveUpdateTarget,
+} from "./update.ts";
 
 const releaseClient = (requests: string[], body: unknown) =>
   HttpClient.make((request) => {
@@ -16,8 +22,32 @@ const releaseClient = (requests: string[], body: unknown) =>
   });
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
+
+it.effect("authenticates each release page until the requested channel is found", () =>
+  Effect.gen(function* () {
+    const pages: string[] = [];
+    const httpClient = HttpClient.make((request) => {
+      const url = new URL(request.url);
+      assert.equal(url.origin, "https://api.github.com");
+      assert.equal(url.pathname, "/repos/pingdotgg/t3code/releases");
+      assert.equal(request.headers.accept, "application/vnd.github+json");
+      assert.equal(request.headers.authorization, "Bearer gh-token");
+      const page = url.searchParams.get("page") ?? "";
+      pages.push(page);
+      const tag_name = page === "1" ? "v1.2.4-preview.20260101.1" : "v1.2.3";
+      return Effect.succeed(HttpClientResponse.fromWeb(request, Response.json([{ tag_name }])));
+    });
+    const version = yield* resolveNewestVersion("stable").pipe(
+      Effect.provideService(HostProcess.Environment, { GH_TOKEN: "gh-token" }),
+      Effect.provideService(HttpClient.HttpClient, httpClient),
+    );
+    assert.equal(version, "1.2.3");
+    assert.deepStrictEqual(pages, ["1", "2"]);
+  }),
+);
 
 it.effect("a fork build updates to its latest release and has no channels", () =>
   Effect.gen(function* () {
@@ -34,6 +64,7 @@ it.effect("a fork build updates to its latest release and has no channels", () =
             HttpClient.HttpClient,
             releaseClient(requests, { tag_name: "v0.0.44-fork.20261002.7" }),
           ),
+          Effect.provideService(HostProcess.Environment, {}),
         );
 
     assert.equal(
@@ -65,6 +96,7 @@ it.effect("an upstream build walks the channel it is asked for", () =>
           { tag_name: "v0.0.45" },
         ]),
       ),
+      Effect.provideService(HostProcess.Environment, {}),
     );
     assert.equal(version, "0.0.46-nightly.20261003.5");
     assert.deepStrictEqual(requests, [

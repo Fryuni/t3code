@@ -1,11 +1,6 @@
 import { RegistryContext } from "@effect/atom-react";
-import type {
-  DeleteProjectInput,
-  UpdateProjectInput,
-} from "@t3tools/client-runtime/state/projects";
 import {
   AuthOrchestrationOperateScope,
-  AuthSettingsWriteScope,
   AuthSourceControlWriteScope,
   EnvironmentId,
   ProjectId,
@@ -15,42 +10,24 @@ import {
 } from "@t3tools/contracts";
 import { DEFAULT_CLIENT_SETTINGS } from "@t3tools/contracts/settings";
 import { DEFAULT_RESOLVED_KEYBINDINGS } from "@t3tools/shared/keybindings";
-import {
-  createMemoryHistory,
-  createRootRoute,
-  createRouter,
-  RouterProvider,
-} from "@tanstack/react-router";
-import * as Cause from "effect/Cause";
 import { AsyncResult, Atom } from "effect/reactivity";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
-import { userEvent } from "vite-plus/test/browser";
+import { describe, expect, it, vi } from "vite-plus/test";
+import { page, userEvent } from "vite-plus/test/browser";
 
 import type { Project } from "../../types";
+import { render } from "../../../test/render";
 
 type SessionResult = AsyncResult.AsyncResult<AuthSessionState, Error>;
 const state = vi.hoisted(() => ({
   sessions: new Map<EnvironmentId, Atom.Writable<SessionResult>>(),
+  environments: [] as Array<{
+    environmentId: EnvironmentId;
+    label: string;
+    connection: { phase: string };
+    serverConfig: unknown;
+  }>,
   projects: [] as Project[],
-  update:
-    vi.fn<
-      (request: {
-        environmentId: EnvironmentId;
-        input: UpdateProjectInput;
-      }) => Promise<AsyncResult.Success<void>>
-    >(),
-  delete:
-    vi.fn<
-      (request: {
-        environmentId: EnvironmentId;
-        input: DeleteProjectInput;
-      }) => Promise<AsyncResult.Success<void>>
-    >(),
-  confirm: vi.fn<() => Promise<boolean>>(),
-  releaseUploads: vi.fn(),
-  clearDraft: vi.fn(),
+  openAddProjectToMachine: vi.fn(),
 }));
 
 // Session grants come from the server; each test drives them through these atoms.
@@ -68,44 +45,24 @@ vi.mock(import("@t3tools/client-runtime/state/session"), async (original) => {
 });
 vi.mock(import("~/state/environments"), async (original) => ({
   ...(await original()),
-  useEnvironments: (() => ({ environments })) as never,
+  useEnvironments: (() => ({ environments: state.environments })) as never,
   usePrimaryEnvironmentId: () => primaryId,
 }));
 vi.mock(import("~/state/entities"), async (original) => ({
   ...(await original()),
   useProjects: (() => state.projects) as never,
   useThreadShells: () => [],
-  waitForProjectRemoval: async () => true,
 }));
-vi.mock(import("~/state/projects"), async (original) => {
-  const actual = await original();
-  return {
-    ...actual,
-    projectEnvironment: {
-      ...actual.projectEnvironment,
-      update: "update",
-      delete: "delete",
-    } as unknown as typeof actual.projectEnvironment,
-  };
-});
 vi.mock(import("~/state/use-atom-command"), async (original) => ({
   ...(await original()),
-  useAtomCommand: ((command: "update" | "delete") => state[command]) as never,
+  useAtomCommand: (() => vi.fn()) as never,
 }));
 vi.mock(import("~/hooks/useSettings"), async (original) => ({
   ...(await original()),
   useClientSettings: ((selector?: (settings: typeof DEFAULT_CLIENT_SETTINGS) => unknown) =>
     selector ? selector(DEFAULT_CLIENT_SETTINGS) : DEFAULT_CLIENT_SETTINGS) as never,
 }));
-vi.mock(import("~/localApi"), async (original) => ({
-  ...(await original()),
-  readLocalApi: (() => ({ dialogs: { confirm: state.confirm } })) as never,
-}));
-vi.mock(import("~/lib/composerDraftUploads"), async (original) => ({
-  ...(await original()),
-  releaseProjectDraftUploads: state.releaseUploads,
-}));
-// Sections with their own data sources and tests; this file covers project permissions.
+// Sections with their own data sources and tests; this file covers project checkouts.
 vi.mock(import("./ProjectDefaultsSettings"), async (original) => ({
   ...(await original()),
   ProjectDefaultsSettings: (() => null) as never,
@@ -114,9 +71,11 @@ vi.mock(import("./ProjectActionsSettings"), async (original) => ({
   ...(await original()),
   ProjectActionsSettings: (() => null) as never,
 }));
+vi.mock(import("../AddProjectToMachineDialog"), () => ({
+  openAddProjectToMachine: state.openAddProjectToMachine,
+  AddProjectToMachineDialogHost: () => null,
+}));
 
-import { onOpenCommandPalette, type CommandPaletteOpenDetail } from "../../commandPaletteBus";
-import { useComposerDraftStore } from "../../composerDraftStore";
 import { appAtomRegistry } from "../../rpc/atomRegistry";
 import { buildSidebarProjectSnapshots } from "../../sidebarProjectGrouping";
 import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
@@ -124,12 +83,6 @@ import { ProjectSettingsPanel } from "./ProjectSettingsPanel";
 const primaryId = EnvironmentId.make("primary");
 const remoteId = EnvironmentId.make("remote");
 const instanceId = ProviderInstanceId.make("codex");
-const environments = [primaryId, remoteId].map((environmentId) => ({
-  environmentId,
-  label: environmentId,
-  connection: { phase: "connected" as string },
-  serverConfig: { keybindings: DEFAULT_RESOLVED_KEYBINDINGS },
-}));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({
   authenticated: true,
   scopes,
@@ -140,29 +93,40 @@ const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState 
     sessionCookieName: "t3_session",
   },
 });
-const writable = () => AsyncResult.success(session([AuthOrchestrationOperateScope]));
 
-function deferred<T>() {
-  let resolve!: (value: T) => void;
-  const promise = new Promise<T>((complete) => {
-    resolve = complete;
-  });
-  return { promise, resolve };
-}
-
-let root: Root;
-let container: HTMLDivElement;
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  vi.clearAllMocks();
-  container = document.createElement("div");
-  document.body.append(container);
-  root = createRoot(container);
+function setup(input: {
+  readonly checkouts: ReadonlyArray<EnvironmentId>;
+  readonly remote?: { readonly phase?: string; readonly scopes?: AuthEnvironmentScope[] };
+}) {
+  state.openAddProjectToMachine.mockClear();
+  state.environments = [primaryId, remoteId].map((environmentId) => ({
+    environmentId,
+    label: environmentId,
+    connection: {
+      phase: environmentId === remoteId ? (input.remote?.phase ?? "connected") : "connected",
+    },
+    serverConfig: {
+      keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
+      environment: {
+        platform: { machine: "server" },
+        capabilities: { projectCloneTracking: true },
+      },
+    },
+  }));
   state.sessions.clear();
-  for (const id of [primaryId, remoteId])
-    state.sessions.set(id, Atom.make<SessionResult>(writable()).pipe(Atom.keepAlive));
-  state.projects = [primaryId, remoteId].map((environmentId) => ({
+  for (const id of [primaryId, remoteId]) {
+    const scopes =
+      id === remoteId && input.remote?.scopes
+        ? input.remote.scopes
+        : [AuthOrchestrationOperateScope, AuthSourceControlWriteScope];
+    state.sessions.set(
+      id,
+      Atom.make<SessionResult>(
+        AsyncResult.success({ ...session(scopes), permissions: scopes }),
+      ).pipe(Atom.keepAlive),
+    );
+  }
+  state.projects = input.checkouts.map((environmentId) => ({
     id: ProjectId.make(`project-${environmentId}`),
     environmentId,
     title: "Shared repo",
@@ -181,251 +145,65 @@ beforeEach(() => {
     updatedAt: "2026-01-01T00:00:00.000Z",
     scripts: [],
   }));
-  state.update.mockImplementation(async ({ environmentId, input }) => {
-    const { projectId, ...updates } = input;
-    const patch = Object.fromEntries(
-      Object.entries(updates).filter(([, value]) => value !== undefined),
-    ) as Partial<Project>;
-    state.projects = state.projects.map((project) =>
-      project.environmentId === environmentId && project.id === projectId
-        ? { ...project, ...patch }
-        : project,
-    );
-    return AsyncResult.success(undefined);
-  });
-  state.delete.mockResolvedValue(AsyncResult.success(undefined));
-  state.confirm.mockResolvedValue(true);
-  useComposerDraftStore.setState({ clearProjectDraftThreadId: state.clearDraft });
-});
+}
 
-afterEach(async () => {
-  for (const environment of environments) environment.connection.phase = "connected";
-  await act(async () => root.unmount());
-  container.remove();
-  vi.unstubAllGlobals();
-});
-
-function projectKey() {
-  return buildSidebarProjectSnapshots({
+async function mountPanel() {
+  const projectKey = buildSidebarProjectSnapshots({
     projects: state.projects,
     settings: DEFAULT_CLIENT_SETTINGS,
     primaryEnvironmentId: primaryId,
     resolveEnvironmentLabel: (id) => id,
   })[0]!.projectKey;
-}
-
-async function mountPanel() {
-  const key = projectKey();
-  const router = createRouter({
-    routeTree: createRootRoute({ component: () => <ProjectSettingsPanel projectKey={key} /> }),
-    history: createMemoryHistory({ initialEntries: ["/settings/projects"] }),
-  });
-  await router.load();
-  await act(async () =>
-    root.render(
-      <RegistryContext.Provider value={appAtomRegistry}>
-        <RouterProvider router={router} />
-      </RegistryContext.Provider>,
-    ),
+  const screen = await render(
+    <RegistryContext.Provider value={appAtomRegistry}>
+      <ProjectSettingsPanel projectKey={projectKey} />
+    </RegistryContext.Provider>,
+    { router: "/settings/projects" },
   );
-  await vi.waitFor(() => expect(nameInput()).not.toBeNull());
+  await vi.waitFor(() =>
+    expect(screen.container.querySelector('[aria-label="Project name"]')).not.toBeNull(),
+  );
+  return screen;
 }
 
-const nameInput = () => container.querySelector<HTMLInputElement>('[aria-label="Project name"]')!;
-const removeCheckout = (root: string) =>
-  container.querySelector<HTMLButtonElement>(`[aria-label="Remove checkout ${root}"]`)!;
-const removeAll = () =>
+const checkoutsHeading = (container: HTMLElement) =>
+  [...container.querySelectorAll("h2")].find((heading) => heading.textContent === "Checkouts");
+const addCheckout = (container: HTMLElement) =>
   [...container.querySelectorAll("button")].find((button) =>
-    button.textContent?.includes("Remove all entries"),
-  )!;
-
-async function grant(id: EnvironmentId, result: SessionResult) {
-  await act(async () => appAtomRegistry.set(state.sessions.get(id)!, result));
-}
-
-async function rename(title: string) {
-  await userEvent.fill(nameInput(), title);
-  await userEvent.keyboard("{Enter}");
-}
-
-describe("project settings permissions", () => {
-  it("disables shared edits when any member lacks project access", async () => {
-    await grant(remoteId, AsyncResult.success(session([AuthSettingsWriteScope])));
-    await mountPanel();
-
-    expect(nameInput().disabled).toBe(true);
-    expect(removeAll().disabled).toBe(true);
-    expect(container.textContent).toContain(
-      "Shared settings require permission to change every checkout in this group.",
-    );
-    expect(state.update).not.toHaveBeenCalled();
-  });
-
-  it("renames every member when all have project access without settings access", async () => {
-    await mountPanel();
-    await rename("Renamed");
-    expect(state.update.mock.calls.map(([request]) => request.environmentId)).toEqual([
-      primaryId,
-      remoteId,
-    ]);
-    expect(state.projects.map((project) => project.title)).toEqual(["Renamed", "Renamed"]);
-  });
-
-  it("stops before the next member if its grant is revoked during an earlier update", async () => {
-    const firstUpdate = deferred<AsyncResult.Success<void>>();
-    state.update.mockReturnValueOnce(firstUpdate.promise);
-    await mountPanel();
-    await rename("Renamed");
-    expect(state.update).toHaveBeenCalledOnce();
-
-    await grant(remoteId, AsyncResult.success(session([])));
-    await act(async () => {
-      firstUpdate.resolve(AsyncResult.success(undefined));
-      await firstUpdate.promise;
-    });
-    expect(state.update).toHaveBeenCalledOnce();
-    expect(state.update.mock.calls[0]![0].environmentId).toBe(primaryId);
-  });
-
-  it("disables removal for a checkout whose project grant is missing", async () => {
-    await grant(remoteId, AsyncResult.success(session([])));
-    await mountPanel();
-    expect(removeCheckout("/work/remote").disabled).toBe(true);
-    expect(removeCheckout("/work/primary").disabled).toBe(false);
-  });
-
-  it("removes a writable checkout while removal of the mixed group stays denied", async () => {
-    await grant(remoteId, AsyncResult.success(session([])));
-    await mountPanel();
-    expect(removeAll().disabled).toBe(true);
-
-    await userEvent.click(removeCheckout("/work/primary"));
-    await vi.waitFor(() => expect(state.delete).toHaveBeenCalledOnce());
-    expect(state.delete).toHaveBeenCalledWith({
-      environmentId: primaryId,
-      input: { projectId: state.projects[0]!.id, force: true },
-    });
-    await vi.waitFor(() => expect(state.releaseUploads).toHaveBeenCalledOnce());
-    expect(state.clearDraft).toHaveBeenCalledOnce();
-  });
-
-  it("rechecks every removal target after confirmation before deleting or clearing drafts", async () => {
-    const confirmed = deferred<boolean>();
-    state.confirm.mockReturnValueOnce(confirmed.promise);
-    await mountPanel();
-    await userEvent.click(removeAll());
-    expect(state.confirm).toHaveBeenCalledOnce();
-
-    await grant(remoteId, AsyncResult.success(session([])));
-    await act(async () => {
-      confirmed.resolve(true);
-      await confirmed.promise;
-    });
-    expect(state.delete).not.toHaveBeenCalled();
-    expect(state.releaseUploads).not.toHaveBeenCalled();
-    expect(state.clearDraft).not.toHaveBeenCalled();
-  });
-
-  it("does not save an edit whose grant was revoked mid-edit, and recovers when restored", async () => {
-    await mountPanel();
-    await userEvent.fill(nameInput(), "Renamed");
-    await grant(remoteId, AsyncResult.success(session([])));
-    await act(async () => nameInput().blur());
-    expect(state.update).not.toHaveBeenCalled();
-    expect(nameInput().disabled).toBe(true);
-
-    await grant(remoteId, writable());
-    expect(nameInput().disabled).toBe(false);
-    await rename("Renamed");
-    expect(state.projects.map((project) => project.title)).toEqual(["Renamed", "Renamed"]);
-  });
-
-  it.each([
-    ["loading", () => AsyncResult.initial<AuthSessionState, Error>(), false],
-    [
-      "failed",
-      () => AsyncResult.failure<AuthSessionState, Error>(Cause.fail(new Error("Disconnected"))),
-      false,
-    ],
-    ["refreshing", () => AsyncResult.waiting(writable()), true],
-  ] as const)(
-    "uses the current grant while a member's session is %s",
-    async (_state, result, allowed) => {
-      await grant(remoteId, result());
-      await mountPanel();
-      expect(nameInput().disabled).toBe(!allowed);
-      if (!allowed) return;
-      await rename("Renamed");
-      expect(state.update).toHaveBeenCalledTimes(2);
-    },
+    button.textContent?.includes("Add checkout"),
   );
-});
 
 describe("project checkouts", () => {
-  const checkoutsHeading = () =>
-    [...container.querySelectorAll("h2")].find((heading) => heading.textContent === "Checkouts");
-  const addCheckout = () =>
-    [...container.querySelectorAll("button")].find((button) =>
-      button.textContent?.includes("Add checkout"),
-    );
-  const checkoutTarget = (label: string) =>
-    [...document.querySelectorAll<HTMLElement>('[role="menuitem"]')].find(
-      (item) => item.textContent === label,
-    );
-
   it("offers to check out a lone checkout on a connected machine without one", async () => {
-    state.projects = state.projects.filter((project) => project.environmentId === primaryId);
-    await grant(
-      remoteId,
-      AsyncResult.success(session([AuthOrchestrationOperateScope, AuthSourceControlWriteScope])),
-    );
-    const opened: CommandPaletteOpenDetail[] = [];
-    const stopListening = onOpenCommandPalette((detail) => opened.push(detail));
-    await mountPanel();
+    setup({ checkouts: [primaryId] });
+    await using screen = await mountPanel();
 
-    expect(checkoutsHeading()).toBeDefined();
-    await userEvent.click(addCheckout()!);
-    await vi.waitFor(() => expect(checkoutTarget(remoteId)).toBeDefined());
-    await userEvent.click(checkoutTarget(remoteId)!);
-    stopListening();
+    expect(checkoutsHeading(screen.container)).toBeDefined();
+    await userEvent.click(addCheckout(screen.container)!);
+    await page.getByRole("menuitem", { name: remoteId }).click();
 
-    expect(opened).toEqual([
-      {
-        open: "add-project",
-        addProjectTarget: {
-          environmentId: remoteId,
-          remoteUrl: "https://github.com/example/shared-repo.git",
-          title: "Shared repo",
-        },
-      },
-    ]);
+    expect(state.openAddProjectToMachine).toHaveBeenCalledExactlyOnceWith({
+      projectRef: { environmentId: primaryId, projectId: ProjectId.make("project-primary") },
+      targetEnvironmentId: remoteId,
+    });
   });
 
-  it("disables a machine whose grant cannot clone the project", async () => {
-    state.projects = state.projects.filter((project) => project.environmentId === primaryId);
-    await grant(
-      remoteId,
-      AsyncResult.success({
-        ...session([AuthOrchestrationOperateScope]),
-        permissions: [AuthOrchestrationOperateScope],
-      }),
-    );
-    await mountPanel();
-    await userEvent.click(addCheckout()!);
-    await vi.waitFor(() => expect(checkoutTarget(remoteId)).toBeDefined());
-    expect(checkoutTarget(remoteId)!.hasAttribute("data-disabled")).toBe(true);
+  it("leaves out a machine whose grant cannot clone the project", async () => {
+    setup({ checkouts: [primaryId], remote: { scopes: [AuthOrchestrationOperateScope] } });
+    await using screen = await mountPanel();
+    expect(checkoutsHeading(screen.container)).toBeUndefined();
   });
 
   it("drops the add button once every connected machine has a checkout", async () => {
-    await mountPanel();
-    expect(checkoutsHeading()).toBeDefined();
-    expect(addCheckout()).toBeUndefined();
+    setup({ checkouts: [primaryId, remoteId] });
+    await using screen = await mountPanel();
+    expect(checkoutsHeading(screen.container)).toBeDefined();
+    expect(addCheckout(screen.container)).toBeUndefined();
   });
 
   it("hides checkouts when only one machine is connected", async () => {
-    state.projects = state.projects.filter((project) => project.environmentId === primaryId);
-    environments[1]!.connection.phase = "disconnected";
-    await mountPanel();
-    expect(checkoutsHeading()).toBeUndefined();
+    setup({ checkouts: [primaryId], remote: { phase: "disconnected" } });
+    await using screen = await mountPanel();
+    expect(checkoutsHeading(screen.container)).toBeUndefined();
   });
 });

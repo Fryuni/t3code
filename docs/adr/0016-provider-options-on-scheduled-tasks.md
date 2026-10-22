@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
+- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -47,6 +47,18 @@ driver-only target resolution skips instances the project turned off; the projec
 is the task's for schedule tools and the caller thread's for delegation. The web
 dialog keeps upstream's rule that a draft selection on an instance disabled for the
 task's project falls back to the default.
+
+Upstream then made a target's options merge over the inherited selection for the same
+instance and model, with `[]` clearing them
+([pingdotgg/t3code#16595](https://github.com/pingdotgg/t3code/pull/16595)). The shared
+resolver keeps the fork's inherited-selection input, so `update_scheduled_task` merges
+explicit options over the stored task's options, and a different model still starts from
+its defaults. Upstream's
+[#23040](https://github.com/pingdotgg/t3code/pull/23040) changed the option picker's
+prompt props; the dialog passes the task prompt through the new ones. Upstream's
+[#22557](https://github.com/pingdotgg/t3code/pull/22557) deleted the toolkit integration
+test that held the fork's schedule-target assertions; the fork's unit tests in
+`OrchestratorMcpService.test.ts` keep that coverage.
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target

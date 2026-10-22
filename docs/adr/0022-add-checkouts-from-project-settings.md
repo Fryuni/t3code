@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
+- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
 
 The **Checkouts** section in a project's settings appeared only when the project
 already had more than one checkout. A project checked out on one machine gave no
@@ -22,38 +22,57 @@ project of its own, so a lone checkout of one keeps the section hidden. The shar
 
 The new checkout must land in the same project group, so the clone URL follows
 the group's identity. Grouping uses a fork's `origin`, while the repository
-locator prefers `upstream`, so `RepositoryOrigin` gained an optional `remoteUrl`
-that the [identity resolver](../../apps/server/src/project/RepositoryIdentityResolver.ts)
-fills with the configured origin remote. Whichever remote is chosen goes through
-the shared [`withoutRemoteCredentials`](../../packages/shared/src/git.ts) before
-it is cloned, because the locator carries the checkout's raw remote and the
-destination machine brings its own credentials. A clone registers the
-repository root, so a project in a repository subdirectory or with an unknown
-repository root, a remote that only resolves on the source machine (a path, a loopback host or a remote-helper address), or a fork
-reported by an older server without
-`origin.remoteUrl`, gets no prefilled clone: the user picks a folder instead.
+locator prefers `upstream`. The fork first added `RepositoryOrigin.remoteUrl` for
+this; upstream later added the same field, filled with the raw origin remote
+([pingdotgg/t3code#22492](https://github.com/pingdotgg/t3code/pull/22492)), and the
+fork keeps upstream's field and
+[identity resolver](../../apps/server/src/project/RepositoryIdentityResolver.ts).
+Whichever remote is chosen goes through the shared
+[`withoutRemoteCredentials`](../../packages/shared/src/git.ts) on the client before it
+is cloned, because both fields carry the checkout's raw remote and the destination
+machine brings its own credentials.
 
-A tracked clone also takes the title every existing checkout shares
-([`projectCheckoutTitle`](../../packages/client-runtime/src/operations/projects.ts)),
-because a member whose title differs makes a renamed group fall back to the
-repository's name. Blocking clones on older servers and the folder fallback go
-through the generic add-project flow and infer the title from the folder.
+Upstream then added a dialog that clones a project onto another machine from the
+composer's **Run on** picker
+([pingdotgg/t3code#22180](https://github.com/pingdotgg/t3code/pull/22180),
+[#22254](https://github.com/pingdotgg/t3code/pull/22254)), with a protocol choice,
+`.env` copying, and navigation to the new project. It is not reachable from settings,
+so this decision stands, but web now uses that dialog instead of a flow of its own:
 
 - **Web and desktop:** the [settings panel](../../apps/web/src/components/settings/ProjectSettingsPanel.tsx)
-  adds an **Add checkout** menu to the section header. Choosing a machine opens
-  the existing command palette add-project flow through `addProjectTarget` on the
-  [palette bus](../../apps/web/src/commandPaletteBus.ts): the clone destination
-  step for the clone URL, or the machine's add-project sources without one. The
-  palette keeps owning path choice, permission checks and clone tracking.
-  Machines whose grant lacks `orchestration:operate`, or `source-control:write`
-  when cloning, are listed but disabled.
-- **Mobile:** the [project overview](../../apps/mobile/src/features/settings/SettingsProjectOverviewRouteScreen.tsx)
-  follows the same visibility rule and adds a **Check out on** row per target,
-  opening the existing clone destination screen, or the local folder screen
-  without a clone URL, with the same permission-based disabling.
+  adds an **Add checkout** menu to the section header. Choosing a machine calls
+  upstream's `openAddProjectToMachine` with a group member that has a remote,
+  preferring one whose machine is online. Targets come from upstream's
+  `useAddProjectTargets`, so machines without `source-control:write` or clone
+  tracking are not listed, and a project without a remote gets none. The
+  [dialog](../../apps/web/src/components/AddProjectToMachineDialog.tsx) strips
+  credentials from the URL it clones, a one-line fork change that also covers
+  **Run on**. Until this sync, web routed to the command palette's add-project flow
+  through an `addProjectTarget` on the palette bus, listed machines without the
+  needed grants as disabled, and fell back to choosing a folder; all three were
+  dropped with that route.
+- **Mobile:** upstream's [project overview](../../apps/mobile/src/features/settings/SettingsProjectOverviewRouteScreen.tsx)
+  now always shows its Checkouts section, with checkout removal
+  ([pingdotgg/t3code#21409](https://github.com/pingdotgg/t3code/pull/21409)). The fork
+  appends a **Check out on** row per target, which pushes the existing clone
+  destination screen, or the local folder screen without a clone URL, and is disabled
+  when the machine's grant lacks `orchestration:operate`, or `source-control:write`
+  when cloning. A clone registers the repository root, so a project in a repository
+  subdirectory or with an unknown repository root, a remote that only resolves on the
+  source machine (a path, a loopback host or a remote-helper address), or a fork
+  reported by an older server without `origin.remoteUrl`, gets no prefilled clone.
+  A tracked clone also takes the title every existing checkout shares
+  ([`projectCheckoutTitle`](../../packages/client-runtime/src/operations/projects.ts)),
+  because a member whose title differs makes a renamed group fall back to the
+  repository's name.
+
+Upstream stopped exporting `resolveProjectGroupingMode` when it trimmed its tests
+([pingdotgg/t3code#22557](https://github.com/pingdotgg/t3code/pull/22557)); the fork
+exports it again for the web visibility rule.
 
 When updating from upstream, keep the section visible with a second connected
-machine, keep both clients routed through their existing add-project flows
-rather than a second clone flow, and keep `origin.remoteUrl` until upstream
-exposes the fork's clone URL another way. Remove this fork change if upstream
-adds its own way to check a project out on another machine from settings.
+machine, keep web on upstream's add-to-machine dialog and mobile on its existing
+add-project screens rather than a second clone flow, and keep credentials out of the
+cloned URL. Remove the web entry point if upstream adds the dialog to project
+settings, and the mobile rows if upstream adds its own way to check a project out
+on another machine there.

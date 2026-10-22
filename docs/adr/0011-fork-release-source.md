@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
+- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -34,13 +34,19 @@ such as `.github/scripts/mirror-play-apk.cjs`. `ci.yml` itself keeps the fork's
 layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
 code needs, such as Chromium for the web browser tests, but not Blacksmith runners
-or upstream's per-change job gating, so its `ci-changes` action and script are
-dropped as well. Upstream's web build links desktop update releases to
+or upstream's per-change job gating, so its `ci-changes` action is dropped as well.
+The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
+([pingdotgg/t3code#22767](https://github.com/pingdotgg/t3code/pull/22767)) reads the same
+mapping locally. Upstream's web build links desktop update releases to
 `T3CODE_DESKTOP_UPDATE_REPOSITORY`, falling back to `GITHUB_REPOSITORY`
 ([pingdotgg/t3code#21210](https://github.com/pingdotgg/t3code/pull/21210)). The fork
 publishes no desktop builds, so both workflows pin it to `pingdotgg/t3code`; otherwise
 the fork's builds would link to desktop releases that do not exist, and upstream's
-tests for those links fail in the fork's CI.
+tests for those links fail in the fork's CI. Upstream now builds single executables with
+the exact `engines.node` from `package.json` and fails a native build on any other Node
+([pingdotgg/t3code#23165](https://github.com/pingdotgg/t3code/pull/23165)), so the
+release workflow no longer pins its own `VP_NODE_VERSION`; Setup Vite+ installs that
+version.
 
 ## Decision
 
@@ -67,7 +73,13 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   ([`updateEverything.logic.ts`](../../apps/web/src/components/sidebar/updateEverything.logic.ts))
   never targets such servers and lists them in its confirmation as skipped because
   they update from their own releases, and mobile's **Check for updates** reads the
-  fork's latest release.
+  fork's latest release. Upstream moved that check to the public release pages to stay
+  clear of the anonymous API quota
+  ([pingdotgg/t3code#17900](https://github.com/pingdotgg/t3code/pull/17900)), so the
+  fork reads `https://github.com/<repo>/releases/latest` the same way. Upstream's mobile
+  update offer for outdated servers
+  ([pingdotgg/t3code#21402](https://github.com/pingdotgg/t3code/pull/21402)) passes the
+  descriptor's `releaseRepository` to that check too.
 
 Builds without the define, including every build from source, behave exactly like
 upstream. The workflow publishes a linux-x64 build every four hours when `main` has

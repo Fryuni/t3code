@@ -149,7 +149,17 @@ const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
       number,
       project?.repositoryIdentity?.locator.remoteUrl,
       project?.repositoryIdentity?.webUrl,
-    ) ?? `https://${host}/${repository}/pull/${number}`;
+    ) ??
+    (/(?:^|\/)_git\/[^/]+$/u.test(repository)
+      ? changeRequestUrlFor(
+          "azure-devops",
+          host,
+          repository,
+          number,
+          project?.repositoryIdentity?.locator.remoteUrl,
+        )
+      : null) ??
+    `https://${host}/${repository}/pull/${number}`;
   return {
     ...normalizeThreadPullRequestKey({ host, repository, number, url }),
     url,

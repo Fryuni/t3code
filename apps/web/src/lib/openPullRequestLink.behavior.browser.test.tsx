@@ -17,9 +17,10 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { AtomRegistry } from "effect/reactivity";
-import { act, useLayoutEffect, type MouseEvent } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useLayoutEffect, type MouseEvent } from "react";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { act, render } from "../../test/render";
 
 // Supply the same isolated registry to imperative reads and React subscriptions.
 // Routing, repository matching, the panel store, and link opening remain real.
@@ -167,10 +168,11 @@ function click() {
   } as unknown as MouseEvent<HTMLElement>;
 }
 
-let root: Root | undefined;
-let container: HTMLDivElement | undefined;
-let openPr: ReturnType<typeof useOpenPrLink>;
-const external = vi.fn();
+function setup(): Disposable {
+  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+  useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
+  return { [Symbol.dispose]: () => __resetClientSettingsPersistenceForTests() };
+}
 
 async function mount({
   projects,
@@ -183,8 +185,9 @@ async function mount({
   bindThread?: boolean;
   configs?: ServerConfig[];
 }) {
+  await using stack = new AsyncDisposableStack();
   const ref = scopeThreadRef(currentThread.environmentId, currentThread.id);
-  state.registry = AtomRegistry.make({
+  const registry = AtomRegistry.make({
     initialValues: [
       [environmentProjects.projectsAtom, projects],
       [
@@ -195,13 +198,17 @@ async function mount({
       [environmentThreadShells.threadShellAtom(ref), currentThread],
     ],
   });
-  state.registry.mount(environmentThreadShells.threadShellAtom(ref));
-  // Links read server configs at click time, so keep the seeded map mounted.
-  state.registry.mount(environmentServerConfigsAtom);
+  state.registry = registry;
+  stack.defer(() => registry.dispose());
+  registry.mount(environmentThreadShells.threadShellAtom(ref));
+  // Links read server configs and projects at click time, so keep the seeded values mounted.
+  registry.mount(environmentServerConfigsAtom);
+  registry.mount(environmentProjects.projectsAtom);
+  const probe: { openPr?: ReturnType<typeof useOpenPrLink> } = {};
   function Probe() {
     const pr = useOpenPrLink(bindThread ? ref : undefined);
     useLayoutEffect(() => {
-      openPr = pr;
+      probe.openPr = pr;
     });
     return null;
   }
@@ -213,34 +220,22 @@ async function mount({
     history: createMemoryHistory({ initialEntries: ["/pull-requests"] }),
   });
   await router.load();
-  container = document.body.appendChild(document.createElement("div"));
-  root = createRoot(container);
-  await act(() => {
-    root!.render(
-      <RegistryContext.Provider value={state.registry!}>
+  stack.use(
+    // router: false because the probe needs a /pull-requests route the test router lacks.
+    await render(
+      <RegistryContext.Provider value={registry}>
         <RouterProvider router={router} />
       </RegistryContext.Provider>,
-    );
-  });
-  return router;
+      { router: false },
+    ),
+  );
+  const owned = stack.move();
+  return {
+    router,
+    openPr: (...args: Parameters<ReturnType<typeof useOpenPrLink>>) => probe.openPr!(...args),
+    [Symbol.asyncDispose]: () => owned.disposeAsync(),
+  };
 }
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  external.mockReset();
-  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
-  useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
-});
-afterEach(async () => {
-  await act(() => root?.unmount());
-  root = undefined;
-  container?.remove();
-  container = undefined;
-  state.registry?.dispose();
-  __resetClientSettingsPersistenceForTests();
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
 
 const activePanel = () =>
   selectActiveRightPanelSurface(useRightPanelStore.getState().byThreadKey, threadRef);
@@ -249,12 +244,13 @@ describe("thread checkout preference", () => {
   it.each(providers)(
     "opens $provider ($origin) beside the thread's own checkout",
     async (source) => {
+      using _setup = setup();
       const other = project("other", remote, source);
       const own = project("own", remote, source);
-      const router = await mount({ projects: [other, own], currentThread: thread(own) });
+      await using mounted = await mount({ projects: [other, own], currentThread: thread(own) });
       const url = `${source.origin}/${source.path}`;
       const event = click();
-      expect(openPr(event, url)).toBe(true);
+      expect(mounted.openPr(event, url)).toBe(true);
       expect(activePanel()).toMatchObject({
         kind: "pull-request",
         projectId: "own",
@@ -263,37 +259,43 @@ describe("thread checkout preference", () => {
         url,
       });
       expect(event.preventDefault).toHaveBeenCalled();
-      expect(router.state.location.search).toEqual({});
+      expect(mounted.router.state.location.search).toEqual({});
     },
   );
 
   it("uses the explicit target thread's checkout for sidebar links", async () => {
+    using _setup = setup();
     const own = project("own");
-    await mount({
+    await using mounted = await mount({
       projects: [project("foreign", local), project("other"), own],
       currentThread: thread(own),
       bindThread: false,
     });
-    expect(openPr(click(), `${github.origin}/${github.path}`, threadRef)).toBe(true);
+    expect(mounted.openPr(click(), `${github.origin}/${github.path}`, threadRef)).toBe(true);
     expect(activePanel()).toMatchObject({ projectId: "own" });
     expect(activePanel()).not.toHaveProperty("environmentId");
   });
 
   it("does not let a duplicate project id in the primary environment capture a thread link", async () => {
+    using _setup = setup();
     const own = project("same-id");
-    await mount({ projects: [project("same-id", local), own], currentThread: thread(own) });
-    expect(openPr(click(), `${github.origin}/${github.path}`)).toBe(true);
+    await using mounted = await mount({
+      projects: [project("same-id", local), own],
+      currentThread: thread(own),
+    });
+    expect(mounted.openPr(click(), `${github.origin}/${github.path}`)).toBe(true);
     expect(activePanel()).toMatchObject({ projectId: "same-id" });
     expect(activePanel()).not.toHaveProperty("environmentId");
   });
 
   it("uses a matching checkout in the thread environment when its own project is unrelated", async () => {
+    using _setup = setup();
     const own = project("own", remote, { ...github, repository: "acme/other" });
-    await mount({
+    await using mounted = await mount({
       projects: [project("foreign", local), project("matching"), own],
       currentThread: thread(own),
     });
-    expect(openPr(click(), `${github.origin}/${github.path}`)).toBe(true);
+    expect(mounted.openPr(click(), `${github.origin}/${github.path}`)).toBe(true);
     expect(activePanel()).toMatchObject({ projectId: "matching" });
     expect(activePanel()).not.toHaveProperty("environmentId");
   });
@@ -301,19 +303,21 @@ describe("thread checkout preference", () => {
   it.each(["missing checkout", "unsupported server"])(
     "keeps a thread link external with a %s instead of borrowing another environment",
     async (reason) => {
+      using _setup = setup();
       const own = project(
         "own",
         remote,
         reason === "missing checkout" ? { ...github, origin: "https://elsewhere.test" } : github,
       );
-      await mount({
+      await using mounted = await mount({
         projects: [project("foreign", local), own],
         currentThread: thread(own),
         configs: [config(local), config(remote, reason !== "unsupported server")],
       });
-      vi.spyOn(window, "open").mockImplementation(external);
+      const external = vi.fn();
+      using _open = vi.spyOn(window, "open").mockImplementation(external);
       await act(async () => {
-        expect(openPr(click(), `${github.origin}/${github.path}`)).toBe(false);
+        expect(mounted.openPr(click(), `${github.origin}/${github.path}`)).toBe(false);
       });
       expect(activePanel()).toBeNull();
       expect(external).toHaveBeenCalledWith(

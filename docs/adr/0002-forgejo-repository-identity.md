@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
+- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -39,6 +39,16 @@ and clients must agree about repository identity. Separate local fixes would
 allow one operation to join instances that another keeps apart. When only an SSH
 host is known, matching still leaves the web port and mount to login resolution;
 it cannot infer them from the clone address.
+
+Upstream later gave Azure DevOps Server links an `authority` too, on a non-default
+port ([pingdotgg/t3code#14626](https://github.com/pingdotgg/t3code/pull/14626)), and
+widened GitManager's PR repository key to Forgejo's `/pulls/` routes
+([pingdotgg/t3code#22937](https://github.com/pingdotgg/t3code/pull/22937)). The fork's
+key still takes a Forgejo link's authority and mount from the shared parser, so it
+keeps the port, and it skips `_git` repositories, whose remotes key by hostname. When
+the PR page moved under components
+([pingdotgg/t3code#22706](https://github.com/pingdotgg/t3code/pull/22706)), its
+project matching and list grouping kept this rule in their new logic modules.
 
 For stored links, a URL naming the same PR supplies the repository spelling used
 by [link normalization](../../packages/shared/src/threadPullRequests.ts). This

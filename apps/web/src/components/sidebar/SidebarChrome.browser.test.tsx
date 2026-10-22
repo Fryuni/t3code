@@ -15,9 +15,9 @@ import {
   RouterProvider,
 } from "@tanstack/react-router";
 import { type Atom, AtomRegistry } from "effect/reactivity";
-import { act } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
+
+import { act, render } from "../../../test/render";
 
 const state = vi.hoisted(() => ({
   registry: undefined as AtomRegistry.AtomRegistry | undefined,
@@ -124,9 +124,6 @@ function project(id: string, environmentId = local): EnvironmentProject {
   };
 }
 
-let root: Root | undefined;
-let container: HTMLDivElement | undefined;
-
 function config(environmentId: EnvironmentId, pullRequests = true): ServerConfig {
   return {
     environment: {
@@ -159,12 +156,27 @@ function config(environmentId: EnvironmentId, pullRequests = true): ServerConfig
   };
 }
 
+function setup(): Disposable {
+  localStorage.clear();
+  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
+  useUiStateStore.setState({ sidebarProjectScopeKey: null });
+  writePullRequestListPreferences(savedPreferences);
+  return {
+    [Symbol.dispose]() {
+      useUiStateStore.setState({ sidebarProjectScopeKey: null });
+      __resetClientSettingsPersistenceForTests();
+      localStorage.clear();
+    },
+  };
+}
+
 async function mount(
   projects: EnvironmentProject[],
   configs = [config(local), config(remote)],
   snapshotsReady = true,
 ) {
-  state.registry = AtomRegistry.make({
+  await using stack = new AsyncDisposableStack();
+  const registry = AtomRegistry.make({
     initialValues: [
       [environmentProjects.projectsAtom, projects],
       [primaryEnvironmentIdAtom, local],
@@ -176,6 +188,8 @@ async function mount(
       ],
     ],
   });
+  state.registry = registry;
+  stack.defer(() => registry.dispose());
   const rootRoute = createRootRoute({ component: SidebarUtilityMenu });
   const router = createRouter({
     routeTree: rootRoute.addChildren([
@@ -185,60 +199,45 @@ async function mount(
     history: createMemoryHistory({ initialEntries: ["/"] }),
   });
   await router.load();
-  container = document.body.appendChild(document.createElement("div"));
-  root = createRoot(container);
-  await act(() => {
-    root!.render(
-      <RegistryContext.Provider value={state.registry!}>
+  const screen = stack.use(
+    // router: false because the menu navigates to /pull-requests, which the test router lacks.
+    await render(
+      <RegistryContext.Provider value={registry}>
         <RouterProvider router={router} />
       </RegistryContext.Provider>,
+      { router: false },
+    ),
+  );
+  const pullRequestsButton = () => {
+    const button = screen.container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Pull Requests"]',
     );
-  });
-  return router;
+    if (!button) throw new Error("Pull Requests button is missing");
+    return button;
+  };
+  const owned = stack.move();
+  return {
+    router,
+    pullRequestsButton,
+    openPullRequests: () =>
+      act(() => {
+        pullRequestsButton().click();
+      }),
+    [Symbol.asyncDispose]: () => owned.disposeAsync(),
+  };
 }
-
-async function openPullRequests() {
-  await act(async () => {
-    pullRequestsButton().click();
-  });
-}
-
-function pullRequestsButton() {
-  const button = container!.querySelector<HTMLButtonElement>('button[aria-label="Pull Requests"]');
-  if (!button) throw new Error("Pull Requests button is missing");
-  return button;
-}
-
-beforeEach(() => {
-  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  localStorage.clear();
-  __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
-  useUiStateStore.setState({ sidebarProjectScopeKey: null });
-  writePullRequestListPreferences(savedPreferences);
-});
-
-afterEach(async () => {
-  await act(() => root?.unmount());
-  root = undefined;
-  container?.remove();
-  container = undefined;
-  state.registry?.dispose();
-  useUiStateStore.setState({ sidebarProjectScopeKey: null });
-  __resetClientSettingsPersistenceForTests();
-  localStorage.clear();
-  vi.unstubAllGlobals();
-});
 
 describe("opening pull requests from the sidebar", () => {
   it("uses the current sidebar project and its environment instead of the saved scope", async () => {
+    using _setup = setup();
     const current = project("current-project", remote);
     useUiStateStore.getState().setSidebarProjectScopeKey(`${remote}:${current.workspaceRoot}`);
-    const router = await mount([project("current-project"), current]);
+    await using mounted = await mount([project("current-project"), current]);
 
-    await openPullRequests();
+    await mounted.openPullRequests();
 
-    expect(router.state.location.pathname).toBe("/pull-requests");
-    expect(router.state.location.search).toEqual({
+    expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+    expect(mounted.router.state.location.search).toEqual({
       involvement: "reviewing",
       state: "closed",
       sort: "updated",
@@ -250,12 +249,13 @@ describe("opening pull requests from the sidebar", () => {
   it.each([null, "missing-project"])(
     "clears the saved scope when the sidebar scope is %s",
     async (scopeKey) => {
+      using _setup = setup();
       useUiStateStore.getState().setSidebarProjectScopeKey(scopeKey);
-      const router = await mount([project("current-project")]);
+      await using mounted = await mount([project("current-project")]);
 
-      await openPullRequests();
+      await mounted.openPullRequests();
 
-      expect(router.state.location.search).toEqual({
+      expect(mounted.router.state.location.search).toEqual({
         involvement: "reviewing",
         state: "closed",
         sort: "updated",
@@ -264,48 +264,50 @@ describe("opening pull requests from the sidebar", () => {
   );
 
   it("reads the current scope again on every opening", async () => {
+    using _setup = setup();
     const first = project("first-project");
     const second = project("second-project", remote);
-    const router = await mount([first, second]);
+    await using mounted = await mount([first, second]);
     await act(() => {
       useUiStateStore.getState().setSidebarProjectScopeKey(`${local}:${first.workspaceRoot}`);
     });
-    await openPullRequests();
-    expect(router.state.location.search).toMatchObject({
+    await mounted.openPullRequests();
+    expect(mounted.router.state.location.search).toMatchObject({
       projectId: first.id,
       environmentId: local,
     });
 
-    await act(() => router.navigate({ to: "/" }));
+    await act(() => mounted.router.navigate({ to: "/" }));
     writePullRequestListPreferences({ ...savedPreferences, projectId: first.id });
     await act(() => {
       useUiStateStore.getState().setSidebarProjectScopeKey(`${remote}:${second.workspaceRoot}`);
     });
-    await openPullRequests();
-    expect(router.state.location.search).toMatchObject({
+    await mounted.openPullRequests();
+    expect(mounted.router.state.location.search).toMatchObject({
       projectId: second.id,
       environmentId: remote,
     });
 
-    await act(() => router.navigate({ to: "/" }));
+    await act(() => mounted.router.navigate({ to: "/" }));
     await act(() => {
       useUiStateStore.getState().setSidebarProjectScopeKey(null);
     });
-    await openPullRequests();
-    expect(router.state.location.search).not.toHaveProperty("projectId");
-    expect(router.state.location.search).not.toHaveProperty("environmentId");
+    await mounted.openPullRequests();
+    expect(mounted.router.state.location.search).not.toHaveProperty("projectId");
+    expect(mounted.router.state.location.search).not.toHaveProperty("environmentId");
   });
 
   it("keeps an unresolved scope while snapshots load and opens it when its project arrives", async () => {
+    using _setup = setup();
     const current = project("current-project", remote);
     const scopeKey = `${remote}:${current.workspaceRoot}`;
     useUiStateStore.getState().setSidebarProjectScopeKey(scopeKey);
-    const router = await mount([project("other-project")], undefined, false);
+    await using mounted = await mount([project("other-project")], undefined, false);
 
-    expect(pullRequestsButton().disabled).toBe(true);
-    await openPullRequests();
+    expect(mounted.pullRequestsButton().disabled).toBe(true);
+    await mounted.openPullRequests();
 
-    expect(router.state.location.pathname).toBe("/");
+    expect(mounted.router.state.location.pathname).toBe("/");
     expect(useUiStateStore.getState().sidebarProjectScopeKey).toBe(scopeKey);
     expect(readPullRequestListPreferences()).toEqual(savedPreferences);
 
@@ -313,12 +315,12 @@ describe("opening pull requests from the sidebar", () => {
       state.registry!.set(state.projectsAtom!, [current]);
     });
     expect(state.registry!.get(allEnvironmentProjectSnapshotsReadyAtom)).toBe(false);
-    expect(pullRequestsButton().disabled).toBe(false);
-    expect(router.state.location.pathname).toBe("/");
-    await openPullRequests();
+    expect(mounted.pullRequestsButton().disabled).toBe(false);
+    expect(mounted.router.state.location.pathname).toBe("/");
+    await mounted.openPullRequests();
 
-    expect(router.state.location.pathname).toBe("/pull-requests");
-    expect(router.state.location.search).toEqual({
+    expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+    expect(mounted.router.state.location.search).toEqual({
       involvement: "reviewing",
       state: "closed",
       sort: "updated",
@@ -328,23 +330,24 @@ describe("opening pull requests from the sidebar", () => {
   });
 
   it("opens All projects for a missing scope only after live snapshots establish its absence", async () => {
+    using _setup = setup();
     useUiStateStore.getState().setSidebarProjectScopeKey("missing-project");
-    const router = await mount([], undefined, false);
+    await using mounted = await mount([], undefined, false);
 
-    expect(pullRequestsButton().disabled).toBe(true);
-    await openPullRequests();
-    expect(router.state.location.pathname).toBe("/");
+    expect(mounted.pullRequestsButton().disabled).toBe(true);
+    await mounted.openPullRequests();
+    expect(mounted.router.state.location.pathname).toBe("/");
     expect(readPullRequestListPreferences()).toEqual(savedPreferences);
 
     await act(() => {
       state.registry!.set(state.snapshotsReadyAtom!, true);
     });
-    expect(pullRequestsButton().disabled).toBe(false);
-    expect(router.state.location.pathname).toBe("/");
-    await openPullRequests();
+    expect(mounted.pullRequestsButton().disabled).toBe(false);
+    expect(mounted.router.state.location.pathname).toBe("/");
+    await mounted.openPullRequests();
 
-    expect(router.state.location.pathname).toBe("/pull-requests");
-    expect(router.state.location.search).toEqual({
+    expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+    expect(mounted.router.state.location.search).toEqual({
       involvement: "reviewing",
       state: "closed",
       sort: "updated",
@@ -352,18 +355,19 @@ describe("opening pull requests from the sidebar", () => {
   });
 
   it("allows switching to All projects while snapshots are still loading", async () => {
+    using _setup = setup();
     useUiStateStore.getState().setSidebarProjectScopeKey("unloaded-project");
-    const router = await mount([], undefined, false);
+    await using mounted = await mount([], undefined, false);
 
-    expect(pullRequestsButton().disabled).toBe(true);
+    expect(mounted.pullRequestsButton().disabled).toBe(true);
     await act(() => {
       useUiStateStore.getState().setSidebarProjectScopeKey(null);
     });
-    expect(pullRequestsButton().disabled).toBe(false);
-    await openPullRequests();
+    expect(mounted.pullRequestsButton().disabled).toBe(false);
+    await mounted.openPullRequests();
 
-    expect(router.state.location.pathname).toBe("/pull-requests");
-    expect(router.state.location.search).toEqual({
+    expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+    expect(mounted.router.state.location.search).toEqual({
       involvement: "reviewing",
       state: "closed",
       sort: "updated",
@@ -373,36 +377,37 @@ describe("opening pull requests from the sidebar", () => {
   it.each(["unsupported", "connecting"] as const)(
     "preserves a selected project while its server is %s, then opens it once capable",
     async (serverState) => {
+      using _setup = setup();
       const current = project("shared-project-id", remote);
       const scopeKey = `${remote}:${current.workspaceRoot}`;
       useUiStateStore.getState().setSidebarProjectScopeKey(scopeKey);
       const configs =
         serverState === "unsupported" ? [config(local), config(remote, false)] : [config(local)];
-      const router = await mount([project("shared-project-id"), current], configs);
+      await using mounted = await mount([project("shared-project-id"), current], configs);
 
-      expect(pullRequestsButton().disabled).toBe(true);
-      await openPullRequests();
-      expect(router.state.location.pathname).toBe("/");
+      expect(mounted.pullRequestsButton().disabled).toBe(true);
+      await mounted.openPullRequests();
+      expect(mounted.router.state.location.pathname).toBe("/");
       expect(useUiStateStore.getState().sidebarProjectScopeKey).toBe(scopeKey);
       expect(readPullRequestListPreferences()).toEqual(savedPreferences);
 
       await act(() => {
         useUiStateStore.getState().setSidebarProjectScopeKey(null);
       });
-      expect(pullRequestsButton().disabled).toBe(false);
-      await openPullRequests();
-      expect(router.state.location.pathname).toBe("/pull-requests");
-      expect(router.state.location.search).toEqual({
+      expect(mounted.pullRequestsButton().disabled).toBe(false);
+      await mounted.openPullRequests();
+      expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+      expect(mounted.router.state.location.search).toEqual({
         involvement: "reviewing",
         state: "closed",
         sort: "updated",
       });
 
-      await act(() => router.navigate({ to: "/" }));
+      await act(() => mounted.router.navigate({ to: "/" }));
       await act(() => {
         useUiStateStore.getState().setSidebarProjectScopeKey(scopeKey);
       });
-      expect(pullRequestsButton().disabled).toBe(true);
+      expect(mounted.pullRequestsButton().disabled).toBe(true);
       await act(() => {
         state.registry!.set(
           state.serverConfigsAtom!,
@@ -412,12 +417,12 @@ describe("opening pull requests from the sidebar", () => {
           ]),
         );
       });
-      expect(pullRequestsButton().disabled).toBe(false);
-      expect(router.state.location.pathname).toBe("/");
-      await openPullRequests();
+      expect(mounted.pullRequestsButton().disabled).toBe(false);
+      expect(mounted.router.state.location.pathname).toBe("/");
+      await mounted.openPullRequests();
 
-      expect(router.state.location.pathname).toBe("/pull-requests");
-      expect(router.state.location.search).toEqual({
+      expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+      expect(mounted.router.state.location.search).toEqual({
         involvement: "reviewing",
         state: "closed",
         sort: "updated",
@@ -433,6 +438,7 @@ describe("opening pull requests from the sidebar", () => {
   ])(
     "resolves a repository group to the capable $projectId",
     async ({ localSupported, projectId, environmentId }) => {
+      using _setup = setup();
       const canonicalKey = "github.com/acme/repo";
       const projects = [project("remote-checkout", remote), project("local-checkout")].map(
         (checkout) => ({
@@ -451,11 +457,11 @@ describe("opening pull requests from the sidebar", () => {
         }),
       );
       useUiStateStore.getState().setSidebarProjectScopeKey(canonicalKey);
-      const router = await mount(projects, [config(local, localSupported), config(remote)]);
+      await using mounted = await mount(projects, [config(local, localSupported), config(remote)]);
 
-      await openPullRequests();
+      await mounted.openPullRequests();
 
-      expect(router.state.location.search).toMatchObject({
+      expect(mounted.router.state.location.search).toMatchObject({
         projectId,
         environmentId,
       });
@@ -463,16 +469,17 @@ describe("opening pull requests from the sidebar", () => {
   );
 
   it("ignores a hidden project scope in legacy mode while snapshots are loading", async () => {
+    using _setup = setup();
     __setClientSettingsForTests({ ...DEFAULT_CLIENT_SETTINGS, legacySidebarEnabled: true });
     const current = project("current-project");
     useUiStateStore.getState().setSidebarProjectScopeKey(`${local}:${current.workspaceRoot}`);
-    const router = await mount([], undefined, false);
+    await using mounted = await mount([], undefined, false);
 
-    expect(pullRequestsButton().disabled).toBe(false);
-    await openPullRequests();
+    expect(mounted.pullRequestsButton().disabled).toBe(false);
+    await mounted.openPullRequests();
 
-    expect(router.state.location.pathname).toBe("/pull-requests");
-    expect(router.state.location.search).toEqual({
+    expect(mounted.router.state.location.pathname).toBe("/pull-requests");
+    expect(mounted.router.state.location.search).toEqual({
       involvement: "reviewing",
       state: "closed",
       sort: "updated",
