@@ -25,7 +25,10 @@ import { act, render } from "../../test/render";
 // Supply the same isolated registry to imperative reads and React subscriptions.
 // Routing, repository matching, the panel store, and link opening remain real.
 // Browser mocks snapshot their exports, so the registry is reached through a proxy.
-const state = vi.hoisted(() => ({ registry: undefined as AtomRegistry.AtomRegistry | undefined }));
+const state = vi.hoisted(() => ({
+  registry: undefined as AtomRegistry.AtomRegistry | undefined,
+  projects: [] as ReadonlyArray<EnvironmentProject>,
+}));
 vi.mock(import("../rpc/atomRegistry"), async (original) => ({
   ...(await original()),
   appAtomRegistry: new Proxy({} as AtomRegistry.AtomRegistry, {
@@ -35,6 +38,24 @@ vi.mock(import("../rpc/atomRegistry"), async (original) => ({
     },
   }),
 }));
+// The primary environment, server configs, and project list derive from the connection
+// catalog, whose load can land mid-test and replace a seeded value. The tests seed plain atoms
+// instead, and stub the opener's click-time project read.
+vi.mock(import("../state/primaryEnvironment"), async () => {
+  const { Atom } = await import("effect/reactivity");
+  return { primaryEnvironmentIdAtom: Atom.make<EnvironmentId | null>(null) };
+});
+vi.mock(import("../state/server"), async (original) => {
+  const { Atom } = await import("effect/reactivity");
+  return {
+    ...(await original()),
+    environmentServerConfigsAtom: Atom.make<ReadonlyMap<EnvironmentId, ServerConfig>>(new Map()),
+  };
+});
+vi.mock(import("../state/entities"), async (original) => ({
+  ...(await original()),
+  readProjects: () => state.projects,
+}));
 
 import {
   __resetClientSettingsPersistenceForTests,
@@ -42,7 +63,6 @@ import {
 } from "../hooks/useSettings";
 import { selectActiveRightPanelSurface, useRightPanelStore } from "../rightPanelStore";
 import { primaryEnvironmentIdAtom } from "../state/primaryEnvironment";
-import { environmentProjects } from "../state/projects";
 import { environmentServerConfigsAtom } from "../state/server";
 import { environmentThreadShells } from "../state/threads";
 import { makeThreadFixture } from "../test-fixtures";
@@ -169,6 +189,7 @@ function click() {
 }
 
 function setup(): Disposable {
+  state.projects = [];
   __setClientSettingsForTests(DEFAULT_CLIENT_SETTINGS);
   useRightPanelStore.setState({ byThreadKey: {}, userActionRevisionByThreadKey: {} });
   return { [Symbol.dispose]: () => __resetClientSettingsPersistenceForTests() };
@@ -187,9 +208,9 @@ async function mount({
 }) {
   await using stack = new AsyncDisposableStack();
   const ref = scopeThreadRef(currentThread.environmentId, currentThread.id);
+  state.projects = projects;
   const registry = AtomRegistry.make({
     initialValues: [
-      [environmentProjects.projectsAtom, projects],
       [
         environmentServerConfigsAtom,
         new Map(configs.map((value) => [value.environment.environmentId, value])),
@@ -201,9 +222,8 @@ async function mount({
   state.registry = registry;
   stack.defer(() => registry.dispose());
   registry.mount(environmentThreadShells.threadShellAtom(ref));
-  // Links read server configs and projects at click time, so keep the seeded values mounted.
+  // Links read server configs at click time, so keep the seeded value mounted.
   registry.mount(environmentServerConfigsAtom);
-  registry.mount(environmentProjects.projectsAtom);
   const probe: { openPr?: ReturnType<typeof useOpenPrLink> } = {};
   function Probe() {
     const pr = useOpenPrLink(bindThread ? ref : undefined);
