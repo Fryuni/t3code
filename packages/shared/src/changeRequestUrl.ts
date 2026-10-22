@@ -20,9 +20,9 @@ export interface ChangeRequestLink {
   readonly repository: string;
   readonly number: number;
   /**
-   * The web host and port a Forgejo change request was read from. Only Forgejo links carry it,
-   * so its presence is also what says a link came from an instance whose port and mount path
-   * tell instances apart; `repository` keeps the mount path's case for the same reason.
+   * The web host and port a change request was read from. Forgejo links always carry it, since
+   * their port and mount path tell instances apart; `repository` keeps the mount path's case for
+   * the same reason. Azure DevOps Server links carry it only on a non-default port.
    */
   readonly authority?: string;
 }
@@ -44,28 +44,28 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
 
   if (host === "git.cafe" || host === "staging.git.cafe") {
     const match = /^\/([^/]+\/[^/]+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  if (isHostOf(host, "github.com", "github")) {
-    const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
     if (match) return claim(host, match);
+  } else {
+    if (isHostOf(host, "github.com", "github")) {
+      const match = /^\/([^/]+\/[^/]+)\/pull\/(\d+)(?:\/|$)/u.exec(url.pathname);
+      if (match) return claim(host, match);
+    }
+    const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
+    if (gitlab) return claim(host, gitlab);
+    const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
+    if (forgejo) {
+      const link = claim(host, forgejo, "forgejo");
+      return link === null ? null : { ...link, authority: url.host.toLowerCase() };
+    }
+    if (isHostOf(host, "bitbucket.org", "bitbucket")) {
+      const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
+      if (match) return claim(host, match);
+    }
   }
-  const gitlab = /^\/([^/]+(?:\/[^/]+)+)\/-\/merge_requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (gitlab) return claim(host, gitlab);
-  const forgejo = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
-  if (forgejo) {
-    const link = claim(host, forgejo, "forgejo");
-    return link === null ? null : { ...link, authority: url.host.toLowerCase() };
-  }
-  if (isHostOf(host, "bitbucket.org", "bitbucket")) {
-    const match = /^\/([^/]+\/[^/]+)\/pull-requests\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  if (isHostOf(host, "dev.azure.com") || host.endsWith(".visualstudio.com")) {
-    const match = /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u.exec(url.pathname);
-    return claim(host, match);
-  }
-  return null;
+  // Azure DevOps Server can use any hostname; its `_git` pull request route identifies it.
+  const azure = /^\/((?:[^/]+\/)*_git\/[^/]+)\/pullrequest\/(\d+)(?:\/|$)/u.exec(url.pathname);
+  const link = claim(host, azure);
+  return link === null || url.port === "" ? link : { ...link, authority: url.host.toLowerCase() };
 }
 
 function claim(
@@ -87,6 +87,21 @@ function claim(
     : null;
 }
 
+/** The origin of the first HTTP(S) URL that names `host`; https otherwise. */
+function remoteWebOrigin(host: string, ...candidates: ReadonlyArray<string | undefined>): string {
+  for (const candidate of candidates) {
+    const url = httpUrl(candidate);
+    if (
+      url !== null &&
+      (url.hostname.toLowerCase() === host.toLowerCase() ||
+        url.host.toLowerCase() === host.toLowerCase())
+    ) {
+      return url.origin;
+    }
+  }
+  return `https://${host}`;
+}
+
 /**
  * A Forgejo instance's scheme is not part of its identity, so it is read from what the identity
  * knows about the instance: the resolved `webUrl` first, which an SSH checkout of an HTTP-only
@@ -106,24 +121,18 @@ export function changeRequestUrlFor(
       return `https://${host}/${repository}/pull/${number}`;
     case "gitcafe":
       return `https://${host}/${repository}/pulls/${number}`;
-    case "forgejo": {
-      const origin =
-        [webUrl, remoteUrl]
-          .map(httpUrl)
-          .find(
-            (url) =>
-              url !== null &&
-              (url.hostname.toLowerCase() === host.toLowerCase() ||
-                url.host.toLowerCase() === host.toLowerCase()),
-          )?.origin ?? `https://${host}`;
-      return `${origin}/${repository}/pulls/${number}`;
-    }
+    case "forgejo":
+      return `${remoteWebOrigin(host, webUrl, remoteUrl)}/${repository}/pulls/${number}`;
     case "gitlab":
       return `https://${host}/${repository}/-/merge_requests/${number}`;
     case "bitbucket":
       return `https://${host}/${repository}/pull-requests/${number}`;
-    case "azure-devops":
-      return `https://${canonicalRepositoryKey(`${host}/${repository}`.toLowerCase())}/pullrequest/${number}`;
+    case "azure-devops": {
+      const [canonicalHost = host, ...path] = canonicalRepositoryKey(
+        `${host}/${repository}`.toLowerCase(),
+      ).split("/");
+      return `${remoteWebOrigin(canonicalHost, remoteUrl)}/${path.join("/")}/pullrequest/${number}`;
+    }
     default:
       return null;
   }

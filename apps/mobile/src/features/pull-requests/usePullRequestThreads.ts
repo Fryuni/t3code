@@ -101,7 +101,7 @@ export function usePullRequestThreads(
             mode: "worktree",
             branch: pr.headBranch,
             worktreePath: null,
-            startFromRemote: null,
+            startFromOrigin: false,
             pullRequestReference: pr.url,
           },
         });
@@ -146,9 +146,8 @@ export function usePullRequestThreads(
       previousPrompts.current.set(draftKey, pullRequestAgentPrompt(task));
       if (thread) openThread(thread);
       else
-        navigation.navigate("NewTaskSheet", {
-          screen: "NewTaskDraft",
-          params: { draftId: draftKey, title: `Ask about #${pr.number}` },
+        navigation.navigate("Thread", {
+          draft: { draftId: draftKey, title: `Ask about #${pr.number}` },
         });
     });
     pending.current = false;

@@ -96,10 +96,9 @@ jobs:
       - name: Build server bundle and web client
         run: vp run --filter t3 build
 
+      # Setup Vite+ selects the exact engines.node version from package.json,
+      # which native executable builds require.
       - name: Build CLI single-executable
-        env:
-          # Keep in step with SEA_NODE_VERSION in apps/server/vite.config.ts.
-          VP_NODE_VERSION: "26.8.2"
         run: node apps/server/scripts/cli.ts build-exe --verbose
 
       # Without the release-repository define the build follows upstream's

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
+- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -11,7 +11,7 @@ later. A user who wants an agent on a branch that already exists, such as a
 colleague's PR branch or their own unfinished work, has to create the worktree
 by hand.
 
-The fork adds a **Create new branch** toggle beside **Start from origin** on web,
+The fork adds a **Create new branch** toggle beside **Start from remote** on web,
 desktop, and mobile. Turning it off sends `createBranch: false` on the worktree
 [launch strategy](../../packages/contracts/src/orchestrationV2.ts), and the server
 checks out `baseRef` itself in the new worktree. The field is explicit rather than
@@ -24,8 +24,7 @@ worktrees always create a branch.
 
 [`ThreadLaunchService`](../../apps/server/src/orchestration-v2/ThreadLaunchService.ts)
 rejects requests it cannot honor before the thread exists: `createBranch: false`
-combined with `branch` or a start remote (see
-[ADR 0009](0009-choose-where-new-worktrees-start.md)), a ref that is not a local branch, and
+combined with `branch` or `startFromOrigin: true`, a ref that is not a local branch, and
 a branch another worktree or the project checkout already has. The guard does not
 live in the git driver. `ProviderTurnStartService` recreates a deleted worktree
 through the same driver call without a new branch name and relies on git's DWIM
@@ -41,7 +40,7 @@ absent means a branch is created.
 
 Upstream's mobile app can queue a task that checks out a pull request when it is sent
 (`pullRequestReference`). That checkout replaces the queued workspace, so it also
-resets the queued remote and **Create new branch** choices. Upstream's
+resets the queued **Start from remote** and **Create new branch** choices. Upstream's
 `ThreadManagementProviderInstanceDisabledError` and the fork's
 `ThreadLaunchWorkspaceError` are both rejected before a thread exists, so both
 release claimed attachments and both map to `invalid_request` in `t3_thread_launch`.
@@ -50,7 +49,17 @@ Multi-model fan-out always creates branches, since every model needs its own
 branch and only one worktree can hold an existing one. After a background
 `Cmd+Enter` submission on an existing branch, the next draft clears its branch for
 the same reason. Scheduled tasks do not offer the toggle: a recurring run would
-find its branch still checked out by the previous run.
+find its branch still checked out by the previous run. While the toggle is off the
+**Start from remote** switch is hidden, since nothing is fetched.
+
+Upstream later moved the web composer's send and selection logic out of `ChatView`
+([pingdotgg/t3code#23062](https://github.com/pingdotgg/t3code/pull/23062),
+[#23069](https://github.com/pingdotgg/t3code/pull/23069)); the toggle's state stays in
+`ChatView`, its handler lives in `useComposerSelection`, and the send options in
+`useComposerSend`. Upstream's mobile new task flow now reuses a worktree that already
+holds the chosen branch in local mode
+([pingdotgg/t3code#20825](https://github.com/pingdotgg/t3code/pull/20825)); with
+**Create new branch** off, branches held by another worktree stay disabled as before.
 
 ## Continue on the current branch from the command palette
 

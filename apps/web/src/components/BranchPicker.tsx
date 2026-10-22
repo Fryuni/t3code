@@ -1,4 +1,4 @@
-import type { VcsRef, WorktreeStartRemote } from "@t3tools/contracts";
+import type { VcsRef } from "@t3tools/contracts";
 import { LegendList, type LegendListRef } from "@legendapp/list/react";
 import { GitBranchIcon } from "lucide-react";
 import {
@@ -16,7 +16,6 @@ import { cn } from "../lib/utils";
 import { shouldLoadNextBranchPageAfterScroll } from "../state/paginatedBranches";
 import { RefreshIcon } from "./ui/refresh-icon";
 import { Switch } from "./ui/switch";
-import { Toggle, ToggleGroup } from "./ui/toggle-group";
 import { getVirtualizedScrollFadeClassName } from "./ui/scroll-area";
 import {
   Combobox,
@@ -44,7 +43,7 @@ export function BranchPicker({
   onLoadNext,
   statusText,
   createBranchControl,
-  remoteControl,
+  originControl,
   popupProps,
   renderItem,
   getItemType,
@@ -71,24 +70,14 @@ export function BranchPicker({
         onCheckedChange: (checked: boolean) => void;
       }
     | undefined;
-  /**
-   * Where a new worktree starts. Off, origin, and upstream when `upstreamAvailable`, otherwise
-   * an origin switch. A saved upstream choice stays visible, disabled, until the user changes it.
-   */
-  remoteControl?:
-    | {
-        value: WorktreeStartRemote;
-        upstreamAvailable: boolean;
-        onChange: (value: WorktreeStartRemote) => void;
-      }
-    | undefined;
+  originControl?: { checked: boolean; onCheckedChange: (checked: boolean) => void } | undefined;
   popupProps: Omit<ComponentProps<typeof ComboboxPopup>, "children">;
   renderItem: (value: string, index: number) => ReactNode;
   getItemType?: ((value: string) => string) | undefined;
   children: ReactNode;
 }) {
   const highlightedValueRef = useRef<string | null>(null);
-  const startFromRemoteControlId = useId();
+  const startFromOriginSwitchId = useId();
   const createBranchSwitchId = useId();
   const branchListScrollElementRef = useRef<HTMLElement | null>(null);
   const previousBranchListScrollTopRef = useRef<number | null>(null);
@@ -271,65 +260,32 @@ export function BranchPicker({
               </TooltipPopup>
             </Tooltip>
           ) : null}
-          {remoteControl &&
-          (remoteControl.upstreamAvailable || remoteControl.value === "upstream") ? (
-            <div className="flex flex-wrap items-center justify-between gap-2 border-t border-border/60 px-3 py-2 text-xs">
-              <span
-                id={startFromRemoteControlId}
-                className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground"
-              >
-                <RefreshIcon aria-hidden="true" className="size-3 shrink-0" />
-                <span className="truncate">Start from remote</span>
-              </span>
-              <ToggleGroup
-                aria-labelledby={startFromRemoteControlId}
-                value={[remoteControl.value ?? "off"]}
-                onValueChange={(values) => {
-                  const remote = values[0];
-                  if (remote === "off" || remote === "origin" || remote === "upstream") {
-                    remoteControl.onChange(remote === "off" ? null : remote);
-                  }
-                }}
-              >
-                <Toggle value="off">Off</Toggle>
-                <Toggle value="origin">origin</Toggle>
-                <Toggle value="upstream" disabled={!remoteControl.upstreamAvailable}>
-                  upstream
-                </Toggle>
-              </ToggleGroup>
-              <span className="basis-full text-muted-foreground">
-                {remoteControl.upstreamAvailable
-                  ? "Start from the latest matching remote branch, or turn off to use the selected ref."
-                  : "The upstream choice requires remotes named origin and upstream. Choose another source to continue."}
-              </span>
-            </div>
-          ) : remoteControl ? (
+          {originControl ? (
             <Tooltip>
               <TooltipTrigger
                 render={
                   <label
-                    htmlFor={startFromRemoteControlId}
+                    htmlFor={startFromOriginSwitchId}
                     className="flex cursor-pointer items-center justify-between gap-3 border-t border-border/60 px-3 py-2 text-xs"
                   >
                     <span className="flex min-w-0 items-center gap-1.5 font-medium text-muted-foreground">
                       <RefreshIcon aria-hidden="true" className="size-3 shrink-0" />
-                      <span className="truncate">Start from origin</span>
+                      <span className="truncate">Start from remote</span>
                     </span>
                     <Switch
-                      id={startFromRemoteControlId}
-                      checked={remoteControl.value === "origin"}
+                      id={startFromOriginSwitchId}
+                      checked={originControl.checked}
                       size="sm"
-                      aria-label="Start worktree from origin"
-                      onCheckedChange={(checked) =>
-                        remoteControl.onChange(checked ? "origin" : null)
-                      }
+                      aria-label="Start worktree from remote"
+                      onCheckedChange={(checked) => originControl.onCheckedChange(Boolean(checked))}
                     />
                   </label>
                 }
               />
               <TooltipPopup side="top" className="max-w-72 whitespace-normal">
-                Creates the worktree from the latest matching branch on origin instead of your local
-                branch.
+                Uses the latest commit of the base branch’s tracked remote branch, even if its name
+                differs. Otherwise uses the same-named branch on origin. Uses your local branch if
+                that remote branch is missing.
               </TooltipPopup>
             </Tooltip>
           ) : null}
@@ -371,11 +327,11 @@ export function BranchPickerRefItem({
           : null;
   return (
     <ComboboxItem
+      disabled={disabled}
       hideIndicator
       key={itemValue}
       index={index}
       value={value ?? itemValue}
-      disabled={disabled ?? false}
       onClick={onClick}
       onContextMenu={onContextMenu}
     >

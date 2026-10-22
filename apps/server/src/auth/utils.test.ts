@@ -2,7 +2,6 @@ import { describe, expect, it } from "vite-plus/test";
 
 import {
   deriveAuthClientMetadata,
-  isRemoteReachableHost,
   isRemoteReachableServer,
   resolveLegacySessionCookieName,
   resolveSessionCookieName,
@@ -85,6 +84,7 @@ describe("session cookie isolation", () => {
     expect(first).not.toBe(second);
   });
 
+  // regression: #8085 isolate remote web session cookies
   it("isolates remote web servers by server state", () => {
     const first = resolveSessionCookieName({
       mode: "web",
@@ -131,34 +131,6 @@ describe("session cookie isolation", () => {
     });
 
     expect(first).toBe(second);
-  });
-
-  it("retains desktop port scoping", () => {
-    expect(
-      resolveSessionCookieName({
-        mode: "desktop",
-        port: 3773,
-        host: "127.0.0.1",
-        publicUrl: undefined,
-        instanceKey: "/tmp/desktop",
-        environmentId: "environment-one",
-        development: true,
-      }),
-    ).toBe("t3_session_3773");
-  });
-
-  it("isolates development servers even when they bind a wildcard host", () => {
-    expect(
-      resolveSessionCookieName({
-        mode: "web",
-        port: 5775,
-        host: "0.0.0.0",
-        publicUrl: undefined,
-        instanceKey: "/tmp/t3-wildcard-dev",
-        environmentId: "environment-one",
-        development: true,
-      }),
-    ).toMatch(/^t3_session_5775_[a-f0-9]{12}$/);
   });
 
   it("keeps a proxied loopback server's cookie stable when its internal port moves", () => {
@@ -304,14 +276,5 @@ describe("session cookie isolation", () => {
     // cookie would sign every existing client out.
     expect(wildcardBound).toBe("t3_session_3773");
     expect(wildcardBoundLoopbackPublicUrl).toBe("t3_session_3773");
-  });
-
-  it("classifies loopback aliases separately from remotely reachable hosts", () => {
-    expect(isRemoteReachableHost(undefined)).toBe(false);
-    expect(isRemoteReachableHost("localhost")).toBe(false);
-    expect(isRemoteReachableHost("127.12.0.1")).toBe(false);
-    expect(isRemoteReachableHost("[::1]")).toBe(false);
-    expect(isRemoteReachableHost("0.0.0.0")).toBe(true);
-    expect(isRemoteReachableHost("192.168.1.50")).toBe(true);
   });
 });

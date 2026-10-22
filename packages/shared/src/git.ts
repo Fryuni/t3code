@@ -163,9 +163,10 @@ export function normalizeGitRemoteUrl(value: string): string {
     }
   }
 
-  const scpStyleHostAndPath = /^[a-zA-Z0-9._-]+@([^:/\s]+):([^/\s]+(?:\/[^/\s]+)+)$/i.exec(
-    normalized,
-  );
+  // A userless one-letter prefix is a Windows drive, not an SCP host.
+  const scpStyleHostAndPath = /^[a-z]:/i.test(normalized)
+    ? null
+    : /^(?:[a-zA-Z0-9._-]+@)?([^@:/\\\s]+):\/?([^/\s]+(?:\/[^/\s]+)+)$/i.exec(normalized);
   const scpHost = scpStyleHostAndPath?.[1];
   const scpPath = scpStyleHostAndPath?.[2];
   if (scpHost && scpPath) {
@@ -193,6 +194,26 @@ function parseGitConfigValue(raw: string): string {
     out += char;
   }
   return out.trim();
+}
+
+export function isBareGitConfig(configText: string): boolean {
+  let inCore = false;
+  let bare = false;
+  for (const rawLine of configText.split(/\r?\n/)) {
+    let line = rawLine.trim();
+    // Git accepts the first setting on the section header's own line.
+    const header = /^\[\s*([^\]]*?)\s*\](.*)$/.exec(line);
+    if (header !== null) {
+      inCore = header[1]!.toLowerCase() === "core";
+      line = header[2]!.trim();
+    }
+    if (!inCore) continue;
+    const match = /^bare\s*(?:=(.*)|[#;].*)?$/i.exec(line);
+    if (match === null) continue;
+    const value = match[1] === undefined ? "true" : parseGitConfigValue(match[1]).toLowerCase();
+    bare = value === "true" || value === "yes" || value === "on" || value === "1";
+  }
+  return bare;
 }
 
 // The password runs from the user name's colon to the last `@` before the path.
@@ -365,7 +386,6 @@ function toLocalStatusPart(status: VcsStatusResult): VcsStatusLocalResult {
       ? { sourceControlProvider: status.sourceControlProvider }
       : {}),
     hasPrimaryRemote: status.hasPrimaryRemote,
-    ...(status.remoteNames === undefined ? {} : { remoteNames: status.remoteNames }),
     isDefaultRef: status.isDefaultRef,
     refName: status.refName,
     hasWorkingTreeChanges: status.hasWorkingTreeChanges,

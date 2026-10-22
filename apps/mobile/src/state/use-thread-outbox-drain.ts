@@ -464,8 +464,8 @@ export async function restoreRejectedQueuedMessage(
               branch: queuedMessage.creation.branch,
               worktreePath: queuedMessage.creation.worktreePath,
               pullRequestReference: queuedMessage.creation.pullRequestReference,
-              ...(queuedMessage.creation.startFromRemote !== undefined
-                ? { startFromRemote: queuedMessage.creation.startFromRemote }
+              ...(queuedMessage.creation.startFromOrigin !== undefined
+                ? { startFromOrigin: queuedMessage.creation.startFromOrigin }
                 : {}),
               ...(queuedMessage.creation.createNewBranch !== undefined
                 ? { createNewBranch: queuedMessage.creation.createNewBranch }
@@ -1010,7 +1010,7 @@ export function useThreadOutboxDrain(): void {
           workspaceMode: "local",
           branch: checkout.value.branch,
           worktreePath: checkout.value.worktreePath,
-          startFromRemote: null,
+          startFromOrigin: false,
           createNewBranch: true,
         };
       }
@@ -1023,6 +1023,7 @@ export function useThreadOutboxDrain(): void {
           commandId: queuedMessage.commandId,
           messageId: queuedMessage.messageId,
           createdAt: queuedMessage.createdAt,
+          titleText: queuedMessage.text,
           ...serializeComposerMessageForServer(
             queuedMessage.text.trim(),
             uploadedComposerContext(
@@ -1039,7 +1040,7 @@ export function useThreadOutboxDrain(): void {
           workspaceMode: workspace.workspaceMode,
           branch: workspace.branch,
           worktreePath: workspace.worktreePath,
-          startFromRemote: workspace.startFromRemote ?? null,
+          startFromOrigin: workspace.startFromOrigin ?? false,
           createNewBranch: workspace.createNewBranch ?? true,
           worktreeBranchName: buildTemporaryWorktreeBranchName(randomHex),
         }),

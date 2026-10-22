@@ -2,7 +2,6 @@ import {
   CommandId,
   MessageId,
   type ProjectId,
-  resolveWorktreeStartRemote,
   WorktreeMcpFailure,
   type WorktreeMcpContinuationStatus,
   type WorktreeMcpHandoffInput,
@@ -208,16 +207,21 @@ const make = Effect.gen(function* () {
       baseRef = localStatus.refName;
     }
 
-    const startFromRemote = resolveWorktreeStartRemote(
-      input.startFromRemote === undefined && input.startFromOrigin === undefined
-        ? { startFromOrigin: yield* readDefaultStartFromOrigin }
-        : input,
-    );
-    // Shared with UI launches, so prefixed bases, the origin fallback, and
-    // upstream failures behave the same for agents.
-    const worktreeBase = yield* gitWorkflow
-      .resolveWorktreeBase({ cwd: projectCwd, baseBranch: baseRef, startFromRemote })
-      .pipe(asOperationFailed(`Unable to resolve the worktree base '${baseRef}'`));
+    const startFromOrigin = input.startFromOrigin ?? (yield* readDefaultStartFromOrigin);
+
+    let worktreeBaseRef = baseRef;
+    let baseRefName = baseRef;
+    let startedFromOrigin = false;
+    if (startFromOrigin) {
+      const resolvedRemoteBase = yield* gitWorkflow
+        .fetchWorktreeBaseCommit({ cwd: projectCwd, refName: baseRef })
+        .pipe(asOperationFailed(`Unable to fetch the remote base of '${baseRef}'`));
+      if (resolvedRemoteBase !== null) {
+        worktreeBaseRef = resolvedRemoteBase.commitSha;
+        baseRefName = `refs/remotes/${resolvedRemoteBase.remoteRefName}`;
+        startedFromOrigin = true;
+      }
+    }
 
     const ids = yield* handoffIds(scope);
 
@@ -235,9 +239,9 @@ const make = Effect.gen(function* () {
           gitWorkflow
             .createWorktree({
               cwd: projectCwd,
-              refName: worktreeBase.baseRef,
+              refName: worktreeBaseRef,
               newRefName: input.branch,
-              baseRefName: baseRef,
+              baseRefName,
               path: null,
             })
             .pipe(asOperationFailed("Unable to create the worktree")),
@@ -376,21 +380,17 @@ const make = Effect.gen(function* () {
             );
         }
 
-        const note =
-          continuation.status === "scheduled"
-            ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
-            : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.";
         const result: WorktreeMcpHandoffResult = {
           worktreePath,
           branch: worktree.worktree.refName,
           baseRef,
-          startedFromOrigin: startFromRemote === "origin" && worktreeBase.fetchStatus === "done",
+          startedFromOrigin,
           setupScript,
           continuation,
           note:
-            worktreeBase.fetchStatus === "warning"
-              ? `${note} Warning: ${worktreeBase.fetchDetail}.`
-              : note,
+            continuation.status === "scheduled"
+              ? "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the queued continuation prompt then starts the next turn inside the worktree with the conversation preserved. The worktree is not removed automatically when the thread is deleted."
+              : "Handoff recorded. Changing the workspace detaches this provider session, so the current turn ends shortly after this call; the conversation continues inside the worktree when the thread receives its next message. Pass continuationPrompt to resume automatically. The worktree is not removed automatically when the thread is deleted.",
         };
         return result;
       }),

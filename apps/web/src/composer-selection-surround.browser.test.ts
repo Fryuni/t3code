@@ -1,15 +1,10 @@
 import { Editor } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
-import { afterEach, expect, it } from "vite-plus/test";
+import { expect, it } from "vite-plus/test";
 
 import { surroundComposerSelection } from "./composer-selection-surround";
 
-const editors: Editor[] = [];
-afterEach(() => {
-  for (const editor of editors.splice(0)) editor.destroy();
-  document.body.replaceChildren();
-});
-
+/** An editor holding "word" fully selected; dispose it to destroy the editor and its element. */
 function selectedWord() {
   const element = document.createElement("div");
   document.body.appendChild(element);
@@ -22,20 +17,28 @@ function selectedWord() {
       handleScrollToSelection: () => true,
     },
   });
-  editors.push(editor);
   editor.commands.setTextSelection({ from: 1, to: 5 });
   editor.view.focus();
   const updated = new Promise<void>((resolve) => {
     editor.on("update", () => resolve());
   });
   const text = editor.view.dom.querySelector("p")!.firstChild!;
-  return { editor, text, updated };
+  return {
+    editor,
+    text,
+    updated,
+    [Symbol.dispose]() {
+      editor.destroy();
+      element.remove();
+    },
+  };
 }
 
 it.each(["'", '"', "`"])(
   "replaces selected text with %s when the DOM update arrives after compositionend",
   async (quote) => {
-    const { editor, text, updated } = selectedWord();
+    using word = selectedWord();
+    const { editor, text, updated } = word;
     const dom = editor.view.dom;
     dom.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
     text.nodeValue = quote;
@@ -54,7 +57,8 @@ it.each(["'", '"', "`"])(
 );
 
 it("still surrounds selected text on a DOM input without composition", async () => {
-  const { editor, text, updated } = selectedWord();
+  using word = selectedWord();
+  const { editor, text, updated } = word;
   text.nodeValue = "(";
   window.getSelection()!.collapse(text, 1);
   await updated;

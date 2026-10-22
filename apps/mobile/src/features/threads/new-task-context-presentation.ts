@@ -1,9 +1,20 @@
 import { canCheckoutBranchInNewWorktree, type VcsRef } from "@t3tools/client-runtime/state/vcs";
-import type { WorktreeStartRemote } from "@t3tools/contracts";
 import { sanitizeNewRefName } from "@t3tools/shared/git";
 import { parseChangeRequestUrl } from "@t3tools/shared/changeRequestUrl";
+import { resolveSendEnvMode } from "@t3tools/shared/projectSettings";
+import type { ComposerDraftWorkspaceSelection } from "../../state/use-composer-drafts";
 
 type WorkspaceMode = "local" | "worktree";
+
+export function resolveNewTaskWorkspaceSelection(input: {
+  readonly selection: ComposerDraftWorkspaceSelection | undefined;
+  readonly fallback: ComposerDraftWorkspaceSelection;
+  readonly isGitRepo: boolean;
+}): ComposerDraftWorkspaceSelection {
+  const selection = input.selection ?? input.fallback;
+  const mode = resolveSendEnvMode({ requestedEnvMode: selection.mode, isGitRepo: input.isGitRepo });
+  return input.isGitRepo ? selection : { mode, branch: null, worktreePath: null };
+}
 
 export function resolveNewTaskWorkspaceLabel(input: {
   readonly workspaceMode: WorkspaceMode;
@@ -62,30 +73,9 @@ export function resolveNewTaskLocalWorkspaceSelection(input: {
   };
 }
 
-/**
- * The remote of the selected ref, or null for a local branch. A local branch wins over a remote
- * ref with the same name, and only exact name matches count.
- */
-export function resolveNewTaskBranchRemoteName(input: {
-  readonly branchName: string | null;
-  readonly branches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
-  readonly queriedBranches: ReadonlyArray<Pick<VcsRef, "name" | "isRemote" | "remoteName">>;
-}): string | null {
-  const localBranch =
-    input.branches.find((ref) => ref.name === input.branchName && !ref.isRemote) ??
-    input.queriedBranches.find((ref) => ref.name === input.branchName && !ref.isRemote);
-  if (localBranch) return null;
-  const branch =
-    input.branches.find((ref) => ref.name === input.branchName) ??
-    input.queriedBranches.find((ref) => ref.name === input.branchName);
-  return branch?.remoteName ?? null;
-}
-
 export function resolveNewTaskBranchLabel(input: {
   readonly branchName: string | null;
-  /** Remote of the selected ref, whose prefix is replaced by the chosen remote. */
-  readonly branchRemoteName?: string | null;
-  readonly startFromRemote: WorktreeStartRemote;
+  readonly startFromOrigin: boolean;
   readonly createNewBranch?: boolean;
   readonly workspaceMode: WorkspaceMode;
   readonly pullRequestReference?: string;
@@ -102,15 +92,8 @@ export function resolveNewTaskBranchLabel(input: {
     return input.branchName;
   }
 
-  const remotePrefix = input.branchRemoteName ? `${input.branchRemoteName}/` : null;
-  const branchName =
-    remotePrefix && input.branchName.startsWith(remotePrefix)
-      ? input.branchName.slice(remotePrefix.length)
-      : input.branchName;
-  const baseRef = input.startFromRemote
-    ? `${input.startFromRemote}/${branchName}`
-    : input.branchName;
-  return `From ${baseRef}`;
+  // Only the server can determine a local branch's configured remote.
+  return input.startFromOrigin ? `From ${input.branchName} (remote)` : `From ${input.branchName}`;
 }
 
 /**

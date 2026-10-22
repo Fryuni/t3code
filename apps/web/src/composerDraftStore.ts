@@ -24,8 +24,6 @@ import {
   type ScopedThreadRef,
   ThreadId,
   SnapShotSource,
-  WorktreeStartRemote,
-  resolveWorktreeStartRemote,
 } from "@t3tools/contracts";
 import {
   parseScopedProjectKey,
@@ -39,7 +37,17 @@ import * as Schema from "effect/Schema";
 import * as Equal from "effect/Equal";
 import * as Effect from "effect/Effect";
 import { DeepMutable } from "effect/Types";
-import { createModelSelection, normalizeModelSlug } from "@t3tools/shared/model";
+import {
+  createModelSelection,
+  draftModelPickMatchesThread,
+  normalizeModelSlug,
+} from "@t3tools/shared/model";
+import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
+import * as Option from "effect/Option";
+import type {
+  EnvironmentShellState,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
 import { getLocalStorageItem } from "./hooks/useLocalStorage";
 import { readThreadPreviewState } from "./previewStateStore";
 import { resolveAppModelSelection, resolveAppModelSelectionForInstance } from "./modelSelection";
@@ -91,7 +99,6 @@ const isReviewCommentContext = Schema.is(ReviewCommentContextSchema);
 const isThreadContextRecord = Schema.is(ThreadContextRecord);
 const isSnapShotSource = Schema.is(SnapShotSource);
 const isPreviewAnnotationPayload = Schema.is(PreviewAnnotationPayloadSchema);
-const isWorktreeStartRemote = Schema.is(WorktreeStartRemote);
 
 export const COMPOSER_DRAFT_STORAGE_KEY = "t3code:composer-drafts:v1";
 const COMPOSER_DRAFT_STORAGE_VERSION = 9;
@@ -308,7 +315,7 @@ const PersistedDraftThreadState = Schema.Struct({
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
   envMode: DraftThreadEnvModeSchema,
-  startFromRemote: WorktreeStartRemote.pipe(Schema.withDecodingDefault(Effect.succeed(null))),
+  startFromOrigin: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   createNewBranch: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(true))),
   promotedTo: Schema.optionalKey(
     Schema.NullOr(
@@ -400,7 +407,7 @@ export interface DraftSessionState {
   branch: string | null;
   worktreePath: string | null;
   envMode: DraftThreadEnvMode;
-  startFromRemote: WorktreeStartRemote;
+  startFromOrigin: boolean;
   /** False checks out `branch` itself in the new worktree. */
   createNewBranch: boolean;
   promotedTo?: ScopedThreadRef | null;
@@ -447,7 +454,7 @@ interface ComposerDraftStoreState {
       worktreePath?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
-      startFromRemote?: WorktreeStartRemote;
+      startFromOrigin?: boolean;
       createNewBranch?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
@@ -464,7 +471,7 @@ interface ComposerDraftStoreState {
       worktreePath?: string | null;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
-      startFromRemote?: WorktreeStartRemote;
+      startFromOrigin?: boolean;
       createNewBranch?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
@@ -480,7 +487,7 @@ interface ComposerDraftStoreState {
       projectRef?: ScopedProjectRef;
       createdAt?: string;
       envMode?: DraftThreadEnvMode;
-      startFromRemote?: WorktreeStartRemote;
+      startFromOrigin?: boolean;
       createNewBranch?: boolean;
       runtimeMode?: RuntimeMode;
       interactionMode?: ProviderInteractionMode;
@@ -1408,7 +1415,7 @@ function createDraftThreadState(
     worktreePath?: string | null;
     createdAt?: string;
     envMode?: DraftThreadEnvMode;
-    startFromRemote?: WorktreeStartRemote;
+    startFromOrigin?: boolean;
     createNewBranch?: boolean;
     runtimeMode?: RuntimeMode;
     interactionMode?: ProviderInteractionMode;
@@ -1435,10 +1442,10 @@ function createDraftThreadState(
         ? null
         : (existingThread?.branch ?? null)
       : (options.branch ?? null);
-  const nextStartFromRemote =
-    options?.startFromRemote === undefined
-      ? (existingThread?.startFromRemote ?? null)
-      : options.startFromRemote;
+  const nextStartFromOrigin =
+    options?.startFromOrigin === undefined
+      ? (existingThread?.startFromOrigin ?? false)
+      : options.startFromOrigin;
   const environmentSelection =
     options?.environmentSelection ?? existingThread?.environmentSelection;
   return {
@@ -1464,7 +1471,7 @@ function createDraftThreadState(
     worktreePath: nextWorktreePath,
     envMode:
       options?.envMode ?? (nextWorktreePath ? "worktree" : (existingThread?.envMode ?? "local")),
-    startFromRemote: nextStartFromRemote,
+    startFromOrigin: nextStartFromOrigin,
     createNewBranch: options?.createNewBranch ?? existingThread?.createNewBranch ?? true,
     promotedTo: null,
   };
@@ -1499,7 +1506,7 @@ function draftThreadsEqual(left: DraftThreadState | undefined, right: DraftThrea
     left.branch === right.branch &&
     left.worktreePath === right.worktreePath &&
     left.envMode === right.envMode &&
-    left.startFromRemote === right.startFromRemote &&
+    left.startFromOrigin === right.startFromOrigin &&
     left.createNewBranch === right.createNewBranch &&
     scopedThreadRefsEqual(left.promotedTo, right.promotedTo)
   );
@@ -1600,13 +1607,10 @@ function normalizePersistedDraftThreads(
       const createdAt = candidateDraftThread.createdAt;
       const branch = candidateDraftThread.branch;
       const worktreePath = candidateDraftThread.worktreePath;
-      // Drafts saved before upstream existed only stored `startFromOrigin`.
-      const startFromRemote = resolveWorktreeStartRemote({
-        startFromRemote: isWorktreeStartRemote(candidateDraftThread.startFromRemote)
-          ? candidateDraftThread.startFromRemote
-          : undefined,
-        startFromOrigin: candidateDraftThread.startFromOrigin === true,
-      });
+      // Fork builds that offered an upstream source stored `startFromRemote` instead.
+      const startFromOrigin =
+        candidateDraftThread.startFromOrigin === true ||
+        candidateDraftThread.startFromRemote === "origin";
       const normalizedWorktreePath = typeof worktreePath === "string" ? worktreePath : null;
       const promotedToCandidate = candidateDraftThread.promotedTo;
       const promotedToRecord =
@@ -1654,7 +1658,7 @@ function normalizePersistedDraftThreads(
         branch: typeof branch === "string" ? branch : null,
         worktreePath: normalizedWorktreePath,
         envMode: normalizeDraftThreadEnvMode(candidateDraftThread.envMode, normalizedWorktreePath),
-        startFromRemote,
+        startFromOrigin,
         createNewBranch: candidateDraftThread.createNewBranch !== false,
         ...(candidateDraftThread.environmentSelection === "manual" ||
         candidateDraftThread.environmentSelection === "auto"
@@ -1717,7 +1721,7 @@ function normalizePersistedDraftThreads(
           branch: null,
           worktreePath: null,
           envMode: "local",
-          startFromRemote: null,
+          startFromOrigin: false,
           createNewBranch: true,
           promotedTo: null,
         };
@@ -2395,7 +2399,7 @@ function toHydratedDraftThreadState(
     branch: persistedDraftThread.branch,
     worktreePath: persistedDraftThread.worktreePath,
     envMode: persistedDraftThread.envMode,
-    startFromRemote: persistedDraftThread.startFromRemote,
+    startFromOrigin: persistedDraftThread.startFromOrigin,
     createNewBranch: persistedDraftThread.createNewBranch,
     ...(persistedDraftThread.environmentSelection
       ? { environmentSelection: persistedDraftThread.environmentSelection }
@@ -2660,10 +2664,10 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
                   ? null
                   : existing.branch
                 : (options.branch ?? null);
-            const nextStartFromRemote =
-              options.startFromRemote === undefined
-                ? existing.startFromRemote
-                : options.startFromRemote;
+            const nextStartFromOrigin =
+              options.startFromOrigin === undefined
+                ? existing.startFromOrigin
+                : options.startFromOrigin;
             const environmentSelection =
               options.environmentSelection ??
               (options.branch != null || options.worktreePath != null
@@ -2691,7 +2695,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               worktreePath: nextWorktreePath,
               envMode:
                 options.envMode ?? (nextWorktreePath ? "worktree" : (existing.envMode ?? "local")),
-              startFromRemote: nextStartFromRemote,
+              startFromOrigin: nextStartFromOrigin,
               createNewBranch: options.createNewBranch ?? existing.createNewBranch,
               promotedTo: existing.promotedTo ?? null,
             };
@@ -2707,7 +2711,7 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
               nextDraftThread.branch === existing.branch &&
               nextDraftThread.worktreePath === existing.worktreePath &&
               nextDraftThread.envMode === existing.envMode &&
-              nextDraftThread.startFromRemote === existing.startFromRemote &&
+              nextDraftThread.startFromOrigin === existing.startFromOrigin &&
               nextDraftThread.createNewBranch === existing.createNewBranch &&
               scopedThreadRefsEqual(nextDraftThread.promotedTo, existing.promotedTo);
             if (isUnchanged) {
@@ -4162,6 +4166,75 @@ const composerDraftStore = create<ComposerDraftStoreState>()(
 
 export const useComposerDraftStore = composerDraftStore;
 
+export function subscribeComposerDraftModelReconciliation(input: {
+  readonly registry: AtomRegistry.AtomRegistry;
+  readonly threadRefsAtom: Atom.Atom<ReadonlyArray<ScopedThreadRef>>;
+  readonly threadShellAtom: (ref: ScopedThreadRef) => Atom.Atom<EnvironmentThreadShell | null>;
+  readonly shellStateAtom: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<AsyncResult.AsyncResult<EnvironmentShellState, unknown>>;
+}): () => void {
+  const draftsAtom = Atom.make(composerDraftStore.getState());
+  const unsubscribeDrafts = composerDraftStore.subscribe((state) =>
+    input.registry.set(draftsAtom, state),
+  );
+  const threadKeysAtom = Atom.map(
+    input.threadRefsAtom,
+    (refs) => new Set(refs.map(scopedThreadKey)),
+  );
+  const matchesAtom = Atom.make((get) => {
+    const state = get(draftsAtom);
+    const threadKeys = get(threadKeysAtom);
+    const matches: Array<readonly [string, ComposerThreadDraftState]> = [];
+    for (const [key, draft] of Object.entries(state.draftsByThreadKey)) {
+      // Local drafts can materialize a shell before their first turn is submitted.
+      if (state.draftThreadsByThreadKey[key] || draft.activeProvider === null) continue;
+      const ref = parseScopedThreadKey(key);
+      const pick = draft.modelSelectionByProvider[draft.activeProvider];
+      if (!ref || !pick || !threadKeys.has(key)) continue;
+      const thread = get(input.threadShellAtom(ref));
+      if (!thread || !draftModelPickMatchesThread(pick, thread.modelSelection)) continue;
+      // Status and selection must come from the same emission; derived atoms can update apart.
+      const shell = Option.getOrNull(
+        AsyncResult.value(get(input.shellStateAtom(ref.environmentId))),
+      );
+      if (shell?.status !== "live") continue;
+      const authoritativeThread = Option.getOrNull(shell.snapshot)?.threads.find(
+        (candidate) => candidate.id === ref.threadId,
+      );
+      if (
+        authoritativeThread &&
+        draftModelPickMatchesThread(pick, authoritativeThread.modelSelection)
+      ) {
+        matches.push([key, draft]);
+      }
+    }
+    return matches;
+  });
+  const unsubscribeMatches = input.registry.subscribe(
+    matchesAtom,
+    (matches) => {
+      if (matches.length === 0) return;
+      composerDraftStore.setState((state) => {
+        const drafts = { ...state.draftsByThreadKey };
+        for (const [key, matchedDraft] of matches) {
+          if (drafts[key] !== matchedDraft) continue;
+          const { modelSelectionExplicit: _explicit, ...retained } = matchedDraft;
+          const draft = { ...retained, activeProvider: null, modelSelectionByProvider: {} };
+          if (shouldRemoveDraft(draft)) delete drafts[key];
+          else drafts[key] = draft;
+        }
+        return { draftsByThreadKey: drafts };
+      });
+    },
+    { immediate: true },
+  );
+  return () => {
+    unsubscribeMatches();
+    unsubscribeDrafts();
+  };
+}
+
 export function beginBackgroundDraftSubmissionByRef(threadRef: ScopedThreadRef): void {
   const threadKey = scopedThreadKey(threadRef);
   useComposerDraftStore.setState((state) => ({
@@ -4293,7 +4366,7 @@ export function markPromotedDraftThreadByRef(threadRef: ScopedThreadRef): void {
   }
 }
 
-export function restoreFailedBackgroundDraftThread(
+export function restoreFailedDraftThread(
   draftId: DraftId,
   draftThread: DraftThreadState,
   threadId: ThreadId,
@@ -4302,8 +4375,9 @@ export function restoreFailedBackgroundDraftThread(
     draftThreadsByThreadKey: {
       ...state.draftThreadsByThreadKey,
       [draftId]: {
-        ...draftThread,
+        ...(state.draftThreadsByThreadKey[draftId] ?? draftThread),
         threadId,
+        ...(threadId !== draftThread.threadId ? { createdAt: new Date().toISOString() } : {}),
         promotedTo: null,
       },
     },

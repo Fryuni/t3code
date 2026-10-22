@@ -1,7 +1,6 @@
 import * as Schema from "effect/Schema";
 
 import { TrimmedNonEmptyString } from "./baseSchemas.ts";
-import { WorktreeStartRemote } from "./vcs.ts";
 
 /**
  * The server picks the location in its managed worktrees folder.
@@ -22,13 +21,7 @@ export const WorktreeMcpHandoffInput = Schema.Struct({
   startFromOrigin: Schema.optional(
     Schema.Boolean.annotate({
       description:
-        "Fetch origin and start the worktree branch from the remote-tracking commit of baseRef instead of the local ref. Defaults to the server's 'new worktrees start from origin' setting.",
-    }),
-  ),
-  startFromRemote: Schema.optional(
-    WorktreeStartRemote.annotate({
-      description:
-        "Remote to fetch baseRef from and start at: 'origin', 'upstream' (the canonical repository in a fork workflow), or null for the local ref. Overrides startFromOrigin. A missing origin branch falls back to the local ref; a missing upstream remote or branch fails the handoff.",
+        "Fetch the remote baseRef belongs to and start the worktree branch from its remote-tracking commit instead of the local ref. Defaults to the server's 'new worktrees start from remote' setting.",
     }),
   ),
   runSetupScript: Schema.optional(
@@ -101,8 +94,7 @@ export const WorktreeMcpStatusResult = Schema.Struct({
     description: "Root of the project's main workspace checkout.",
   }),
   defaultStartFromOrigin: Schema.Boolean.annotate({
-    description:
-      "Server default used by t3_worktree_handoff when startFromRemote and startFromOrigin are omitted.",
+    description: "Server default used by t3_worktree_handoff when startFromOrigin is omitted.",
   }),
 });
 export type WorktreeMcpStatusResult = typeof WorktreeMcpStatusResult.Type;

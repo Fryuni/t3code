@@ -1,17 +1,22 @@
+import { isWebhookDedupeTemplate } from "@t3tools/contracts";
 import type {
   ModelSelection,
-  OrchestrationV2ThreadLaunchWorkspaceStrategy,
   ServerConfig,
   ProjectId,
   RuntimeMode,
   ScheduledTask,
   ScheduledTaskUpsertSchedule,
   ScheduledTaskWebhookSignature,
-  WorktreeStartRemote,
 } from "@t3tools/contracts";
 
-import { DEFAULT_SERVER_SETTINGS, resolveWorktreeStartRemote } from "@t3tools/contracts";
-import { parseMaxDeliveryAge } from "@t3tools/client-runtime/scheduled-task-webhook";
+import { DEFAULT_SERVER_SETTINGS } from "@t3tools/contracts";
+import {
+  parseMaxDeliveryAge,
+  parseWebhookFilterDrafts,
+  webhookFilterDrafts,
+  webhookFilterDraftsChanged,
+  type WebhookFilterDraft,
+} from "@t3tools/client-runtime/scheduled-task-webhook";
 import {
   resolveProjectSettings,
   type LegacyProjectSettingsFields,
@@ -52,6 +57,12 @@ export type ScheduleDraft = {
   readonly intervalMinutes: string;
   readonly signature: ScheduledTaskWebhookSignature | null;
   readonly maxDeliveryAgeMinutes: string;
+  readonly replayKey: string;
+  readonly coalesceKey: string;
+  readonly coalesceWindowSeconds: string;
+  readonly filters: ReadonlyArray<WebhookFilterDraft>;
+  /** The filter rows the form opened with. */
+  readonly savedFilters: ReadonlyArray<WebhookFilterDraft>;
 };
 
 export const DEFAULT_SCHEDULE: ScheduleDraft = {
@@ -61,6 +72,11 @@ export const DEFAULT_SCHEDULE: ScheduleDraft = {
   intervalMinutes: "15",
   signature: null,
   maxDeliveryAgeMinutes: "",
+  replayKey: "",
+  coalesceKey: "",
+  coalesceWindowSeconds: "",
+  filters: [],
+  savedFilters: [],
 };
 
 export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): ScheduleDraft {
@@ -84,10 +100,18 @@ export function scheduleDraftForTask(task: Pick<ScheduledTask, "schedule">): Sch
         ...DEFAULT_SCHEDULE,
         mode: "webhook",
         signature: task.schedule.signature,
+        replayKey: task.schedule.dedupe?.replayKey ?? "",
+        coalesceKey: task.schedule.dedupe?.coalesceKey ?? "",
+        coalesceWindowSeconds:
+          task.schedule.dedupe?.coalesceWindowSeconds === undefined
+            ? ""
+            : String(task.schedule.dedupe.coalesceWindowSeconds),
         maxDeliveryAgeMinutes:
           task.schedule.maxDeliveryAgeMinutes == null
             ? ""
             : String(task.schedule.maxDeliveryAgeMinutes),
+        filters: webhookFilterDrafts(task.schedule.filters),
+        savedFilters: webhookFilterDrafts(task.schedule.filters),
       };
   }
 }
@@ -96,6 +120,21 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
   if (draft.mode === "webhook") {
     const maxDeliveryAgeMinutes = parseMaxDeliveryAge(draft.maxDeliveryAgeMinutes);
     if (maxDeliveryAgeMinutes === undefined) return null;
+    const replayKey = draft.replayKey.trim();
+    const coalesceKey = draft.coalesceKey.trim();
+    if ([replayKey, coalesceKey].some((key) => key && !isWebhookDedupeTemplate(key))) return null;
+    const coalesceWindowSeconds = draft.coalesceWindowSeconds?.trim()
+      ? Number(draft.coalesceWindowSeconds)
+      : undefined;
+    if (
+      coalesceWindowSeconds !== undefined &&
+      (!Number.isInteger(coalesceWindowSeconds) ||
+        coalesceWindowSeconds < 10 ||
+        coalesceWindowSeconds > 3600)
+    )
+      return null;
+    const parsedFilters = parseWebhookFilterDrafts(draft.filters);
+    if (!("filters" in parsedFilters)) return null;
     // No secret is sent, so the server keeps the stored one.
     return {
       type: "webhook",
@@ -108,6 +147,19 @@ export function scheduleFromDraft(draft: ScheduleDraft): ScheduledTaskUpsertSche
               prefix: draft.signature.prefix,
             },
       maxDeliveryAgeMinutes,
+      ...(replayKey || coalesceKey || coalesceWindowSeconds !== undefined
+        ? {
+            dedupe: {
+              ...(replayKey ? { replayKey } : {}),
+              ...(coalesceKey ? { coalesceKey } : {}),
+              ...(coalesceWindowSeconds === undefined ? {} : { coalesceWindowSeconds }),
+            },
+          }
+        : { dedupe: {} }),
+      // Only edited filters are sent; the server keeps the stored ones otherwise.
+      ...(webhookFilterDraftsChanged(draft.savedFilters, draft.filters)
+        ? { filters: parsedFilters.filters }
+        : {}),
     };
   }
   if (draft.mode === "interval") {
@@ -143,7 +195,7 @@ export type ScheduledTaskDraft = {
   readonly baseRef: string;
   readonly checkoutPath: string;
   readonly enabled: boolean;
-  readonly startFromRemote: WorktreeStartRemote;
+  readonly startFromOrigin: boolean;
   readonly runtimeMode: RuntimeMode;
 };
 
@@ -162,11 +214,15 @@ function draftSignature(draft: ScheduledTaskDraft): string {
     [...draft.schedule.weekdays].sort((a, b) => a - b),
     draft.schedule.intervalMinutes,
     draft.schedule.maxDeliveryAgeMinutes,
+    draft.schedule.replayKey,
+    draft.schedule.coalesceKey,
+    draft.schedule.coalesceWindowSeconds,
+    draft.schedule.filters.map(({ path, op, value }) => [path, op, value]),
     draft.workspace,
     draft.baseRef,
     draft.checkoutPath,
     draft.enabled,
-    draft.startFromRemote,
+    draft.startFromOrigin,
     draft.runtimeMode,
   ]);
 }
@@ -194,7 +250,7 @@ export function createDraft(
     baseRef: "main",
     checkoutPath: "",
     enabled: true,
-    startFromRemote: "origin",
+    startFromOrigin: true,
     runtimeMode: "full-access",
   };
 }
@@ -215,26 +271,10 @@ export function editDraft(task: ScheduledTask): ScheduledTaskDraft {
         ? task.workspaceStrategy.worktreePath
         : "",
     enabled: task.enabled,
-    startFromRemote:
+    startFromOrigin:
       task.workspaceStrategy.type === "worktree"
-        ? resolveWorktreeStartRemote(task.workspaceStrategy)
-        : "origin",
+        ? (task.workspaceStrategy.startFromOrigin ?? false)
+        : true,
     runtimeMode: task.runtimeMode,
   };
-}
-
-/** The strategy a saved task launches with. Servers that only read `startFromOrigin` still get it. */
-export function scheduledTaskWorkspaceStrategy(
-  draft: ScheduledTaskDraft,
-): OrchestrationV2ThreadLaunchWorkspaceStrategy {
-  return draft.workspace === "root"
-    ? { type: "root" }
-    : draft.workspace === "existing_worktree"
-      ? { type: "existing_worktree", worktreePath: draft.checkoutPath.trim() }
-      : {
-          type: "worktree",
-          baseRef: draft.baseRef.trim() || "main",
-          startFromRemote: draft.startFromRemote,
-          startFromOrigin: draft.startFromRemote === "origin",
-        };
 }

@@ -96,8 +96,8 @@ export const make = Effect.gen(function* () {
         try: () => Electron.safeStorage.decryptString(Buffer.from(value)),
         catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
       }),
-    decryptLegacyString: (value, accept) =>
-      Effect.gen(function* () {
+    decryptLegacyString: Effect.fn("desktop.electron.safeStorage.decryptLegacyString")(
+      function* (value, accept) {
         const backend = yield* selectedStorageBackend;
         if (Option.isNone(backend) || backend.value !== "gnome_libsecret") {
           return Option.none<string>();
@@ -110,7 +110,8 @@ export const make = Effect.gen(function* () {
           },
           catch: (cause) => new ElectronSafeStorageDecryptError({ cause }),
         }).pipe(Effect.map(Option.fromNullishOr));
-      }),
+      },
+    ),
     selectedStorageBackend,
   });
 });

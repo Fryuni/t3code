@@ -1,5 +1,4 @@
-import { canStartWorktreeFromUpstream } from "@t3tools/client-runtime/state/vcs";
-import type { EnvironmentId, WorktreeStartRemote } from "@t3tools/contracts";
+import type { EnvironmentId } from "@t3tools/contracts";
 import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
 import { useDeferredValue, useState } from "react";
 
@@ -21,8 +20,8 @@ export function WorktreeBaseBranchPicker({
   cwd,
   value,
   onValueChange,
-  startFromRemote,
-  onStartFromRemoteChange,
+  startFromOrigin,
+  onStartFromOriginChange,
   disabled = false,
   id,
 }: {
@@ -30,8 +29,8 @@ export function WorktreeBaseBranchPicker({
   cwd: string | null;
   value: string;
   onValueChange: (branch: string) => void;
-  startFromRemote: WorktreeStartRemote;
-  onStartFromRemoteChange: (startFromRemote: WorktreeStartRemote) => void;
+  startFromOrigin: boolean;
+  onStartFromOriginChange: (checked: boolean) => void;
   disabled?: boolean;
   id?: string;
 }) {
@@ -51,10 +50,6 @@ export function WorktreeBaseBranchPicker({
         })
       : null,
   );
-  // Its remote names decide whether the task can start from upstream.
-  const statusQuery = useEnvironmentQuery(
-    cwd ? vcsEnvironment.status({ environmentId, input: { cwd } }) : null,
-  );
   const selectedRef = resolveSelectedBranchRef({
     branchName: value || null,
     listedRefs: branches.refs,
@@ -65,8 +60,7 @@ export function WorktreeBaseBranchPicker({
     effectiveEnvMode: "worktree",
     resolvedActiveBranch: value || null,
     resolvedActiveBranchIsRemote: selectedRef ? selectedRef.isRemote === true : null,
-    resolvedActiveBranchRemoteName: selectedRef?.remoteName ?? null,
-    startFromRemote,
+    startFromOrigin,
   });
   const branchByName = new Map(branches.refs.map((branch) => [branch.name, branch]));
   const items = [...branchByName.keys()];
@@ -102,11 +96,7 @@ export function WorktreeBaseBranchPicker({
       isFetchingNextPage={branches.isFetchingNextPage}
       onLoadNext={branches.loadNext}
       statusText={statusText}
-      remoteControl={{
-        value: startFromRemote,
-        upstreamAvailable: canStartWorktreeFromUpstream(statusQuery.data?.remoteNames),
-        onChange: onStartFromRemoteChange,
-      }}
+      originControl={{ checked: startFromOrigin, onCheckedChange: onStartFromOriginChange }}
       popupProps={{ align: "start", side: "bottom", className: "flex w-80 flex-col" }}
       renderItem={(name, index) => {
         const branch = branchByName.get(name);

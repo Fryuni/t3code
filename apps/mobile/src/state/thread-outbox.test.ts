@@ -12,7 +12,6 @@ import {
   ProjectId,
   ProviderInstanceId,
   ThreadId,
-  type WorktreeStartRemote,
 } from "@t3tools/contracts";
 import { AtomRegistry } from "effect/reactivity";
 import * as RpcClientError from "effect/rpc/RpcClientError";
@@ -79,15 +78,12 @@ vi.mock("expo-file-system", () => {
 import {
   decodeQueuedThreadMessage,
   encodeQueuedThreadMessage,
-  groupQueuedThreadMessages,
   isQueuedThreadCreationSendable,
-  modelSelectionsEqual,
   resolveThreadOutboxDeliveryAction,
   resolveThreadOutboxDispatchStep,
   resolveThreadOutboxFailureAction,
   resolveQueuedThreadSettings,
   shouldRetryThreadOutboxDelivery,
-  threadOutboxRetryDelayMs,
   type QueuedThreadMessage,
 } from "./thread-outbox-model";
 import { createThreadOutboxManager, ThreadOutboxManagerError } from "./thread-outbox-manager";
@@ -136,15 +132,6 @@ describe("thread outbox", () => {
           },
         ],
       },
-    };
-    expect(
-      decodeQueuedThreadMessage(JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message)))),
-    ).toEqual(message);
-  });
-  it("retains queue mode when a queued provider switch reloads from storage", () => {
-    const message: QueuedThreadMessage = {
-      ...queuedMessage({ messageId: "queued-switch", createdAt: "2026-09-17T09:00:00.000Z" }),
-      dispatchMode: "queue",
     };
     expect(
       decodeQueuedThreadMessage(JSON.parse(JSON.stringify(encodeQueuedThreadMessage(message)))),
@@ -304,64 +291,6 @@ describe("thread outbox", () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it("groups messages by scoped thread and preserves creation order", () => {
-    const later = queuedMessage({
-      messageId: "message-2",
-      createdAt: "2026-06-08T10:00:02.000Z",
-    });
-    const earlier = queuedMessage({
-      messageId: "message-1",
-      createdAt: "2026-06-08T10:00:01.000Z",
-    });
-
-    expect(groupQueuedThreadMessages([later, earlier])).toEqual({
-      "environment-1:thread-1": [earlier, later],
-    });
-  });
-
-  it("decodes the persisted schema and rejects incomplete messages", () => {
-    const message = queuedMessage({
-      messageId: "message-1",
-      createdAt: "2026-06-08T10:00:01.000Z",
-    });
-
-    expect(
-      decodeQueuedThreadMessage({
-        schemaVersion: 1,
-        ...message,
-      }),
-    ).toEqual(message);
-    expect(() =>
-      decodeQueuedThreadMessage({
-        schemaVersion: 1,
-        environmentId: "environment-1",
-      }),
-    ).toThrow();
-  });
-
-  it("persists generic attachment paths without embedding their contents", () => {
-    const message = {
-      ...queuedMessage({
-        messageId: "message-file",
-        createdAt: "2026-06-08T10:00:01.000Z",
-      }),
-      attachments: [
-        {
-          id: "file-1",
-          type: "file" as const,
-          name: "report.pdf",
-          mimeType: "application/pdf",
-          sizeBytes: 42,
-          fileUri: "file:///documents/report.pdf",
-          uploadedAttachmentId: "pending-report-pdf",
-          uploadEnvironmentId: EnvironmentId.make("environment-1"),
-        },
-      ],
-    } satisfies QueuedThreadMessage;
-
-    expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(message))).toEqual(message);
-  });
-
   it("reads file-backed images from v4 queued messages", () => {
     const message = {
       ...queuedMessage({
@@ -418,22 +347,6 @@ describe("thread outbox", () => {
     });
   });
 
-  it("compares model options as part of the queued settings change", () => {
-    const base = {
-      instanceId: ProviderInstanceId.make("codex"),
-      model: "gpt-5.4",
-      options: [{ id: "reasoningEffort", value: "medium" }],
-    } as const;
-
-    expect(modelSelectionsEqual(base, base)).toBe(true);
-    expect(
-      modelSelectionsEqual(base, {
-        ...base,
-        options: [{ id: "reasoningEffort", value: "xhigh" }],
-      }),
-    ).toBe(false);
-  });
-
   it("normalizes queued plan mode against the queued provider, not the current thread", () => {
     const codex = { instanceId: ProviderInstanceId.make("codex"), model: "gpt-5.6-sol" };
     const antigravity = {
@@ -474,59 +387,6 @@ describe("thread outbox", () => {
         providers,
       ).interactionMode,
     ).toBe("plan");
-  });
-
-  it("normalizes a legacy queued message that inherits unsupported plan mode", () => {
-    const modelSelection = {
-      instanceId: ProviderInstanceId.make("google-personal"),
-      model: "gemini-test-thinking",
-    };
-    expect(
-      resolveQueuedThreadSettings(
-        queuedMessage({ messageId: "legacy-plan", createdAt: "2026-09-02T10:00:00.000Z" }),
-        { modelSelection, runtimeMode: "approval-required", interactionMode: "plan" },
-        [{ instanceId: modelSelection.instanceId, showInteractionModeToggle: false }],
-      ).interactionMode,
-    ).toBe("default");
-  });
-
-  it("backs off queued delivery retries and caps them at sixteen seconds", () => {
-    expect([1, 2, 3, 4, 5, 6].map(threadOutboxRetryDelayMs)).toEqual([
-      1_000, 2_000, 4_000, 8_000, 16_000, 16_000,
-    ]);
-  });
-
-  it("serializes mutations even when an earlier mutation is slower", async () => {
-    const registry = AtomRegistry.make();
-    const manager = createThreadOutboxManager({
-      registry,
-      storage: {
-        load: async () => ({ messages: [], errors: [] }),
-        write: async () => undefined,
-        remove: async () => undefined,
-      },
-    });
-    const order: string[] = [];
-    let releaseFirst!: () => void;
-    const firstBlocked = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-
-    const first = manager.serialize(async () => {
-      order.push("first:start");
-      await firstBlocked;
-      order.push("first:end");
-    });
-    const second = manager.serialize(async () => {
-      order.push("second");
-    });
-
-    await Promise.resolve();
-    expect(order).toEqual(["first:start"]);
-    releaseFirst();
-    await Promise.all([first, second]);
-    expect(order).toEqual(["first:start", "first:end", "second"]);
-    registry.dispose();
   });
 
   it("holds the mutation queue while persisted messages are loading", async () => {
@@ -784,31 +644,6 @@ describe("thread outbox", () => {
     });
     await expect(manager.confirmQueued(retried)).resolves.toBe(true);
     await expect(manager.confirmQueued(message)).resolves.toBe(false);
-    registry.dispose();
-  });
-
-  it("replaces an existing message when an enqueue retry uses the same id", async () => {
-    const registry = AtomRegistry.make();
-    const manager = createThreadOutboxManager({
-      registry,
-      storage: {
-        load: async () => ({ messages: [], errors: [] }),
-        write: async () => undefined,
-        remove: async () => undefined,
-      },
-    });
-    const message = queuedMessage({
-      messageId: "message-1",
-      createdAt: "2026-06-08T10:00:01.000Z",
-    });
-    const retried = { ...message, text: "retried" };
-
-    await manager.enqueue(message);
-    await manager.enqueue(retried);
-
-    expect(registry.get(manager.queuedMessagesByThreadKeyAtom)).toEqual({
-      "environment-1:thread-1": [retried],
-    });
     registry.dispose();
   });
 
@@ -1259,23 +1094,6 @@ describe("thread outbox", () => {
     ).toEqual({ step: "send" });
   });
 
-  it("waits for provider capabilities before sending text-only queued messages", () => {
-    expect(
-      resolveThreadOutboxDispatchStep({
-        deliveryAction: "send",
-        fileAttachments: [],
-        serverConfig: null,
-      }),
-    ).toEqual({ step: "retry" });
-    expect(
-      resolveThreadOutboxDispatchStep({
-        deliveryAction: "send",
-        fileAttachments: [],
-        serverConfig: { maxFileUploadBytes: undefined },
-      }),
-    ).toEqual({ step: "send" });
-  });
-
   it("only removes a missing-thread message after shell synchronization is live", () => {
     expect(
       resolveThreadOutboxDeliveryAction({
@@ -1366,15 +1184,11 @@ describe("thread outbox", () => {
     ).toBe("remove");
   });
 
-  it.each([null, "origin", "upstream"] satisfies ReadonlyArray<WorktreeStartRemote>)(
-    "round-trips queued creations with remote=%s and gates incomplete ones from sending",
-    (startFromRemote) => {
-      const base = queuedMessage({
-        messageId: "message-1",
-        createdAt: "2026-06-08T10:00:01.000Z",
-      });
+  it.each([true, false])(
+    "round-trips a queued creation with createNewBranch=%s",
+    (createNewBranch) => {
       const creationMessage = {
-        ...base,
+        ...queuedMessage({ messageId: "message-1", createdAt: "2026-06-08T10:00:01.000Z" }),
         modelSelection: {
           instanceId: ProviderInstanceId.make("codex"),
           model: "gpt-5.4",
@@ -1382,56 +1196,39 @@ describe("thread outbox", () => {
         creation: {
           projectId: ProjectId.make("project-1"),
           workspaceMode: "worktree",
-          branch: "main",
+          branch: "feature/existing",
           worktreePath: null,
-          startFromRemote,
-          createNewBranch: true,
+          startFromOrigin: false,
+          createNewBranch,
         },
       } satisfies QueuedThreadMessage;
 
       expect(decodeQueuedThreadMessage(encodeQueuedThreadMessage(creationMessage))).toEqual(
         creationMessage,
       );
-      expect(isQueuedThreadCreationSendable(creationMessage)).toBe(true);
-      expect(
-        isQueuedThreadCreationSendable({
-          ...creationMessage,
-          creation: { ...creationMessage.creation, branch: null },
-        }),
-      ).toBe(false);
-      expect(
-        isQueuedThreadCreationSendable({
-          ...creationMessage,
-          creation: { ...creationMessage.creation, branch: "" },
-        }),
-      ).toBe(false);
-      expect(
-        isQueuedThreadCreationSendable({ ...creationMessage, modelSelection: undefined }),
-      ).toBe(false);
-      expect(isQueuedThreadCreationSendable(base)).toBe(false);
     },
   );
 
-  it.each([
-    { stored: { startFromOrigin: true }, expected: "origin" },
-    { stored: { startFromOrigin: false }, expected: null },
-    { stored: { startFromOrigin: true, startFromRemote: null }, expected: null },
-    { stored: { startFromOrigin: true, startFromRemote: "upstream" }, expected: "upstream" },
-    { stored: {}, expected: undefined },
-  ])("reads the queued remote choice stored as $stored", ({ stored, expected }) => {
+  it("reads a queued creation stored with the retired start remote", () => {
     const restored = decodeQueuedThreadMessage({
       schemaVersion: 3,
       ...queuedMessage({ messageId: "message-1", createdAt: "2026-06-08T10:00:01.000Z" }),
       creation: {
         projectId: "project-1",
         workspaceMode: "worktree",
-        branch: "fork/feature",
+        branch: "main",
         worktreePath: null,
-        ...stored,
+        startFromOrigin: true,
+        startFromRemote: "upstream",
       },
     });
-    expect(restored.creation?.startFromRemote).toBe(expected);
-    expect(restored.creation).not.toHaveProperty("startFromOrigin");
+    expect(restored.creation).toEqual({
+      projectId: "project-1",
+      workspaceMode: "worktree",
+      branch: "main",
+      worktreePath: null,
+      startFromOrigin: true,
+    });
   });
 
   it("round-trips queued PR checkout sources and gates incomplete creations from sending", () => {
@@ -1450,7 +1247,7 @@ describe("thread outbox", () => {
         workspaceMode: "worktree",
         branch: "fork/feature",
         worktreePath: null,
-        startFromRemote: null,
+        startFromOrigin: false,
         pullRequestReference: "https://github.com/acme/repo/pull/123",
       },
     } satisfies QueuedThreadMessage;

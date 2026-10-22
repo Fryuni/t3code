@@ -3,12 +3,7 @@ import {
   scopeProjectRef,
   scopeThreadRef,
 } from "@t3tools/client-runtime/environment";
-import {
-  DEFAULT_SERVER_SETTINGS,
-  type ScopedProjectRef,
-  type ThreadId,
-  type WorktreeStartRemote,
-} from "@t3tools/contracts";
+import { DEFAULT_SERVER_SETTINGS, type ScopedProjectRef, type ThreadId } from "@t3tools/contracts";
 import { useRouter } from "@tanstack/react-router";
 import {
   composerDraftHasUserContent,
@@ -36,7 +31,7 @@ import {
 } from "../state/entities";
 import {
   hasExplicitComposerModelSelection,
-  resolveNewDraftStartFromRemote,
+  resolveNewDraftStartFromOrigin,
   resolveNewThreadModelSelectionOverride,
 } from "../lib/chatThreadActions";
 import { readT3ProjectFile } from "../lib/t3ProjectFileDefaults";
@@ -51,7 +46,7 @@ interface NewThreadWorkspaceOptions {
   branch?: string | null;
   worktreePath?: string | null;
   envMode?: DraftThreadEnvMode;
-  startFromRemote?: WorktreeStartRemote;
+  startFromOrigin?: boolean;
   createNewBranch?: boolean;
   environmentSelection?: "auto" | "manual";
 }
@@ -61,7 +56,7 @@ function pickExplicitWorkspaceOptions(options: NewThreadWorkspaceOptions | undef
     ...(options?.branch !== undefined ? { branch: options.branch } : {}),
     ...(options?.worktreePath !== undefined ? { worktreePath: options.worktreePath } : {}),
     ...(options?.envMode !== undefined ? { envMode: options.envMode } : {}),
-    ...(options?.startFromRemote !== undefined ? { startFromRemote: options.startFromRemote } : {}),
+    ...(options?.startFromOrigin !== undefined ? { startFromOrigin: options.startFromOrigin } : {}),
     ...(options?.createNewBranch !== undefined ? { createNewBranch: options.createNewBranch } : {}),
   };
 }
@@ -80,7 +75,7 @@ export function useNewThreadHandler() {
       branch?: string | null;
       worktreePath?: string | null;
       envMode?: DraftThreadEnvMode;
-      startFromRemote?: WorktreeStartRemote;
+      startFromOrigin?: boolean;
       createNewBranch?: boolean;
       replace?: boolean;
     },
@@ -179,7 +174,7 @@ export function useNewThreadHandler() {
     const hasBranchOption = options?.branch !== undefined;
     const hasWorktreePathOption = options?.worktreePath !== undefined;
     const hasEnvModeOption = options?.envMode !== undefined;
-    const hasStartFromRemoteOption = options?.startFromRemote !== undefined;
+    const hasStartFromOriginOption = options?.startFromOrigin !== undefined;
     const hasCreateNewBranchOption = options?.createNewBranch !== undefined;
     const storedDraftThread = getDraftSessionByLogicalProjectKey(logicalProjectKey);
     const storedDraftThreadRef = storedDraftThread
@@ -214,7 +209,7 @@ export function useNewThreadHandler() {
           hasBranchOption ||
           hasWorktreePathOption ||
           hasEnvModeOption ||
-          hasStartFromRemoteOption ||
+          hasStartFromOriginOption ||
           hasCreateNewBranchOption;
         let workspaceContext: NewThreadWorkspaceOptions | null = null;
         if (hasExplicitWorkspaceOption) {
@@ -256,7 +251,7 @@ export function useNewThreadHandler() {
             worktreePath: null,
             envMode: defaultEnvMode,
             createNewBranch: true,
-            startFromRemote: resolveNewDraftStartFromRemote({
+            startFromOrigin: resolveNewDraftStartFromOrigin({
               envMode: defaultEnvMode,
               newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
             }),
@@ -328,7 +323,7 @@ export function useNewThreadHandler() {
         hasBranchOption ||
         hasWorktreePathOption ||
         hasEnvModeOption ||
-        hasStartFromRemoteOption ||
+        hasStartFromOriginOption ||
         hasCreateNewBranchOption
       ) {
         setDraftThreadContext(currentRouteTarget.draftId, pickExplicitWorkspaceOptions(options));
@@ -391,13 +386,12 @@ export function useNewThreadHandler() {
         worktreePath: options?.worktreePath ?? null,
         envMode: initialEnvMode,
         createNewBranch,
-        startFromRemote:
-          options?.startFromRemote !== undefined
-            ? options.startFromRemote
-            : resolveNewDraftStartFromRemote({
-                envMode: initialEnvMode,
-                newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
-              }),
+        startFromOrigin:
+          options?.startFromOrigin ??
+          resolveNewDraftStartFromOrigin({
+            envMode: initialEnvMode,
+            newWorktreesStartFromOrigin: projectSettings.settings.newWorktreesStartFromOrigin,
+          }),
         runtimeMode: defaultRuntimeMode,
         ...(carryInteractionMode ? { interactionMode: carryInteractionMode } : {}),
       });

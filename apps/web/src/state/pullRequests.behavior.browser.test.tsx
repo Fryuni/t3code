@@ -5,10 +5,10 @@ import {
   type PullRequestRef,
   type PullRequestSummary,
 } from "@t3tools/contracts";
-import { act, useLayoutEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vite-plus/test";
+import { useLayoutEffect } from "react";
+import { describe, expect, it } from "vite-plus/test";
 
+import { render } from "../../test/render";
 import { AppAtomRegistryProvider } from "../rpc/atomRegistry";
 import { useSharedPullRequestSummary } from "./pullRequests";
 
@@ -34,21 +34,6 @@ const summary: PullRequestSummary = {
 };
 
 describe("shared pull request observations", () => {
-  let root: Root | undefined;
-  let container: HTMLDivElement | undefined;
-
-  beforeEach(() => {
-    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
-  });
-
-  afterEach(async () => {
-    await act(async () => root?.unmount());
-    root = undefined;
-    container?.remove();
-    container = undefined;
-    vi.unstubAllGlobals();
-  });
-
   async function observe(
     writer: PullRequestRef,
     reader: PullRequestRef,
@@ -66,16 +51,14 @@ describe("shared pull request observations", () => {
       }, [observed]);
       return null;
     }
-    container = document.body.appendChild(document.createElement("div"));
-    root = createRoot(container);
-    await act(async () => {
-      root!.render(
-        <AppAtomRegistryProvider>
-          <Writer />
-          <Reader />
-        </AppAtomRegistryProvider>,
-      );
-    });
+    // router: false because neither observer reads a route.
+    await using _screen = await render(
+      <AppAtomRegistryProvider>
+        <Writer />
+        <Reader />
+      </AppAtomRegistryProvider>,
+      { router: false },
+    );
     return result;
   }
 

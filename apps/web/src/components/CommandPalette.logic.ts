@@ -1,13 +1,20 @@
 import { threadPullRequestSearchTerms } from "@t3tools/shared/threadPullRequests";
-import type {
-  CommandPaletteAddProjectTarget,
-  CommandPaletteLinkedThreads,
-} from "../commandPaletteBus";
+import type { CommandPaletteLinkedThreads } from "../commandPaletteBus";
+import {
+  addProjectRemoteSourceLabel,
+  addProjectRemoteSourcePathHint,
+  buildAddProjectRemoteSourceReadiness,
+  type AddProjectRemoteSource,
+  type AddProjectRemoteSourceReadiness,
+} from "@t3tools/client-runtime/operations/projects";
 import {
   type EnvironmentId,
+  type EnvironmentMachineKind,
   type FilesystemBrowseEntry,
   type KeybindingCommand,
   type ScopedProjectRef,
+  type SourceControlDiscoveryResult,
+  type SourceControlRepositoryInfo,
   THREAD_JUMP_KEYBINDING_COMMANDS,
 } from "@t3tools/contracts";
 import { scopeProjectRef } from "@t3tools/client-runtime/environment";
@@ -59,8 +66,7 @@ export function browseInputEndPaddingClass(input: {
 export type SearchOverlayMode = "command" | "files" | "content";
 
 export type CommandPaletteOpenIntent =
-  | { readonly kind: "new-thread-in" | "change-theme" }
-  | { readonly kind: "add-project"; readonly target?: CommandPaletteAddProjectTarget }
+  | { readonly kind: "add-project" | "new-thread-in" | "change-theme" }
   | {
       readonly kind: "search";
       readonly query: string;
@@ -71,6 +77,8 @@ export interface CommandPaletteUiState {
   readonly open: boolean;
   readonly mode: SearchOverlayMode;
   readonly openIntent: CommandPaletteOpenIntent | null;
+  readonly parentSearch?: CommandPaletteReturnContext;
+  readonly restoredSearch?: CommandPaletteReturnContext;
 }
 
 export type CommandPaletteUiAction =
@@ -81,10 +89,16 @@ export type CommandPaletteUiAction =
       readonly query: string;
       readonly linkedThreads?: CommandPaletteLinkedThreads;
     }
-  | { readonly _tag: "OpenAddProject"; readonly target?: CommandPaletteAddProjectTarget }
+  | { readonly _tag: "OpenAddProject" }
   | { readonly _tag: "OpenNewThreadIn" }
   | { readonly _tag: "OpenChangeTheme" }
-  | { readonly _tag: "ClearOpenIntent" };
+  | { readonly _tag: "ClearOpenIntent" }
+  | {
+      readonly _tag: "OpenChildSearch";
+      readonly mode: "files" | "content";
+      readonly context: CommandPaletteReturnContext;
+    }
+  | { readonly _tag: "BackToCommand" };
 
 export function reduceCommandPaletteUiState(
   state: CommandPaletteUiState,
@@ -94,11 +108,22 @@ export function reduceCommandPaletteUiState(
     case "SetOpen":
       return action.open
         ? { open: true, mode: "command", openIntent: state.openIntent }
-        : { ...state, open: false, openIntent: null };
+        : { open: false, mode: state.mode, openIntent: null };
     case "ToggleMode":
       return state.open && state.mode === action.mode
-        ? { ...state, open: false, openIntent: null }
+        ? { open: false, mode: state.mode, openIntent: null }
         : { open: true, mode: action.mode, openIntent: null };
+    case "OpenChildSearch":
+      return { open: true, mode: action.mode, openIntent: null, parentSearch: action.context };
+    case "BackToCommand":
+      return state.open && state.mode !== "command"
+        ? {
+            open: true,
+            mode: "command",
+            openIntent: null,
+            ...(state.parentSearch ? { restoredSearch: state.parentSearch } : {}),
+          }
+        : state;
     case "OpenSearch":
       return {
         open: true,
@@ -110,11 +135,7 @@ export function reduceCommandPaletteUiState(
         },
       };
     case "OpenAddProject":
-      return {
-        open: true,
-        mode: "command",
-        openIntent: { kind: "add-project", ...(action.target ? { target: action.target } : {}) },
-      };
+      return { open: true, mode: "command", openIntent: { kind: "add-project" } };
     case "OpenNewThreadIn":
       return { open: true, mode: "command", openIntent: { kind: "new-thread-in" } };
     case "OpenChangeTheme":
@@ -170,6 +191,49 @@ export interface CommandPaletteView {
   readonly addonIcon: ReactNode;
   readonly groups: ReadonlyArray<CommandPaletteGroup>;
   readonly initialQuery?: string;
+}
+
+// Child search unmounts the palette; retain search data without its view closures.
+export interface CommandPaletteReturnContext {
+  readonly query: string;
+  readonly linkedThreadSearch: Extract<CommandPaletteOpenIntent, { kind: "search" }> | null;
+}
+
+export interface CommandPaletteSearchState {
+  readonly query: string;
+  readonly views: ReadonlyArray<{
+    readonly view: CommandPaletteView;
+    readonly parentQuery: string;
+  }>;
+}
+
+export function createCommandPaletteSearchState(query = ""): CommandPaletteSearchState {
+  return { query, views: [] };
+}
+
+export function reduceCommandPaletteSearchState(
+  state: CommandPaletteSearchState,
+  action:
+    | { readonly type: "query"; readonly query: string }
+    | { readonly type: "push"; readonly view: CommandPaletteView }
+    | { readonly type: "back" }
+    | { readonly type: "reset"; readonly query?: string },
+): CommandPaletteSearchState {
+  switch (action.type) {
+    case "query":
+      return { ...state, query: action.query };
+    case "push":
+      return {
+        query: action.view.initialQuery ?? "",
+        views: [...state.views, { view: action.view, parentQuery: state.query }],
+      };
+    case "back": {
+      const parent = state.views.at(-1);
+      return parent ? { query: parent.parentQuery, views: state.views.slice(0, -1) } : state;
+    }
+    case "reset":
+      return createCommandPaletteSearchState(action.query);
+  }
 }
 
 export type CommandPaletteRow =
@@ -299,7 +363,7 @@ export function buildNewThreadOnBranchActionItem(input: {
       branch: string;
       worktreePath: string | null;
       envMode: "local" | "worktree";
-      startFromRemote: null;
+      startFromOrigin: false;
     },
   ) => Promise<unknown>;
 }): CommandPaletteActionItem | null {
@@ -316,7 +380,7 @@ export function buildNewThreadOnBranchActionItem(input: {
         branch,
         worktreePath,
         envMode: worktreePath ? "worktree" : "local",
-        startFromRemote: null,
+        startFromOrigin: false,
       });
     },
   };
@@ -642,4 +706,88 @@ export function getCommandPaletteInputPlaceholder(mode: CommandPaletteMode): str
     case "submenu-browse":
       return "Enter path (e.g. ~/projects/my-app)";
   }
+}
+
+export function getEnvironmentBrowsePlatform(os: string | null | undefined): string {
+  if (os === "windows") {
+    return "Win32";
+  }
+  if (os === "darwin") {
+    return "MacIntel";
+  }
+  if (os === "linux") {
+    return "Linux";
+  }
+  return typeof navigator === "undefined" ? "" : navigator.platform;
+}
+
+export interface AddProjectEnvironmentOption {
+  readonly environmentId: EnvironmentId;
+  readonly label: string;
+  readonly machine: EnvironmentMachineKind;
+  readonly isPrimary: boolean;
+  readonly isConnected: boolean;
+  readonly status: string;
+}
+
+export type AddProjectCloneFlow =
+  | {
+      readonly step: "repository";
+      readonly environmentId: EnvironmentId;
+      readonly source: AddProjectRemoteSource;
+    }
+  | {
+      readonly step: "confirm";
+      readonly environmentId: EnvironmentId;
+      readonly source: AddProjectRemoteSource;
+      readonly repositoryInput: string;
+      readonly repository: SourceControlRepositoryInfo | null;
+      readonly remoteUrl: string;
+    };
+
+export function remoteProjectInputPlaceholder(flow: AddProjectCloneFlow | null): string | null {
+  if (!flow) return null;
+  if (flow.step === "confirm") return null;
+  if (flow.source === "url") {
+    return "Enter Git clone URL";
+  }
+  return `Enter ${addProjectRemoteSourceLabel(flow.source)} repository (${addProjectRemoteSourcePathHint(flow.source)})`;
+}
+
+export function buildPaletteRemoteSourceReadiness(
+  discovery: SourceControlDiscoveryResult | null,
+): AddProjectRemoteSourceReadiness {
+  const readiness = buildAddProjectRemoteSourceReadiness(discovery);
+  return (source) => {
+    const entry = readiness(source);
+    return entry.hint === null
+      ? entry
+      : {
+          ...entry,
+          hint: entry.hint.replace(
+            "Open Source Control settings",
+            "Open Settings -> Source Control",
+          ),
+        };
+  };
+}
+
+export function errorMessage(error: unknown): string {
+  if (error instanceof Error && error.message.trim().length > 0) {
+    return error.message;
+  }
+  return "An error occurred.";
+}
+
+const OVERLAY_MODE_BY_COMMAND = {
+  "commandPalette.toggle": "command",
+  "filePicker.toggle": "files",
+  "projectSearch.toggle": "content",
+} as const satisfies Partial<Record<string, SearchOverlayMode>>;
+
+export function overlayModeForCommand(command: string | null): SearchOverlayMode | null {
+  if (command === null) return null;
+  return command in OVERLAY_MODE_BY_COMMAND
+    ? OVERLAY_MODE_BY_COMMAND[command as keyof typeof OVERLAY_MODE_BY_COMMAND]
+    : null;
 }

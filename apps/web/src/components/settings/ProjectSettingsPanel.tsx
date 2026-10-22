@@ -1,6 +1,6 @@
 import { useComposerMenuState } from "../chat/useComposerMenuState";
 import { useOrchestrationCommand } from "../../state/use-orchestration-command";
-import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3tools/contracts";
+import { AuthOrchestrationOperateScope } from "@t3tools/contracts";
 import { useEnvironmentsWithScope, readEnvironmentScope } from "../../state/session";
 import {
   isAtomCommandInterrupted,
@@ -12,18 +12,17 @@ import {
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
-  projectCheckoutCloneUrl,
   projectCheckoutOptions,
-  projectCheckoutTitle,
 } from "@t3tools/client-runtime/operations/projects";
+import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
 import { AsyncResult } from "effect/reactivity";
 import { type EnvironmentId, type ProjectIconOverride } from "@t3tools/contracts";
 import { useLocation, useNavigate } from "@tanstack/react-router";
 import * as Cause from "effect/Cause";
 import { ChevronDownIcon, InfoIcon, PlusIcon, Trash2Icon } from "lucide-react";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 
-import { openCommandPalette } from "../../commandPaletteBus";
+import { useAddProjectTargets } from "../../hooks/useAddProjectTargets";
 import { useClientSettings } from "../../hooks/useSettings";
 import { resolveProjectGroupingMode } from "../../logicalProject";
 import { useComposerDraftStore } from "../../composerDraftStore";
@@ -36,6 +35,7 @@ import {
 import { useEnvironments, usePrimaryEnvironmentId } from "../../state/environments";
 import { useThreadShells, waitForProjectRemoval } from "../../state/entities";
 import { projectEnvironment } from "../../state/projects";
+import { openAddProjectToMachine } from "../AddProjectToMachineDialog";
 import { ProjectFavicon } from "../ProjectFavicon";
 import { Alert, AlertDescription } from "../ui/alert";
 import { Button } from "../ui/button";
@@ -65,20 +65,18 @@ const ProjectIconPickerDialog = lazy(() =>
   })),
 );
 
-function memberKey(member: { environmentId: string; id: string }): string {
-  return `${member.environmentId}:${member.id}`;
-}
-
 export type ProjectSettingsCategory = "general" | "source-control" | "project";
 
 export function ProjectSettingsPanel({
   projectKey,
   environmentId = null,
   checkoutKey = null,
+  unavailable,
 }: {
   projectKey: string;
   environmentId?: EnvironmentId | null;
   checkoutKey?: string | null;
+  unavailable?: ReactNode;
 }) {
   const groups = useSettingsProjectGroups();
   const navigate = useNavigate({ from: "/settings" });
@@ -135,6 +133,8 @@ export function ProjectSettingsPanel({
       });
     }
   }, [groups, navigate, pathname, projectKey, members.length, environmentId, checkoutKey]);
+
+  if ((!selected || members.length === 0) && unavailable != null) return unavailable;
 
   if (!selected) {
     return (
@@ -328,70 +328,45 @@ function ProjectDetail({
   const sidebarProjectGroupingOverrides = useClientSettings(
     (settings) => settings.sidebarProjectGroupingOverrides,
   );
+  const canCheckOut =
+    !group.isScratch &&
+    resolveProjectGroupingMode(group, {
+      sidebarProjectGroupingMode,
+      sidebarProjectGroupingOverrides,
+    }) !== "separate";
+  // The add-to-machine dialog clones one checkout's remote; prefer a checkout that is online.
+  const isCheckoutSource = (member: SidebarProjectGroupMember) =>
+    Boolean(member.repositoryIdentity?.locator.remoteUrl);
+  const checkoutSource =
+    groupMembers.find(
+      (member) =>
+        isCheckoutSource(member) &&
+        canCreateProjectInEnvironment(environmentById.get(member.environmentId)?.connection.phase),
+    ) ??
+    groupMembers.find(isCheckoutSource) ??
+    null;
+  const addProjectTargets = useAddProjectTargets(canCheckOut ? checkoutSource : null, groupMembers);
   const checkoutOptions = projectCheckoutOptions({
-    connectedEnvironments: environments.filter((environment) =>
-      canCreateProjectInEnvironment(environment.connection.phase),
-    ),
+    connectedEnvironments: addProjectTargets,
     checkoutEnvironmentIds: groupMembers.map((member) => member.environmentId),
     checkoutCount: groupMembers.length,
-    canCheckOut:
-      !group.isScratch &&
-      resolveProjectGroupingMode(group, {
-        sidebarProjectGroupingMode,
-        sidebarProjectGroupingOverrides,
-      }) !== "separate",
+    canCheckOut,
   });
-  const checkoutRemoteUrl =
-    groupMembers.map(projectCheckoutCloneUrl).find((url) => url !== null) ?? null;
-  const checkoutTitle = projectCheckoutTitle(groupMembers);
-  const operableCheckoutTargetIds = useEnvironmentsWithScope(
-    checkoutOptions.targets,
-    AuthOrchestrationOperateScope,
-  );
-  const cloneableCheckoutTargetIds = useEnvironmentsWithScope(
-    checkoutOptions.targets,
-    AuthSourceControlWriteScope,
-  );
 
   const removeMembers = async (members: ReadonlyArray<SidebarProjectGroupMember>) => {
     if (checkProjectAccess(members, "Failed to remove project")) return;
     const api = readLocalApi();
     if (!api) return;
 
-    const memberKeys = new Set(members.map(memberKey));
-    const projectThreads = threads.filter((thread) =>
-      memberKeys.has(`${thread.environmentId}:${thread.projectId}`),
-    );
-    const isWholeGroup = members.length === group.memberProjects.length;
-    const targetKind = hasOtherMembers || !isWholeGroup ? "checkout" : "project";
-    const singleMember = members.length === 1 ? members[0]! : null;
-    const targetLabel = singleMember?.title ?? group.displayName;
+    const { projectThreads, isWholeGroup, confirmationMessage } = planProjectRemoval({
+      members,
+      groupMemberCount: group.memberProjects.length,
+      hasOtherMembers,
+      displayName: group.displayName,
+      threads,
+    });
     const confirmed = await settlePromise(() =>
-      api.dialogs.confirm(
-        [
-          projectThreads.length > 0
-            ? `Remove ${targetKind} "${targetLabel}" and delete its ${projectThreads.length} thread${projectThreads.length === 1 ? "" : "s"}?`
-            : `Remove ${targetKind} "${targetLabel}"?`,
-          ...(singleMember
-            ? [
-                `Path: ${singleMember.workspaceRoot}`,
-                ...(singleMember.environmentLabel
-                  ? [`Environment: ${singleMember.environmentLabel}`]
-                  : []),
-              ]
-            : [`This removes ${members.length} grouped project entries.`]),
-          ...(projectThreads.length > 0
-            ? [
-                "This permanently clears conversation history for those threads and any archived threads.",
-              ]
-            : ["This permanently clears any archived conversation history."]),
-          isWholeGroup && !hasOtherMembers
-            ? "This removes only the project entries, not the files on disk."
-            : "Other entries in this grouped project are unaffected.",
-          "This action cannot be undone.",
-        ].join("\n"),
-        { variant: "destructive" },
-      ),
+      api.dialogs.confirm(confirmationMessage, { variant: "destructive" }),
     );
     if (confirmed._tag === "Failure" || !confirmed.value) return;
     if (checkProjectAccess(members, "Failed to remove project")) return;
@@ -430,7 +405,11 @@ function ProjectDetail({
     }
 
     if (isWholeGroup && !hasOtherMembers) {
-      void navigate({ to: "/", replace: true });
+      void navigate({
+        to: "/settings/projects",
+        search: ({ machine }) => ({ project: undefined, machine, checkout: undefined }),
+        replace: true,
+      });
     }
   };
 
@@ -462,26 +441,21 @@ function ProjectDetail({
         <MenuPopup align="end">
           <MenuGroup>
             <MenuGroupLabel>Check out on</MenuGroupLabel>
-            {checkoutOptions.targets.map((environment) => {
-              const labels = settingsScopeEnvironmentLabels(environment, environments);
+            {checkoutOptions.targets.map((target) => {
+              const environment = environmentById.get(target.environmentId);
+              const labels = environment
+                ? settingsScopeEnvironmentLabels(environment, environments)
+                : { primary: target.label, secondary: null };
               return (
                 <MenuItem
-                  key={environment.environmentId}
-                  disabled={
-                    !operableCheckoutTargetIds.has(environment.environmentId) ||
-                    (checkoutRemoteUrl !== null &&
-                      !cloneableCheckoutTargetIds.has(environment.environmentId))
-                  }
-                  onClick={() =>
-                    openCommandPalette({
-                      open: "add-project",
-                      addProjectTarget: {
-                        environmentId: environment.environmentId,
-                        remoteUrl: checkoutRemoteUrl,
-                        ...(checkoutTitle ? { title: checkoutTitle } : {}),
-                      },
-                    })
-                  }
+                  key={target.environmentId}
+                  onClick={() => {
+                    if (!checkoutSource) return;
+                    openAddProjectToMachine({
+                      projectRef: scopeProjectRef(checkoutSource.environmentId, checkoutSource.id),
+                      targetEnvironmentId: target.environmentId,
+                    });
+                  }}
                 >
                   <span className="min-w-0 truncate">{labels.primary}</span>
                   {labels.secondary ? (

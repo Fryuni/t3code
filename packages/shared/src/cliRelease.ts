@@ -13,12 +13,18 @@ export const CLI_RELEASE_FORK_REPOSITORY =
     : __T3CODE_BUILD_RELEASE_REPOSITORY__.trim() || undefined;
 const CLI_RELEASE_REPOSITORY = CLI_RELEASE_FORK_REPOSITORY ?? "pingdotgg/t3code";
 
+/** The public releases page, which clients read without the anonymous API quota. */
+export function cliReleasesPageUrl(repository: string): string {
+  return `https://github.com/${repository}/releases`;
+}
+export const CLI_RELEASES_PAGE_URL = cliReleasesPageUrl(CLI_RELEASE_REPOSITORY);
+
 /**
  * GitHub's latest release for a repository, which excludes drafts and
  * prereleases. It is the whole update policy of a fork: forks publish no
  * channel trains to walk.
  */
-export function cliReleaseLatestUrl(repository: string): string {
+function cliReleaseLatestUrl(repository: string): string {
   return `https://api.github.com/repos/${repository}/releases/latest`;
 }
 

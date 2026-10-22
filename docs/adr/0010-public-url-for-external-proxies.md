@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#7](https://github.com/Fryuni/t3code/pull/7)
-- Compared with upstream: `pingdotgg/t3code` at `1451e7cb2` (2026-10-18)
+- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
 
 Upstream works out whether a server is reachable from other machines by looking
 only at the address it binds. Its remote routes are binding a LAN or tailnet

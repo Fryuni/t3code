@@ -12,18 +12,24 @@ import {
   ProviderInteractionMode as ProviderInteractionModeSchema,
   ProviderOptionSelection as ProviderOptionSelectionSchema,
   RuntimeMode as RuntimeModeSchema,
-  WorktreeStartRemote,
-  resolveWorktreeStartRemote,
   type EnvironmentId,
   type ModelSelection,
   type ProjectId,
   type ProviderInteractionMode,
   type ProviderOptionSelection,
   type RuntimeMode,
+  type ScopedThreadRef,
 } from "@t3tools/contracts";
 import * as Schema from "effect/Schema";
 import { useEffect } from "react";
-import { Atom } from "effect/reactivity";
+import { AsyncResult, Atom, type AtomRegistry } from "effect/reactivity";
+import * as Option from "effect/Option";
+import { parseScopedThreadKey, scopedThreadKey } from "@t3tools/client-runtime/environment";
+import type {
+  EnvironmentShellState,
+  EnvironmentThreadShell,
+} from "@t3tools/client-runtime/state/shell";
+import { draftModelPickMatchesThread } from "@t3tools/shared/model";
 
 import { writeFileAtomically } from "../lib/atomic-file";
 import { createComposerContextHistory, referencedComposerContext } from "../lib/composerContext";
@@ -354,7 +360,7 @@ export interface ComposerDraftWorkspaceSelection {
   readonly mode: "local" | "worktree";
   readonly branch: string | null;
   readonly worktreePath: string | null;
-  readonly startFromRemote?: WorktreeStartRemote;
+  readonly startFromOrigin?: boolean;
   readonly createNewBranch?: boolean;
   readonly pullRequestReference?: string;
 }
@@ -368,8 +374,6 @@ const ComposerDraftWorkspaceSelectionSchema = Schema.Struct({
   mode: Schema.Literals(["local", "worktree"]),
   branch: Schema.NullOr(Schema.String),
   worktreePath: Schema.NullOr(Schema.String),
-  startFromRemote: Schema.optional(WorktreeStartRemote),
-  // Read-only: drafts saved before upstream existed. Loading folds it into `startFromRemote`.
   startFromOrigin: Schema.optional(Schema.Boolean),
   createNewBranch: Schema.optional(Schema.Boolean),
   pullRequestReference: Schema.optional(Schema.String),
@@ -495,7 +499,10 @@ function attachmentContextRecord(
     : { ...common, kind: "file" as const };
 }
 
-function restoreMissingComposerFileReferences(draft: ComposerDraft): ComposerDraft {
+function restoreMissingComposerFileReferences(
+  draft: ComposerDraft,
+  attachments = draft.attachments,
+): ComposerDraft {
   const records = [...(draft.context?.records ?? [])];
   const usedIds = new Set<string>(records.map((record) => record.contextId));
   const referenced = new Set(
@@ -505,7 +512,7 @@ function restoreMissingComposerFileReferences(draft: ComposerDraft): ComposerDra
   );
   let text = draft.text;
   let changed = false;
-  for (const attachment of draft.attachments) {
+  for (const attachment of attachments) {
     if (
       attachment.type === "image" ||
       imageMimeType(attachment) !== null ||
@@ -534,24 +541,6 @@ function restoreMissingComposerFileReferences(draft: ComposerDraft): ComposerDra
     changed = true;
   }
   return changed ? { ...draft, text, context: { version: 1, records } } : draft;
-}
-
-function migrateDraftWorkspaceSelection(
-  draft: ComposerDraft & {
-    readonly workspaceSelection?: ComposerDraftWorkspaceSelection & {
-      readonly startFromOrigin?: boolean;
-    };
-  },
-): ComposerDraft {
-  if (draft.workspaceSelection?.startFromOrigin === undefined) return draft;
-  const { startFromOrigin, ...workspaceSelection } = draft.workspaceSelection;
-  return {
-    ...draft,
-    workspaceSelection: {
-      ...workspaceSelection,
-      startFromRemote: resolveWorktreeStartRemote({ ...workspaceSelection, startFromOrigin }),
-    },
-  };
 }
 
 function normalizeDraft(draft: ComposerDraft | undefined): ComposerDraft {
@@ -608,7 +597,7 @@ export function migrateLegacyNewTaskDraft(
   draft: ComposerDraft,
   now: string,
 ): readonly [key: string, draft: ComposerDraft] {
-  const restored = restoreMissingComposerFileReferences(migrateDraftWorkspaceSelection(draft));
+  const restored = restoreMissingComposerFileReferences(draft);
   const legacy = draft.project === undefined ? parseLegacyNewTaskDraftKey(key) : null;
   if (legacy === null) {
     return [key, restored];
@@ -1176,8 +1165,8 @@ export async function removeDeliveredCloudQueuedMessage(
               (message.creation?.createNewBranch ?? true) ||
             editor.workspaceSelection.pullRequestReference !==
               message.creation?.pullRequestReference ||
-            (editor.workspaceSelection.startFromRemote ?? null) !==
-              (message.creation?.startFromRemote ?? null))))
+            (editor.workspaceSelection.startFromOrigin ?? false) !==
+              (message.creation?.startFromOrigin ?? false))))
     )
       continue;
     const drafts = { ...saved.drafts };
@@ -1483,6 +1472,71 @@ export function updateComposerDraftSettings(
   });
 }
 
+export function subscribeComposerDraftModelReconciliation(input: {
+  readonly registry: AtomRegistry.AtomRegistry;
+  readonly threadRefsAtom: Atom.Atom<ReadonlyArray<ScopedThreadRef>>;
+  readonly threadShellAtom: (ref: ScopedThreadRef) => Atom.Atom<EnvironmentThreadShell | null>;
+  readonly shellStateAtom: (
+    environmentId: EnvironmentId,
+  ) => Atom.Atom<AsyncResult.AsyncResult<EnvironmentShellState, unknown>>;
+}): () => void {
+  const draftsAtom = Atom.make(appAtomRegistry.get(composerDraftsAtom));
+  const unsubscribeDrafts = appAtomRegistry.subscribe(composerDraftsAtom, (drafts) =>
+    input.registry.set(draftsAtom, drafts),
+  );
+  const threadKeysAtom = Atom.map(
+    input.threadRefsAtom,
+    (refs) => new Set(refs.map(scopedThreadKey)),
+  );
+  const matchesAtom = Atom.make((get) => {
+    const threadKeys = get(threadKeysAtom);
+    const matches: Array<readonly [string, ComposerDraft]> = [];
+    for (const [key, draft] of Object.entries(get(draftsAtom))) {
+      if (!draft.modelSelection || isNewTaskDraftKey(key) || isQueuedEditDraftKey(key)) continue;
+      const ref = parseScopedThreadKey(key);
+      if (!ref || !threadKeys.has(key)) continue;
+      const thread = get(input.threadShellAtom(ref));
+      if (!thread || !draftModelPickMatchesThread(draft.modelSelection, thread.modelSelection))
+        continue;
+      // Status and selection must come from the same emission; derived atoms can update apart.
+      const shell = Option.getOrNull(
+        AsyncResult.value(get(input.shellStateAtom(ref.environmentId))),
+      );
+      if (shell?.status !== "live") continue;
+      const authoritativeThread = Option.getOrNull(shell.snapshot)?.threads.find(
+        (candidate) => candidate.id === ref.threadId,
+      );
+      if (
+        authoritativeThread &&
+        draftModelPickMatchesThread(draft.modelSelection, authoritativeThread.modelSelection)
+      ) {
+        matches.push([key, draft]);
+      }
+    }
+    return matches;
+  });
+  const unsubscribeMatches = input.registry.subscribe(
+    matchesAtom,
+    (matches) => {
+      if (matches.length === 0) return;
+      updateComposerDrafts((current) => {
+        let next = current;
+        for (const [key, matchedDraft] of matches) {
+          if (next[key] !== matchedDraft) continue;
+          const { modelSelection: _modelSelection, ...draft } = matchedDraft;
+          next = withComposerDraft(next, key, draft);
+        }
+        return next;
+      });
+    },
+    { immediate: true },
+  );
+  return () => {
+    unsubscribeMatches();
+    unsubscribeDrafts();
+  };
+}
+
 export function clearComposerDraftContentState(
   current: Record<string, ComposerDraft>,
   draftKey: string,
@@ -1604,13 +1658,20 @@ export function mergeComposerDraftContentState(
   }
   return {
     ...current,
-    [draftKey]: {
-      ...existing,
-      text,
-      attachments,
-      context,
-      ...(importedShareIds ? { importedShareIds } : {}),
-    },
+    // The composer shows non-image files only as inline chips, so a shared file
+    // merged without one would be attached but invisible until sent. Other
+    // merges carry their own text, and appending chips to it would defeat
+    // mergeComposerDraftText's duplicate check on a retried merge.
+    [draftKey]: restoreMissingComposerFileReferences(
+      {
+        ...existing,
+        text,
+        attachments,
+        context,
+        ...(importedShareIds ? { importedShareIds } : {}),
+      },
+      content.sourceShareId ? attachments.slice(existing.attachments.length) : [],
+    ),
   };
 }
 
