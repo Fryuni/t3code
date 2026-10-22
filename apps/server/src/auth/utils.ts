@@ -69,7 +69,7 @@ export function resolveLegacySessionCookieName(input: {
     : undefined;
 }
 
-export function isRemoteReachableHost(host: string | undefined): boolean {
+function isRemoteReachableHost(host: string | undefined): boolean {
   if (host === "0.0.0.0" || host === "::" || host === "[::]") {
     return true;
   }

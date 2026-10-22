@@ -21,10 +21,12 @@
       // worktree setup (from t3.json) run directly. release-desktop.yml bundles the
       // Windows verify script with esbuild through a path knip does not trace, and
       // electron-builder loads the macOS signer by path.
-      // The CLI archive smoke tool runs from this fork's server-linux-release workflow.
+      // The CLI archive smoke tool runs from this fork's server-linux-release workflow, and
+      // release-smoke.ts runs the nightly resolver by path now that release.yml is gone.
       "entry": [
         "knip-schemas.ts",
         "smoke-cli-archive.ts",
+        "resolve-nightly-release.ts",
         "mobile-native-client.ts",
         "setup-worktree.ts",
         "sign-macos.ts",

@@ -37,7 +37,10 @@ code needs, such as Chromium for the web browser tests, but not Blacksmith runne
 or upstream's per-change job gating, so its `ci-changes` action is dropped as well.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
 ([pingdotgg/t3code#22767](https://github.com/pingdotgg/t3code/pull/22767)) reads the same
-mapping locally. Upstream's web build links desktop update releases to
+mapping locally. Knip found some kept scripts only through the deleted workflows, so
+[`knip.jsonc`](../../knip.jsonc) lists `smoke-cli-archive.ts`, which the fork's release
+workflow runs, and `resolve-nightly-release.ts`, which `release-smoke.ts` runs by path, as
+entries. Upstream's web build links desktop update releases to
 `T3CODE_DESKTOP_UPDATE_REPOSITORY`, falling back to `GITHUB_REPOSITORY`
 ([pingdotgg/t3code#21210](https://github.com/pingdotgg/t3code/pull/21210)). The fork
 publishes no desktop builds, so both workflows pin it to `pingdotgg/t3code`; otherwise
