@@ -583,6 +583,9 @@ export function EnvironmentProviderSettings({
   });
   // Under "All environments" this page shows one environment, and provider
   // edits also reach every other connected one.
+  const pendingSyncRef = useRef(
+    new Map<string, { readonly instance: ProviderInstanceConfig; readonly inFlight: number }>(),
+  );
   const settingsScope = useOptionalSettingsScope();
   const syncEnvironments =
     settingsScope?.scope.kind === "all"
@@ -852,27 +855,42 @@ export function EnvironmentProviderSettings({
     previous: ProviderInstanceConfig,
     next: ProviderInstanceConfig,
   ) => {
+    const pendingKey = (targetId: EnvironmentId) => JSON.stringify([targetId, instanceId]);
     const planned = planProviderInstanceSync({
       instanceId,
       previous,
       next,
-      targets: syncEnvironments.flatMap((environment) =>
-        environment.serverConfig
-          ? [
-              {
-                environmentId: environment.environmentId,
-                settings: environment.serverConfig.settings,
-              },
-            ]
-          : [],
-      ),
+      targets: syncEnvironments.flatMap((environment) => {
+        if (!environment.serverConfig) return [];
+        const { settings } = environment.serverConfig;
+        const pending = pendingSyncRef.current.get(pendingKey(environment.environmentId));
+        return [
+          {
+            environmentId: environment.environmentId,
+            settings: pending
+              ? {
+                  ...settings,
+                  providerInstances: {
+                    ...settings.providerInstances,
+                    [instanceId]: pending.instance,
+                  },
+                }
+              : settings,
+          },
+        ];
+      }),
     });
     const writes = planned.filter(({ environmentId: targetId }) =>
       readEnvironmentScope(targetId, AuthProvidersManageScope),
     );
     const results = await Promise.all(
-      writes.map(({ environmentId: targetId, instance, patch }) =>
-        mutateProviderInstance({
+      writes.map(async ({ environmentId: targetId, instance, patch }) => {
+        // A remote may not have echoed an earlier write yet; the next edit
+        // must build on what was sent, or it would undo that write there.
+        const key = pendingKey(targetId);
+        const pending = pendingSyncRef.current.get(key);
+        pendingSyncRef.current.set(key, { instance, inFlight: (pending?.inFlight ?? 0) + 1 });
+        const result = await mutateProviderInstance({
           environmentId: targetId,
           input: {
             // Without settings:write the text generation reset would fail the
@@ -880,8 +898,14 @@ export function EnvironmentProviderSettings({
             patch: readEnvironmentScope(targetId, AuthSettingsWriteScope) ? patch : {},
             providerInstanceMutation: { operation: "upsert", instanceId, instance },
           },
-        }),
-      ),
+        });
+        // The server publishes settings before it replies, so once nothing is
+        // in flight the environment's own settings are current again.
+        const current = pendingSyncRef.current.get(key)!;
+        if (current.inFlight === 1) pendingSyncRef.current.delete(key);
+        else pendingSyncRef.current.set(key, { ...current, inFlight: current.inFlight - 1 });
+        return result;
+      }),
     );
     const labelOf = (targetId: EnvironmentId) =>
       syncEnvironments.find((environment) => environment.environmentId === targetId)?.label ??
