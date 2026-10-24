@@ -312,6 +312,19 @@ describe("pending provider sync", () => {
     expect(isPendingProviderSyncCurrent(pending, id, settingsWith("B"))).toBe(true);
   });
 
+  it("keeps the later edit when an earlier write fails while it is in flight", () => {
+    const first = named("A");
+    const second = named("B");
+    const pending = settlePendingProviderSync({
+      pending: sendPendingProviderSync(sendPendingProviderSync(undefined, first), second),
+      instanceId: id,
+      sent: first,
+      reply: null,
+      latest: settingsWith(),
+    });
+    expect(pending).toMatchObject({ instance: second, inFlight: 1 });
+  });
+
   it("drops a failed last write, since nothing will be echoed", () => {
     const sent = named("A");
     expect(
