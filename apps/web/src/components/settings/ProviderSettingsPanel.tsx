@@ -110,8 +110,10 @@ import {
   buildProviderInstanceUpdatePatch,
   durationToSeconds,
   normalizeIntervalSeconds,
+  planProviderInstanceSync,
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
 } from "./SettingsPanels.logic";
+import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import {
   PolicyTooltip,
   SettingResetButton,
@@ -576,6 +578,18 @@ export function EnvironmentProviderSettings({
   const updateModelPreferences = useUpdateEnvironmentModelPreferences(environmentId);
   const toggleModelFavorite = useToggleEnvironmentModelFavorite(environmentId);
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
+  const mutateProviderInstance = useAtomCommand(serverEnvironment.mutateProviderInstance, {
+    reportFailure: false,
+  });
+  // Under "All environments" this page shows one environment, and provider
+  // edits also reach every other connected one.
+  const settingsScope = useOptionalSettingsScope();
+  const syncEnvironments =
+    settingsScope?.scope.kind === "all"
+      ? settingsScope.connectedEnvironments.filter(
+          (environment) => environment.environmentId !== environmentId,
+        )
+      : [];
   const serverProviders = useAtomValue(providersIgnoringCheckedAtAtom(environmentId));
   // Older servers decode an unknown providerInstances key away, so sending
   // a project override patch would silently do nothing. Hide the switch
@@ -833,6 +847,62 @@ export function EnvironmentProviderSettings({
     }
   };
 
+  const syncInstance = async (
+    instanceId: ProviderInstanceId,
+    previous: ProviderInstanceConfig,
+    next: ProviderInstanceConfig,
+  ) => {
+    const permitted = syncEnvironments.filter((environment) =>
+      readEnvironmentScope(environment.environmentId, AuthProvidersManageScope),
+    );
+    const writes = planProviderInstanceSync({
+      instanceId,
+      previous,
+      next,
+      targets: permitted.flatMap((environment) =>
+        environment.serverConfig
+          ? [
+              {
+                environmentId: environment.environmentId,
+                settings: environment.serverConfig.settings,
+              },
+            ]
+          : [],
+      ),
+    });
+    const results = await Promise.all(
+      writes.map(({ environmentId: targetId, instance, patch }) =>
+        mutateProviderInstance({
+          environmentId: targetId,
+          input: { patch, providerInstanceMutation: { operation: "upsert", instanceId, instance } },
+        }),
+      ),
+    );
+    const labelOf = (targetId: EnvironmentId) =>
+      syncEnvironments.find((environment) => environment.environmentId === targetId)?.label ??
+      targetId;
+    const failed = writes.flatMap(({ environmentId: targetId }, index) => {
+      const result = results[index]!;
+      return result._tag === "Failure" && !isAtomCommandInterrupted(result)
+        ? [labelOf(targetId)]
+        : [];
+    });
+    const denied = syncEnvironments
+      .filter((environment) => !permitted.includes(environment))
+      .map((environment) => environment.label);
+    if (failed.length === 0 && denied.length === 0) return;
+    toastManager.add({
+      type: "error",
+      title: "Provider not updated everywhere",
+      description: [
+        ...(failed.length > 0 ? [`Could not save on ${failed.join(", ")}.`] : []),
+        ...(denied.length > 0
+          ? [`This connection can't manage providers on ${denied.join(", ")}.`]
+          : []),
+      ].join("\n"),
+    });
+  };
+
   const updateInstance = useStableCallback(
     (
       instanceId: ProviderInstanceId,
@@ -849,6 +919,7 @@ export function EnvironmentProviderSettings({
         next,
         shouldClearTextGen ? DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection : undefined,
       );
+      void syncInstance(instanceId, previous, next);
     },
   );
 
@@ -1047,6 +1118,13 @@ export function EnvironmentProviderSettings({
             <SettingsRow
               title="Limited permissions"
               description={`This session can view ${environmentLabel}'s providers but can't change their settings.`}
+            />
+          </SettingsGroup>
+        ) : syncEnvironments.length > 0 ? (
+          <SettingsGroup divided={false} className="overflow-hidden">
+            <SettingsRow
+              title={`Showing ${environmentLabel}`}
+              description={`Changes to a provider's settings also apply to ${syncEnvironments.map((environment) => environment.label).join(", ")} wherever the same provider exists. Adding, removing, resetting, and setting up providers apply to ${environmentLabel} only.`}
             />
           </SettingsGroup>
         ) : null}

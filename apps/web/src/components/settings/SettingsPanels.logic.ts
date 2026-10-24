@@ -1,14 +1,19 @@
-import type {
-  BackgroundActivityProfile,
-  BackgroundActivitySettings,
-  ProviderInstanceConfig,
-  PreviewViewportSetting,
-  ProviderInstanceId,
-  ServerSettings,
-  SidebarProjectGroupingMode,
-  UnifiedSettings,
+import {
+  type BackgroundActivityProfile,
+  type BackgroundActivitySettings,
+  defaultInstanceIdForDriver,
+  type EnvironmentId,
+  type ProviderInstanceConfig,
+  type PreviewViewportSetting,
+  type ProviderInstanceId,
+  type ServerSettings,
+  type SidebarProjectGroupingMode,
+  type UnifiedSettings,
 } from "@t3tools/contracts";
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts/settings";
+import {
+  DEFAULT_UNIFIED_SETTINGS,
+  resolveProviderInstanceEnabled,
+} from "@t3tools/contracts/settings";
 import {
   getBackgroundActivityBaseProfile,
   normalizeBackgroundActivitySettings,
@@ -221,6 +226,85 @@ export function buildProviderInstanceUpdatePatch(input: {
       ? { textGenerationModelSelection: input.textGenerationModelSelection }
       : {}),
   };
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function applyChangedFields(
+  target: Record<string, unknown>,
+  previous: Record<string, unknown>,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const result = { ...target };
+  for (const key of new Set([...Object.keys(previous), ...Object.keys(next)])) {
+    const before = previous[key];
+    const after = next[key];
+    if (Equal.equals(before, after)) continue;
+    if (
+      key === "config" &&
+      isPlainObject(after) &&
+      (before === undefined || isPlainObject(before))
+    ) {
+      const current = result[key];
+      result[key] = applyChangedFields(isPlainObject(current) ? current : {}, before ?? {}, after);
+    } else if (after === undefined) {
+      delete result[key];
+    } else {
+      result[key] = after;
+    }
+  }
+  return result;
+}
+
+/**
+ * Carries one instance edit to other environments. Only the fields the edit
+ * changed are copied onto each environment's own copy, so its paths and saved
+ * secrets survive unless this edit touched them. An environment without the
+ * instance, or with another driver under its id, is skipped; a driver's
+ * default slot exists everywhere.
+ */
+export function planProviderInstanceSync(input: {
+  readonly instanceId: ProviderInstanceId;
+  readonly previous: ProviderInstanceConfig;
+  readonly next: ProviderInstanceConfig;
+  readonly targets: ReadonlyArray<{
+    readonly environmentId: EnvironmentId;
+    readonly settings: Pick<ServerSettings, "providerInstances" | "textGenerationModelSelection">;
+  }>;
+}) {
+  const { instanceId, previous, next } = input;
+  return input.targets.flatMap(({ environmentId, settings }) => {
+    const current: ProviderInstanceConfig | undefined = Object.hasOwn(
+      settings.providerInstances,
+      instanceId,
+    )
+      ? settings.providerInstances[instanceId]
+      : instanceId === defaultInstanceIdForDriver(next.driver)
+        ? { driver: next.driver }
+        : undefined;
+    if (current?.driver !== next.driver) return [];
+    // shortcut: a changed `environment` list is copied whole, so a sensitive
+    // variable this environment never saved arrives as an empty redacted
+    // marker; merge per variable if that bites.
+    const instance = applyChangedFields(current, previous, next) as ProviderInstanceConfig;
+    if (Equal.equals(instance, current)) return [];
+    const disables =
+      resolveProviderInstanceEnabled(current) && !resolveProviderInstanceEnabled(instance);
+    return [
+      {
+        environmentId,
+        instance,
+        patch:
+          disables && settings.textGenerationModelSelection.instanceId === instanceId
+            ? {
+                textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+              }
+            : {},
+      },
+    ];
+  });
 }
 
 export const PROVIDER_HEALTH_INTERVAL_STEP_SECONDS = 30;

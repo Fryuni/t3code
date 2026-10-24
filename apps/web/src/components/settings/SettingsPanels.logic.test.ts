@@ -1,10 +1,19 @@
-import { DEFAULT_UNIFIED_SETTINGS } from "@t3tools/contracts";
+import {
+  DEFAULT_SERVER_SETTINGS,
+  DEFAULT_UNIFIED_SETTINGS,
+  EnvironmentId,
+  ProviderDriverKind,
+  type ProviderInstanceConfig,
+  ProviderInstanceId,
+  type ServerSettings,
+} from "@t3tools/contracts";
 import * as Duration from "effect/Duration";
 import { describe, expect, it } from "vite-plus/test";
 import {
   backgroundActivitySharedPolicySettings,
   getChangedBrowserSettingLabels,
   hasChangedBackgroundActivitySettings,
+  planProviderInstanceSync,
 } from "./SettingsPanels.logic";
 
 describe("background activity settings restore", () => {
@@ -86,5 +95,107 @@ describe("getChangedBrowserSettingLabels", () => {
         browserCustomSearchUrl: "https://search.example/?q=%s",
       }),
     ).toEqual(["Search engine"]);
+  });
+});
+
+describe("planProviderInstanceSync", () => {
+  const codex = ProviderDriverKind.make("codex");
+  const codexId = ProviderInstanceId.make("codex");
+  const target = (
+    environmentId: string,
+    providerInstances: Record<string, ProviderInstanceConfig>,
+    textGenerationModelSelection = DEFAULT_SERVER_SETTINGS.textGenerationModelSelection,
+  ) => ({
+    environmentId: EnvironmentId.make(environmentId),
+    settings: {
+      providerInstances: providerInstances as ServerSettings["providerInstances"],
+      textGenerationModelSelection,
+    },
+  });
+
+  it("copies only the changed fields onto each environment's own instance", () => {
+    const previous = { driver: codex, config: { binaryPath: "/a/codex", customModels: [] } };
+    const next = {
+      driver: codex,
+      displayName: "Work",
+      config: { binaryPath: "/a/codex", customModels: [{ slug: "gpt-x", name: "GPT X" }] },
+    };
+    const writes = planProviderInstanceSync({
+      instanceId: codexId,
+      previous,
+      next,
+      targets: [
+        target("laptop", {
+          codex: { driver: codex, config: { binaryPath: "/b/codex", homePath: "/b/home" } },
+        }),
+        // The default slot exists without explicit config.
+        target("server", {}),
+      ],
+    });
+    expect(writes.map(({ environmentId, instance }) => [environmentId, instance])).toEqual([
+      [
+        "laptop",
+        {
+          driver: codex,
+          displayName: "Work",
+          config: {
+            binaryPath: "/b/codex",
+            homePath: "/b/home",
+            customModels: [{ slug: "gpt-x", name: "GPT X" }],
+          },
+        },
+      ],
+      [
+        "server",
+        {
+          driver: codex,
+          displayName: "Work",
+          config: { customModels: [{ slug: "gpt-x", name: "GPT X" }] },
+        },
+      ],
+    ]);
+  });
+
+  it("skips environments without the instance, with another driver, or already matching", () => {
+    const work = ProviderInstanceId.make("codex-work");
+    const next = { driver: codex, displayName: "Work" };
+    expect(
+      planProviderInstanceSync({
+        instanceId: work,
+        previous: { driver: codex },
+        next,
+        targets: [
+          target("missing", {}),
+          target("other-driver", {
+            "codex-work": { driver: ProviderDriverKind.make("claudeAgent") },
+          }),
+          target("same", { "codex-work": next }),
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("removes a cleared field and resets text generation that used a now-disabled instance", () => {
+    const writes = planProviderInstanceSync({
+      instanceId: codexId,
+      previous: { driver: codex, displayName: "Work", enabled: true },
+      next: { driver: codex, enabled: false },
+      targets: [
+        target(
+          "laptop",
+          { codex: { driver: codex, displayName: "Work", accentColor: "#f00" } },
+          { instanceId: codexId, model: "gpt-x" },
+        ),
+      ],
+    });
+    expect(writes).toEqual([
+      {
+        environmentId: "laptop",
+        instance: { driver: codex, accentColor: "#f00", enabled: false },
+        patch: {
+          textGenerationModelSelection: DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection,
+        },
+      },
+    ]);
   });
 });

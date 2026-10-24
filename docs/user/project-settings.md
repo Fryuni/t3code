@@ -24,8 +24,14 @@ setting you are editing, the layers icon counts them and the chain lists each on
 click a project to jump to it, or **Reset all** to make those projects follow the environment
 again.
 
-Providers and diagnostics are per machine: they show one environment at a time, the primary
-one until you pick another. Every other setting fans out to the selection.
+Diagnostics show one environment at a time, the primary one until you pick another. **Settings →
+Providers** with **All environments** shows the primary environment's providers, and a change to a
+provider's settings, such as a custom model, its name, or its switch, also applies to every other
+connected environment that has a provider with the same ID. Only the fields you changed are copied,
+so each machine keeps its own paths and saved keys. Adding, removing, resetting, and setting up a
+provider apply to the shown environment only, as do usage sources and the health check interval.
+With a project or one environment selected, Providers shows that one environment. Every other
+setting fans out to the selection.
 
 With a project selected, a provider's switch in **Settings → Providers** turns it on or off for
 that project only, in either direction: a provider off on the machine can be used in one project,
