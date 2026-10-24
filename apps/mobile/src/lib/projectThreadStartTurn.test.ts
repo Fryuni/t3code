@@ -143,6 +143,19 @@ describe("resolveLaunchResend", () => {
     expect(resend?.prompt.text).toBe("Fix bug");
   });
 
+  it("keeps the commands after one a fresh snapshot left out", () => {
+    const resend = resolveLaunchResend({
+      messages: [
+        message("m:setup:0", "/one"),
+        message("m:setup:2", "/three"),
+        message("m:setup:10", "/eleven"),
+      ],
+      runs: [],
+    });
+    expect(resend?.setupCommands).toEqual(["/one", "/three"]);
+    expect(resend?.prompt.text).toBe("/eleven");
+  });
+
   it("resends only the first message of a launch without setup messages", () => {
     const resend = resolveLaunchResend({
       messages: [message("a", "/review 12"), message("b", "Also add tests")],

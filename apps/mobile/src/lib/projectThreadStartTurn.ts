@@ -11,6 +11,7 @@ import {
 } from "@t3tools/contracts";
 import {
   deriveThreadTitleSeed,
+  parseSetupMessageId,
   setupMessageId,
   threadTitleTextFromPrompt,
 } from "@t3tools/client-runtime/operations";
@@ -120,25 +121,29 @@ export function resolveLaunchResend<
   readonly messages: ReadonlyArray<Message>;
   readonly runs: ReadonlyArray<{ readonly userMessageId: string | null; readonly status: string }>;
 }): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
-  const byId = new Map(input.messages.map((message) => [message.id, message]));
-  const launchPrompt = input.messages.find(
-    (message) => message.role === "user" && byId.has(setupMessageId(message.id, 0)),
-  );
-  if (launchPrompt === undefined) {
-    const first = input.messages.find((message) => message.role === "user");
+  const userMessages = input.messages.filter((message) => message.role === "user");
+  // Snapshots can omit removed queue messages entirely, so setup ids need not be contiguous.
+  const setup = userMessages.flatMap((message) => {
+    const parsed = parseSetupMessageId(message.id);
+    return parsed === null ? [] : [{ ...parsed, message }];
+  });
+  const launchPromptId = setup[0]?.promptMessageId;
+  if (launchPromptId === undefined) {
+    const first = userMessages[0];
     return first === undefined ? null : { setupCommands: [], prompt: first };
   }
-  const launch: Message[] = [];
-  for (let index = 0; byId.has(setupMessageId(launchPrompt.id, index)); index++) {
-    launch.push(byId.get(setupMessageId(launchPrompt.id, index))!);
-  }
-  launch.push(launchPrompt);
   const removed = new Set(
     input.runs.flatMap((run) => (run.status === "cancelled" ? [run.userMessageId] : [])),
   );
-  const kept = launch.filter((message) => !removed.has(message.id));
-  const prompt = kept.pop();
+  const launch = [
+    ...setup
+      .filter((entry) => entry.promptMessageId === launchPromptId)
+      .sort((left, right) => left.index - right.index)
+      .map((entry) => entry.message),
+    ...userMessages.filter((message) => message.id === launchPromptId),
+  ].filter((message) => !removed.has(message.id));
+  const prompt = launch.pop();
   return prompt === undefined
     ? null
-    : { setupCommands: kept.map((message) => message.text), prompt };
+    : { setupCommands: launch.map((message) => message.text), prompt };
 }

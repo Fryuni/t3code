@@ -46,3 +46,12 @@ export function splitLeadingSlashCommands(text: string): {
 export function setupMessageId(promptMessageId: string, index: number): MessageId {
   return MessageId.make(`${promptMessageId}:setup:${index}`);
 }
+
+const SETUP_MESSAGE_ID_PATTERN = /^(.+):setup:(\d+)$/;
+
+export function parseSetupMessageId(
+  id: string,
+): { readonly promptMessageId: string; readonly index: number } | null {
+  const match = SETUP_MESSAGE_ID_PATTERN.exec(id);
+  return match ? { promptMessageId: match[1]!, index: Number(match[2]) } : null;
+}
