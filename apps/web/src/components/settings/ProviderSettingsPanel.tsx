@@ -35,6 +35,7 @@ import {
 } from "@t3tools/shared/backgroundActivitySettings";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
+import * as Equal from "effect/Equal";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
@@ -64,6 +65,7 @@ import {
 import { useEnvironmentSessionState } from "../../state/session";
 import { useProjects } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import {
   ConnectionStatusDot,
@@ -590,7 +592,7 @@ export function EnvironmentProviderSettings({
       {
         readonly instance: ProviderInstanceConfig;
         readonly inFlight: number;
-        readonly seen: ServerSettings;
+        readonly settledOn: ServerSettings | null;
       }
     >(),
   );
@@ -864,20 +866,25 @@ export function EnvironmentProviderSettings({
     next: ProviderInstanceConfig,
   ) => {
     const pendingKey = (targetId: EnvironmentId) => JSON.stringify([targetId, instanceId]);
-    const seenSettings = new Map<EnvironmentId, ServerSettings>();
+    const latestSettings = (targetId: EnvironmentId) =>
+      appAtomRegistry.get(serverEnvironment.settingsValueAtom(targetId));
     const planned = planProviderInstanceSync({
       instanceId,
       previous,
       next,
       targets: syncEnvironments.flatMap((environment) => {
-        if (!environment.serverConfig) return [];
-        const { settings } = environment.serverConfig;
-        seenSettings.set(environment.environmentId, settings);
+        const settings = latestSettings(environment.environmentId);
+        if (!settings) return [];
         const key = pendingKey(environment.environmentId);
         let pending = pendingSyncRef.current.get(key);
-        // Settled writes have reached this environment once its settings
-        // arrive anew; they come on a stream separate from the reply.
-        if (pending?.inFlight === 0 && pending.seen !== settings) {
+        // Settings arrive on a stream separate from the reply. A settled write
+        // is current once they show the server's copy, or once anything newer
+        // than the reply arrives.
+        if (
+          pending?.inFlight === 0 &&
+          (Equal.equals(settings.providerInstances[instanceId], pending.instance) ||
+            settings !== pending.settledOn)
+        ) {
           pendingSyncRef.current.delete(key);
           pending = undefined;
         }
@@ -909,7 +916,7 @@ export function EnvironmentProviderSettings({
         pendingSyncRef.current.set(key, {
           instance,
           inFlight: (pending?.inFlight ?? 0) + 1,
-          seen: seenSettings.get(targetId)!,
+          settledOn: null,
         });
         const result = await mutateProviderInstance({
           environmentId: targetId,
@@ -921,11 +928,21 @@ export function EnvironmentProviderSettings({
           },
         });
         const current = pendingSyncRef.current.get(key)!;
-        // A failed write changed nothing there, so no settings will arrive.
-        if (current.inFlight === 1 && result._tag === "Failure") {
+        const inFlight = current.inFlight - 1;
+        if (inFlight === 0 && result._tag === "Failure") {
+          // A failed write changed nothing there, so no settings will arrive.
           pendingSyncRef.current.delete(key);
         } else {
-          pendingSyncRef.current.set(key, { ...current, inFlight: current.inFlight - 1 });
+          pendingSyncRef.current.set(key, {
+            // The reply is the server's copy, redacted as the stream sends it,
+            // unless a later write has replaced what this one sent.
+            instance:
+              result._tag === "Success" && current.instance === instance
+                ? (result.value.providerInstances[instanceId] ?? instance)
+                : current.instance,
+            inFlight,
+            settledOn: latestSettings(targetId),
+          });
         }
         return result;
       }),
