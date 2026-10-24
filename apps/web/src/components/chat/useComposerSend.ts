@@ -29,6 +29,7 @@ import {
 } from "@t3tools/contracts";
 import {
   deriveThreadTitleSeed,
+  setupMessageId,
   splitLeadingSlashCommands,
 } from "@t3tools/client-runtime/operations";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
@@ -834,12 +835,12 @@ export function useComposerSend(input: ComposerSendInput) {
     const promptTextForSend = firstPromptSplit.prompt;
     // Distinct timestamps keep the messages in send order wherever they sort by time.
     const sendStartedAt = Date.now();
+    const messageIdForSend = newMessageId();
     const leadingCommandMessages = firstPromptSplit.commands.map((text, index) => ({
-      messageId: newMessageId(),
+      messageId: setupMessageId(messageIdForSend, index),
       text,
       createdAt: new Date(sendStartedAt + index).toISOString(),
     }));
-    const messageIdForSend = newMessageId();
     const messageCreatedAt = new Date(sendStartedAt + leadingCommandMessages.length).toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,

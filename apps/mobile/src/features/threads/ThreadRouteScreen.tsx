@@ -808,7 +808,7 @@ function ThreadRouteContent(
   const startLocalThread = useAtomCommand(threadEnvironment.startTurn, "work locally");
   const localResendBusy = useRef(false);
   const launchResend =
-    selectedThreadDetail === null ? null : resolveLaunchResend(selectedThreadDetail);
+    selectedThreadDetail === null ? null : resolveLaunchResend(selectedThreadDetail.messages);
   const setupMessage = launchResend?.prompt;
   const handleWorkLocally = async () => {
     if (!selectedThread || !selectedThreadProject || !setupMessage || localResendBusy.current)

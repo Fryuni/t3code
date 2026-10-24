@@ -32,8 +32,10 @@ script failure. If a later launch message is rejected, the launch fails the
 first run instead of leaving it preparing with nothing scheduled.
 
 Web and desktop split on the draft composer, including multiple-model starts.
-Mobile splits when its outbox delivers a **New task** and resends the commands
-with the prompt when the user chooses **Work locally**. Both offer provider
+Mobile splits when its outbox delivers a **New task**. Setup message ids derive
+from the prompt's id (`<prompt>:setup:<n>`), so mobile's **Work locally** finds
+the launch's commands and prompt by id and resends them, leaving follow-ups
+queued during setup behind. Both offer provider
 commands in the slash menu on every leading command line. Clients split only
 when the server reports `threadLaunchSetupMessages`, because older servers
 drop the key. Threads that already exist, including the empty one

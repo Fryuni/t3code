@@ -1,10 +1,11 @@
+import { MessageId } from "@t3tools/contracts";
 import { collectComposerContextReferences } from "@t3tools/shared/composerContextReferences";
 
 // A command name has no further slash, so a first line like `/src/app.ts is broken` stays prose.
 const LEADING_SLASH_COMMAND_PATTERN = /^\/[^\s/]+(?:\s|$)/;
 
 // A context link stays with the prompt, which carries the context records.
-export const isSetupCommandLine = (line: string) =>
+const isSetupCommandLine = (line: string) =>
   LEADING_SLASH_COMMAND_PATTERN.test(line) && collectComposerContextReferences(line).length === 0;
 
 /** Whether `offset` starts a line that is still inside a first prompt's leading commands. */
@@ -39,4 +40,9 @@ export function splitLeadingSlashCommands(text: string): {
     return { commands: commands.slice(0, -1), prompt: commands.at(-1)! };
   }
   return { commands, prompt };
+}
+
+/** Setup messages take ids derived from their prompt's, so a thread's launch can be found again. */
+export function setupMessageId(promptMessageId: string, index: number): MessageId {
+  return MessageId.make(`${promptMessageId}:setup:${index}`);
 }

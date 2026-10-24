@@ -238,7 +238,7 @@ Provider commands must start the message to run. T3 Code commands such as
 `/model` and `/plan`, and skill mentions, work on any line.
 
 To set up a session before the agent reads your prompt, put one provider command
-per line at the top of a new thread's first message. Each command runs as its
+per line at the top of the first message of a new thread or task. Each command runs as its
 own message, in order, once the worktree is ready, and the rest of the message
 runs last. The command must be one your provider supports.
 

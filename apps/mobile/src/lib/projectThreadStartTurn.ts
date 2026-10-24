@@ -11,7 +11,7 @@ import {
 } from "@t3tools/contracts";
 import {
   deriveThreadTitleSeed,
-  isSetupCommandLine,
+  setupMessageId,
   threadTitleTextFromPrompt,
 } from "@t3tools/client-runtime/operations";
 
@@ -94,8 +94,7 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
       ...(spec.setupCommands?.length
         ? {
             setupMessages: spec.setupCommands.map((text, index) => ({
-              // Derived ids keep outbox retries of one creation idempotent.
-              messageId: MessageId.make(`${spec.messageId}:setup:${index}`),
+              messageId: setupMessageId(spec.messageId, index),
               text,
             })),
           }
@@ -111,42 +110,27 @@ export function deriveThreadTitleFromPrompt(value: string): string {
 }
 
 /**
- * The launch to resend when worktree setup is abandoned: its leading text-only slash commands
- * and the prompt after them, in run order. Messages queued after the prompt stay behind.
+ * The launch to resend when worktree setup is abandoned: its setup commands in order and its
+ * prompt. A thread without setup messages resends its first user message, as before.
  */
 export function resolveLaunchResend<
-  Message extends {
-    readonly id: string;
-    readonly role: string;
-    readonly text: string;
-    readonly attachments: ReadonlyArray<unknown>;
-    readonly context?: unknown;
-  },
->(input: {
-  readonly runs: ReadonlyArray<{ readonly ordinal: number; readonly userMessageId: string | null }>;
-  readonly messages: ReadonlyArray<Message>;
-}): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
-  // Queued messages have no turn items yet, so message order can tie; run ordinals cannot.
-  const launchOrder = [...input.runs]
-    .sort((left, right) => left.ordinal - right.ordinal)
-    .flatMap((run) =>
-      input.messages.filter(
-        (message) => message.id === run.userMessageId && message.role === "user",
-      ),
-    );
-  const commands: Message[] = [];
-  for (const message of launchOrder) {
-    if (
-      message.attachments.length > 0 ||
-      message.context !== undefined ||
-      !isSetupCommandLine(message.text.trim())
-    ) {
-      return { setupCommands: commands.map((command) => command.text.trim()), prompt: message };
-    }
-    commands.push(message);
+  Message extends { readonly id: string; readonly role: string; readonly text: string },
+>(
+  messages: ReadonlyArray<Message>,
+): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
+  const byId = new Map(messages.map((message) => [message.id, message]));
+  const prompt = messages.find(
+    (message) => message.role === "user" && byId.has(setupMessageId(message.id, 0)),
+  );
+  if (prompt === undefined) {
+    const first = messages.find((message) => message.role === "user");
+    return first === undefined ? null : { setupCommands: [], prompt: first };
   }
-  const prompt = commands.pop();
-  return prompt === undefined
-    ? null
-    : { setupCommands: commands.map((command) => command.text.trim()), prompt };
+  const setupCommands: string[] = [];
+  for (let index = 0; ; index++) {
+    const command = byId.get(setupMessageId(prompt.id, index));
+    if (command === undefined) break;
+    setupCommands.push(command.text);
+  }
+  return { setupCommands, prompt };
 }
