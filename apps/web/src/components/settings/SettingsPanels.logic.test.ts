@@ -175,6 +175,50 @@ describe("planProviderInstanceSync", () => {
     ).toEqual([]);
   });
 
+  it("clears only the source's fields when the edit drops its whole config", () => {
+    const writes = planProviderInstanceSync({
+      instanceId: codexId,
+      previous: { driver: codex, config: { binaryPath: "/a/codex" } },
+      next: { driver: codex },
+      targets: [
+        target("laptop", {
+          codex: { driver: codex, config: { binaryPath: "/b/codex", homePath: "/b/home" } },
+        }),
+      ],
+    });
+    expect(writes.map(({ instance }) => instance)).toEqual([
+      { driver: codex, config: { homePath: "/b/home" } },
+    ]);
+  });
+
+  it("applies environment variable edits by name, keeping the target's own", () => {
+    const variable = (name: string, value: string, sensitive = false) => ({
+      name,
+      value,
+      sensitive,
+    });
+    const writes = planProviderInstanceSync({
+      instanceId: codexId,
+      previous: { driver: codex, environment: [variable("A", "1"), variable("B", "1")] },
+      next: { driver: codex, environment: [variable("A", "2"), variable("C", "1")] },
+      targets: [
+        target("laptop", {
+          codex: {
+            driver: codex,
+            environment: [
+              variable("KEY", "", true),
+              variable("A", "local"),
+              variable("B", "local"),
+            ],
+          },
+        }),
+      ],
+    });
+    expect(writes.map(({ instance }) => instance.environment)).toEqual([
+      [variable("KEY", "", true), variable("A", "2"), variable("C", "1")],
+    ]);
+  });
+
   it("removes a cleared field and resets text generation that used a now-disabled instance", () => {
     const writes = planProviderInstanceSync({
       instanceId: codexId,

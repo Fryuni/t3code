@@ -232,6 +232,27 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
+type EnvironmentVariables = NonNullable<ProviderInstanceConfig["environment"]>;
+
+// By name, so an edit to one variable leaves the target's other variables,
+// and the secrets behind them, alone.
+function applyChangedVariables(
+  target: EnvironmentVariables,
+  previous: EnvironmentVariables,
+  next: EnvironmentVariables,
+): EnvironmentVariables {
+  const result = new Map(target.map((variable) => [variable.name, variable]));
+  const before = new Map(previous.map((variable) => [variable.name, variable]));
+  const after = new Map(next.map((variable) => [variable.name, variable]));
+  for (const name of new Set([...before.keys(), ...after.keys()])) {
+    const variable = after.get(name);
+    if (Equal.equals(before.get(name), variable)) continue;
+    if (variable === undefined) result.delete(name);
+    else result.set(name, variable);
+  }
+  return [...result.values()];
+}
+
 function applyChangedFields(
   target: Record<string, unknown>,
   previous: Record<string, unknown>,
@@ -242,18 +263,27 @@ function applyChangedFields(
     const before = previous[key];
     const after = next[key];
     if (Equal.equals(before, after)) continue;
+    const current = result[key];
+    let merged: unknown = after;
+    // The form omits `config` once its last field is cleared; that clears
+    // those fields, not the target's own.
     if (
       key === "config" &&
-      isPlainObject(after) &&
+      (after === undefined || isPlainObject(after)) &&
       (before === undefined || isPlainObject(before))
     ) {
-      const current = result[key];
-      result[key] = applyChangedFields(isPlainObject(current) ? current : {}, before ?? {}, after);
-    } else if (after === undefined) {
-      delete result[key];
-    } else {
-      result[key] = after;
+      merged = applyChangedFields(isPlainObject(current) ? current : {}, before ?? {}, after ?? {});
+      if (Object.keys(merged as object).length === 0) merged = undefined;
+    } else if (key === "environment") {
+      merged = applyChangedVariables(
+        (current ?? []) as EnvironmentVariables,
+        (before ?? []) as EnvironmentVariables,
+        (after ?? []) as EnvironmentVariables,
+      );
+      if ((merged as EnvironmentVariables).length === 0) merged = undefined;
     }
+    if (merged === undefined) delete result[key];
+    else result[key] = merged;
   }
   return result;
 }
@@ -285,9 +315,6 @@ export function planProviderInstanceSync(input: {
         ? { driver: next.driver }
         : undefined;
     if (current?.driver !== next.driver) return [];
-    // shortcut: a changed `environment` list is copied whole, so a sensitive
-    // variable this environment never saved arrives as an empty redacted
-    // marker; merge per variable if that bites.
     const instance = applyChangedFields(current, previous, next) as ProviderInstanceConfig;
     if (Equal.equals(instance, current)) return [];
     const disables =

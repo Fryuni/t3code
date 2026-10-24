@@ -14,8 +14,9 @@ page shows the primary environment, and an edit to a provider instance is also
 sent to every other connected environment that has that instance id with the
 same driver; a driver's default slot counts as present everywhere.
 [`planProviderInstanceSync`](../../apps/web/src/components/settings/SettingsPanels.logic.ts)
-copies only the fields the edit changed, one level into the driver `config`,
-onto each environment's own copy. Copying the whole instance would overwrite
+copies only the fields the edit changed, one level into the driver `config`
+and by name in the `environment` variable list, onto each environment's own
+copy. An omitted `config` clears only the fields the source had. Copying the whole instance would overwrite
 machine-specific binary paths and send redaction markers for secrets the target
 never saved. Disabling the instance a target uses for text generation resets
 that target's text generation model, as the source write does.
