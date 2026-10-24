@@ -120,24 +120,34 @@ describe("new worktree branch choice", () => {
 
 describe("resolveLaunchResend", () => {
   const message = (id: string, text: string) => ({ id, role: "user", text });
+  const messages = [
+    // Equal timestamps sort queued messages by id, which puts the prompt between commands.
+    message("m:setup:0", "/one"),
+    message("m", "Fix bug"),
+    message("m:setup:1", "/two on"),
+    message("m4", "Also add tests"),
+  ];
 
   it("resends the launch's setup commands and prompt, not later follow-ups", () => {
-    const resend = resolveLaunchResend([
-      // Equal timestamps sort queued messages by id, which puts the prompt between commands.
-      message("m:setup:0", "/one"),
-      message("m", "Fix bug"),
-      message("m:setup:1", "/two on"),
-      message("m4", "Also add tests"),
-    ]);
+    const resend = resolveLaunchResend({ messages, runs: [] });
     expect(resend?.setupCommands).toEqual(["/one", "/two on"]);
     expect(resend?.prompt.text).toBe("Fix bug");
   });
 
+  it("leaves out launch messages the user removed from the queue", () => {
+    const resend = resolveLaunchResend({
+      messages,
+      runs: [{ userMessageId: "m:setup:1", status: "cancelled" }],
+    });
+    expect(resend?.setupCommands).toEqual(["/one"]);
+    expect(resend?.prompt.text).toBe("Fix bug");
+  });
+
   it("resends only the first message of a launch without setup messages", () => {
-    const resend = resolveLaunchResend([
-      message("a", "/review 12"),
-      message("b", "Also add tests"),
-    ]);
+    const resend = resolveLaunchResend({
+      messages: [message("a", "/review 12"), message("b", "Also add tests")],
+      runs: [],
+    });
     expect(resend?.setupCommands).toEqual([]);
     expect(resend?.prompt.text).toBe("/review 12");
   });

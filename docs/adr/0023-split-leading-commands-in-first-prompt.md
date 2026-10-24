@@ -32,8 +32,10 @@ script failure. If a later launch message is rejected, the launch fails the
 first run instead of leaving it preparing with nothing scheduled, and a replay
 of that launch sends nothing past it.
 
-The rule is that automatic progress never runs the rest of a launch without its
-first message. An explicit user action may: sending a new message releases held
+The rule is that a failed workspace preparation or launch dispatch never lets
+the rest of a launch run automatically. A command the provider runs and rejects
+is an ordinary turn, so the next message follows it as if the user had sent them
+one by one. An explicit user action may also release held messages: sending a new message releases held
 messages as it does after a Stop, and **Resume** after a server restart during
 preparation runs them without the cancelled first message. The failed or
 cancelled message stays visible, so that choice is the user's.

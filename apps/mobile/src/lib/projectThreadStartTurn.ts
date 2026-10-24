@@ -111,26 +111,34 @@ export function deriveThreadTitleFromPrompt(value: string): string {
 
 /**
  * The launch to resend when worktree setup is abandoned: its setup commands in order and its
- * prompt. A thread without setup messages resends its first user message, as before.
+ * prompt, minus any the user removed from the queue. A thread without setup messages resends
+ * its first user message, as before.
  */
 export function resolveLaunchResend<
   Message extends { readonly id: string; readonly role: string; readonly text: string },
->(
-  messages: ReadonlyArray<Message>,
-): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
-  const byId = new Map(messages.map((message) => [message.id, message]));
-  const prompt = messages.find(
+>(input: {
+  readonly messages: ReadonlyArray<Message>;
+  readonly runs: ReadonlyArray<{ readonly userMessageId: string | null; readonly status: string }>;
+}): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
+  const byId = new Map(input.messages.map((message) => [message.id, message]));
+  const launchPrompt = input.messages.find(
     (message) => message.role === "user" && byId.has(setupMessageId(message.id, 0)),
   );
-  if (prompt === undefined) {
-    const first = messages.find((message) => message.role === "user");
+  if (launchPrompt === undefined) {
+    const first = input.messages.find((message) => message.role === "user");
     return first === undefined ? null : { setupCommands: [], prompt: first };
   }
-  const setupCommands: string[] = [];
-  for (let index = 0; ; index++) {
-    const command = byId.get(setupMessageId(prompt.id, index));
-    if (command === undefined) break;
-    setupCommands.push(command.text);
+  const launch: Message[] = [];
+  for (let index = 0; byId.has(setupMessageId(launchPrompt.id, index)); index++) {
+    launch.push(byId.get(setupMessageId(launchPrompt.id, index))!);
   }
-  return { setupCommands, prompt };
+  launch.push(launchPrompt);
+  const removed = new Set(
+    input.runs.flatMap((run) => (run.status === "cancelled" ? [run.userMessageId] : [])),
+  );
+  const kept = launch.filter((message) => !removed.has(message.id));
+  const prompt = kept.pop();
+  return prompt === undefined
+    ? null
+    : { setupCommands: kept.map((message) => message.text), prompt };
 }
