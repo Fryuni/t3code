@@ -127,9 +127,10 @@ describe("resolveLaunchResend", () => {
     message("m:setup:1", "/two on"),
     message("m4", "Also add tests"),
   ];
+  const launchRuns = [{ ordinal: 1, userMessageId: "m:setup:0", status: "preparing" }];
 
   it("resends the launch's setup commands and prompt, not later follow-ups", () => {
-    const resend = resolveLaunchResend({ messages, runs: [] });
+    const resend = resolveLaunchResend({ messages, runs: launchRuns });
     expect(resend?.setupCommands).toEqual(["/one", "/two on"]);
     expect(resend?.prompt.text).toBe("Fix bug");
   });
@@ -137,7 +138,7 @@ describe("resolveLaunchResend", () => {
   it("leaves out launch messages the user removed from the queue", () => {
     const resend = resolveLaunchResend({
       messages,
-      runs: [{ userMessageId: "m:setup:1", status: "cancelled" }],
+      runs: [...launchRuns, { ordinal: 2, userMessageId: "m:setup:1", status: "cancelled" }],
     });
     expect(resend?.setupCommands).toEqual(["/one"]);
     expect(resend?.prompt.text).toBe("Fix bug");
@@ -150,7 +151,7 @@ describe("resolveLaunchResend", () => {
         message("m:setup:2", "/three"),
         message("m:setup:10", "/eleven"),
       ],
-      runs: [],
+      runs: [{ ordinal: 1, userMessageId: "m:setup:0", status: "preparing" }],
     });
     expect(resend?.setupCommands).toEqual(["/one", "/three"]);
     expect(resend?.prompt.text).toBe("/eleven");
@@ -158,8 +159,11 @@ describe("resolveLaunchResend", () => {
 
   it("resends only the first message of a launch without setup messages", () => {
     const resend = resolveLaunchResend({
-      messages: [message("a", "/review 12"), message("b", "Also add tests")],
-      runs: [],
+      messages: [message("a", "/review 12"), message("b:setup:0", "Also add tests")],
+      runs: [
+        { ordinal: 1, userMessageId: "a", status: "preparing" },
+        { ordinal: 2, userMessageId: "b:setup:0", status: "queued" },
+      ],
     });
     expect(resend?.setupCommands).toEqual([]);
     expect(resend?.prompt.text).toBe("/review 12");

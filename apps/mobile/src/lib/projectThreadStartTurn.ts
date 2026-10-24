@@ -119,19 +119,28 @@ export function resolveLaunchResend<
   Message extends { readonly id: string; readonly role: string; readonly text: string },
 >(input: {
   readonly messages: ReadonlyArray<Message>;
-  readonly runs: ReadonlyArray<{ readonly userMessageId: string | null; readonly status: string }>;
+  readonly runs: ReadonlyArray<{
+    readonly ordinal: number;
+    readonly userMessageId: string | null;
+    readonly status: string;
+  }>;
 }): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
   const userMessages = input.messages.filter((message) => message.role === "user");
+  // The launch is anchored on the thread's first run, whose message a setup launch gives a
+  // setup id.
+  const firstRunMessageId = [...input.runs].sort((left, right) => left.ordinal - right.ordinal)[0]
+    ?.userMessageId;
+  const first = userMessages.find((message) => message.id === firstRunMessageId) ?? userMessages[0];
+  const launchPromptId =
+    first === undefined ? undefined : parseSetupMessageId(first.id)?.promptMessageId;
+  if (first === undefined || launchPromptId === undefined) {
+    return first === undefined ? null : { setupCommands: [], prompt: first };
+  }
   // Snapshots can omit removed queue messages entirely, so setup ids need not be contiguous.
   const setup = userMessages.flatMap((message) => {
     const parsed = parseSetupMessageId(message.id);
     return parsed === null ? [] : [{ ...parsed, message }];
   });
-  const launchPromptId = setup[0]?.promptMessageId;
-  if (launchPromptId === undefined) {
-    const first = userMessages[0];
-    return first === undefined ? null : { setupCommands: [], prompt: first };
-  }
   const removed = new Set(
     input.runs.flatMap((run) => (run.status === "cancelled" ? [run.userMessageId] : [])),
   );
