@@ -151,7 +151,9 @@ function SettingsRouteLayout() {
   return (
     <SettingsScopeProvider
       search={rawSearch}
-      singleEnvironment={pathname === "/settings/providers"}
+      // Project provider overrides are stored per environment, so a project
+      // keeps one; without one, "All environments" fans out provider edits.
+      singleEnvironment={pathname === "/settings/providers" && rawSearch.project !== undefined}
       onChange={(next) => {
         // Send every axis so the retain middleware sees an explicit target
         // even when the choice is "all", which is the absence of a key.
