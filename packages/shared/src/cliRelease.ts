@@ -82,6 +82,16 @@ export function cliArchiveFileName(version: string, platformKey: CliArchivePlatf
 
 const CLI_RELEASE_DEFAULT_BASE_URL = `https://github.com/${CLI_RELEASE_REPOSITORY}/releases/download`;
 
+/**
+ * The shell command that installs exactly `version`. A fork's versions exist only on its own
+ * releases, which upstream's installer cannot reach without being pointed there.
+ */
+export function cliInstallCommand(version: string): string {
+  return CLI_RELEASE_FORK_REPOSITORY === undefined
+    ? `curl -fsSL https://t3.codes/install.sh | T3CODE_VERSION=${version} sh`
+    : `curl -fsSL https://raw.githubusercontent.com/${CLI_RELEASE_FORK_REPOSITORY}/main/scripts/install.sh | T3CODE_VERSION=${version} ${CLI_RELEASE_BASE_URL_ENV}=${CLI_RELEASE_DEFAULT_BASE_URL} sh`;
+}
+
 export function cliReleaseDownloadBaseUrl(
   version: string,
   baseUrl: string | undefined = CLI_RELEASE_DEFAULT_BASE_URL,

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#28](https://github.com/Fryuni/t3code/issues/28)
-- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
+- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
 
 Upstream's Forgejo provider compares head repository names, head owners, and the
 publishing owner with exact string equality. A remote or user input can spell
