@@ -852,14 +852,11 @@ export function EnvironmentProviderSettings({
     previous: ProviderInstanceConfig,
     next: ProviderInstanceConfig,
   ) => {
-    const permitted = syncEnvironments.filter((environment) =>
-      readEnvironmentScope(environment.environmentId, AuthProvidersManageScope),
-    );
-    const writes = planProviderInstanceSync({
+    const planned = planProviderInstanceSync({
       instanceId,
       previous,
       next,
-      targets: permitted.flatMap((environment) =>
+      targets: syncEnvironments.flatMap((environment) =>
         environment.serverConfig
           ? [
               {
@@ -870,11 +867,19 @@ export function EnvironmentProviderSettings({
           : [],
       ),
     });
+    const writes = planned.filter(({ environmentId: targetId }) =>
+      readEnvironmentScope(targetId, AuthProvidersManageScope),
+    );
     const results = await Promise.all(
       writes.map(({ environmentId: targetId, instance, patch }) =>
         mutateProviderInstance({
           environmentId: targetId,
-          input: { patch, providerInstanceMutation: { operation: "upsert", instanceId, instance } },
+          input: {
+            // Without settings:write the text generation reset would fail the
+            // whole upsert, so it is skipped there, as on the source.
+            patch: readEnvironmentScope(targetId, AuthSettingsWriteScope) ? patch : {},
+            providerInstanceMutation: { operation: "upsert", instanceId, instance },
+          },
         }),
       ),
     );
@@ -887,9 +892,9 @@ export function EnvironmentProviderSettings({
         ? [labelOf(targetId)]
         : [];
     });
-    const denied = syncEnvironments
-      .filter((environment) => !permitted.includes(environment))
-      .map((environment) => environment.label);
+    const denied = planned
+      .filter((write) => !writes.includes(write))
+      .map(({ environmentId: targetId }) => labelOf(targetId));
     if (failed.length === 0 && denied.length === 0) return;
     toastManager.add({
       type: "error",
