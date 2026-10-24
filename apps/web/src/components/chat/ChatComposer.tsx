@@ -38,6 +38,7 @@ import {
   PROVIDER_SEND_TURN_MAX_ATTACHMENTS,
 } from "@t3tools/contracts";
 import type { EnvironmentConnectionPresentation } from "@t3tools/client-runtime/connection";
+import { startsLeadingSlashCommandLine } from "@t3tools/client-runtime/operations";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import * as Schema from "effect/Schema";
 import { isPasteAsTextShortcut } from "@t3tools/client-runtime/text-paste";
@@ -373,6 +374,8 @@ export interface ChatComposerProps {
   canOperateThread: boolean;
   attachmentUploadsCapabilityKnown: boolean;
   supportsAttachmentUploads: boolean;
+  /** The server sends a new thread's leading command lines as separate messages. */
+  supportsSetupCommands: boolean;
   supportsQuestionAttachments: boolean;
   maxFileAttachmentBytes: number | null;
   routeKind: "server" | "draft";
@@ -542,6 +545,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     canOperateThread,
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
+    supportsSetupCommands,
     supportsQuestionAttachments,
     maxFileAttachmentBytes,
     routeKind,
@@ -1213,6 +1217,11 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     selectedProviderSkills,
     selectedProviderSlashCommands,
     showSkillsInSlashMenu: settings.showSkillsInSlashMenu,
+    triggerStartsLeadingCommandLine:
+      routeKind === "draft" &&
+      supportsSetupCommands &&
+      composerTrigger?.kind === "slash-command" &&
+      startsLeadingSlashCommandLine(prompt, composerTrigger.rangeStart),
   });
 
   const composerMenuOpen = Boolean(composerTrigger);

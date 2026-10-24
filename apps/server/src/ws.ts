@@ -2024,6 +2024,9 @@ export const layerWsRpc = (
                               : { context: input.initialMessage.context }),
                           },
                         }),
+                    ...(input.setupMessages === undefined
+                      ? {}
+                      : { setupMessages: input.setupMessages }),
                     createdBy: "user",
                     creationSource: input.creationSource ?? "web",
                   }).pipe(Effect.provide(intakeContext)),

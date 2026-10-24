@@ -8,6 +8,7 @@ import type {
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
+import { startsLeadingSlashCommandLine } from "@t3tools/client-runtime/operations";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
 const EMPTY_THREAD_SHELLS: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -179,6 +180,7 @@ export function useComposerCommandMenu({
   threadPullRequests,
   selectedProviderStatus,
   hasThread,
+  splitsSetupCommands,
   hasCompactableConversation,
   offersUsageLimits = false,
   enabled = true,
@@ -197,6 +199,8 @@ export function useComposerCommandMenu({
   readonly threadPullRequests?: ReadonlyArray<ThreadPullRequestLink>;
   readonly selectedProviderStatus: ServerProvider | null;
   readonly hasThread: boolean;
+  /** A new task whose server sends each leading command line as its own message. */
+  readonly splitsSetupCommands?: boolean;
   readonly hasCompactableConversation: boolean;
   readonly offersUsageLimits?: boolean;
   readonly enabled?: boolean;
@@ -381,7 +385,10 @@ export function useComposerCommandMenu({
       const visibleSkills = getProviderSkillsForSlashMenu(skills, true);
       const commandItems = buildComposerSlashCommandItems({
         query: q,
-        atMessageStart: trigger.rangeStart === 0,
+        atMessageStart:
+          trigger.rangeStart === 0 ||
+          (splitsSetupCommands === true &&
+            startsLeadingSlashCommandLine(draftMessage, trigger.rangeStart)),
         hasThread,
         hasCompactableConversation,
         offersUsageLimits,

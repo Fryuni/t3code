@@ -6,7 +6,10 @@ import {
   type EnvironmentThreadShell,
 } from "@t3tools/client-runtime/state/shell";
 import type { AtomCommandResult } from "@t3tools/client-runtime/state/runtime";
-import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
+import {
+  deriveThreadTitleSeed,
+  splitLeadingSlashCommands,
+} from "@t3tools/client-runtime/operations";
 import {
   AuthOrchestrationOperateScope,
   CommandId,
@@ -1014,6 +1017,12 @@ export function useThreadOutboxDrain(): void {
           createNewBranch: true,
         };
       }
+      // Leading slash commands go out as their own messages first. Older servers would drop
+      // them, so they keep one message there.
+      const firstPrompt =
+        currentConfig.environment.capabilities.threadLaunchSetupMessages === true
+          ? splitLeadingSlashCommands(queuedMessage.text.trim())
+          : { commands: [], prompt: queuedMessage.text.trim() };
       const deliveryResult = await startTurn({
         environmentId: queuedMessage.environmentId,
         input: buildProjectThreadStartTurnInput({
@@ -1023,9 +1032,10 @@ export function useThreadOutboxDrain(): void {
           commandId: queuedMessage.commandId,
           messageId: queuedMessage.messageId,
           createdAt: queuedMessage.createdAt,
-          titleText: queuedMessage.text,
+          titleText: firstPrompt.prompt,
+          setupCommands: firstPrompt.commands,
           ...serializeComposerMessageForServer(
-            queuedMessage.text.trim(),
+            firstPrompt.prompt,
             uploadedComposerContext(
               queuedMessage.context,
               queuedMessage.attachments,

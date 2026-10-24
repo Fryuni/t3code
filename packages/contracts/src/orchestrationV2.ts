@@ -3201,6 +3201,11 @@ export const OrchestrationV2ThreadLaunchInput = Schema.Struct({
       attachments: Schema.Array(ChatAttachment),
     }),
   ),
+  /** Sent in order before `initialMessage`, each as its own turn; the first takes the workspace
+      preparation. Older servers drop the key, so clients gate on `threadLaunchSetupMessages`. */
+  setupMessages: Schema.optional(
+    Schema.Array(Schema.Struct({ messageId: MessageId, text: TrimmedNonEmptyString })),
+  ),
 });
 export type OrchestrationV2ThreadLaunchInput = typeof OrchestrationV2ThreadLaunchInput.Type;
 

@@ -1,3 +1,4 @@
+import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import * as Scheduler from "../scheduling/Scheduler.ts";
 import * as WorktreeSetupTracker from "../project/WorktreeSetupTracker.ts";
 import * as ProjectCloneTracker from "../project/ProjectCloneTracker.ts";
@@ -545,6 +546,144 @@ it.effect("retains automation and sender attribution while a message waits in th
     assert.equal(message?.scheduledTaskId, scheduledTaskId);
     assert.equal(message?.senderThreadId, senderThreadId);
     assert.equal(message?.text, "Run the audit");
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("queues setup messages and then the prompt behind the preparing first message", () => {
+  const harness = makeHarness({ runSetup: () => Effect.never });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
+    const launched = yield* launches.launch({
+      ...launchInput({
+        command: "command:launch:setup",
+        thread: "thread:launch:setup",
+        message: "Fix the bug",
+        workspace: { type: "worktree", baseRef: "main" },
+      }),
+      generateTitle: true,
+      setupMessages: [
+        { messageId: MessageId.make("message:setup:one"), text: "/one" },
+        { messageId: MessageId.make("message:setup:two"), text: "/two on" },
+      ],
+    });
+    const { runs, messages } = launched.projection;
+    const textOf = (run: (typeof runs)[number]) =>
+      messages.find((message) => message.id === run.userMessageId)?.text;
+    assert.deepEqual(runs.filter((run) => run.status === "preparing").map(textOf), ["/one"]);
+    assert.deepEqual(
+      runs
+        .filter((run) => run.status === "queued")
+        .toSorted((left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0))
+        .map(textOf),
+      ["/two on", "Fix the bug"],
+    );
+    // A slash command makes a poor generated title; the launch keeps its own.
+    assert.isFalse(
+      (yield* outbox.listByCommandId(CommandId.make("command:launch:setup:setup-message:0"))).some(
+        (effect) => effect.request.type === "thread-title.generate",
+      ),
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("holds the launch's queued messages when workspace preparation fails", () => {
+  const harness = makeHarness({ runSetup: () => Effect.die("setup script failed") });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch({
+      ...launchInput({
+        command: "command:launch:setup-fails",
+        thread: "thread:launch:setup-fails",
+        message: "Fix the bug",
+        workspace: { type: "worktree", baseRef: "main" },
+      }),
+      setupMessages: [{ messageId: MessageId.make("message:setup-fails:one"), text: "/one" }],
+    });
+    const held = yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+      Stream.filter(
+        (stored) => stored.event.type === "run.updated" && stored.event.payload.queueHeld === true,
+      ),
+      Stream.runHead,
+    );
+    assert.isTrue(Option.isSome(held));
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    const prompt = projection.runs.find(
+      (run) => run.userMessageId === MessageId.make("Fix the bug:id"),
+    );
+    assert.equal(prompt?.status, "queued");
+    assert.isTrue(prompt?.queueHeld);
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("does not replay a launch's later messages past a failed first message", () => {
+  const harness = makeHarness({ runSetup: () => Effect.never });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const input = {
+      ...launchInput({
+        command: "command:launch:replay-failed",
+        thread: "thread:launch:replay-failed",
+        message: "Fix the bug",
+      }),
+      setupMessages: [
+        { messageId: MessageId.make("message:replay-failed:one"), text: "/one" },
+        { messageId: MessageId.make("message:replay-failed:two"), text: "/two" },
+      ],
+    };
+    // The first attempt accepted `/one`, then failed it when `/two` was rejected.
+    yield* threads.dispatch({
+      type: "thread.create",
+      commandId: input.commandId,
+      threadId: input.threadId,
+      projectId: input.projectId,
+      title: input.title,
+      modelSelection: input.modelSelection,
+      runtimeMode: input.runtimeMode,
+      interactionMode: input.interactionMode,
+      branch: null,
+      worktreePath: null,
+      createdBy: input.createdBy,
+      creationSource: input.creationSource,
+    });
+    const accepted = yield* threads.dispatch({
+      type: "message.dispatch",
+      commandId: CommandId.make(`${input.commandId}:setup-message:0`),
+      threadId: input.threadId,
+      messageId: input.setupMessages[0]!.messageId,
+      text: "/one",
+      attachments: [],
+      modelSelection: input.modelSelection,
+      dispatchMode: { type: "defer_start", workspaceStrategy: { type: "root" } },
+      createdBy: input.createdBy,
+      creationSource: input.creationSource,
+    });
+    const runId = accepted.storedEvents.flatMap((stored) =>
+      stored.event.type === "run.created" ? [stored.event.payload.id] : [],
+    )[0];
+    assert.isDefined(runId);
+    yield* threads.dispatch({
+      type: "prepared-run.fail",
+      commandId: CommandId.make(`${input.commandId}:fail`),
+      threadId: input.threadId,
+      runId,
+      failure: makeProviderFailure({
+        cause: "rejected",
+        message: "Rejected later message",
+        class: "validation_error",
+        retryable: false,
+      }),
+    });
+
+    const replay = yield* launches.launch(input).pipe(Effect.exit);
+    assert.isTrue(Exit.isFailure(replay));
+    const projection = yield* threads.getThreadProjection(input.threadId);
+    assert.deepEqual(
+      projection.messages.map((message) => message.text),
+      ["/one"],
+    );
   }).pipe(Effect.provide(harness.layer));
 });
 

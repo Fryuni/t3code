@@ -27,7 +27,11 @@ import {
   ProviderInteractionMode,
   RuntimeMode,
 } from "@t3tools/contracts";
-import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
+import {
+  deriveThreadTitleSeed,
+  setupMessageId,
+  splitLeadingSlashCommands,
+} from "@t3tools/client-runtime/operations";
 import { wasBootstrapThreadDeleted } from "@t3tools/client-runtime/errors";
 import {
   declinePendingApprovals,
@@ -820,14 +824,30 @@ export function useComposerSend(input: ComposerSendInput) {
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
     );
+    // A new thread's leading slash commands go out as their own messages before the prompt,
+    // which the server orders at launch. Older servers would drop them, so they keep one message.
+    const firstPromptSplit =
+      isLocalDraftThread &&
+      readEnvironmentPresentation(activeThread.environmentId)?.serverConfig?.environment
+        .capabilities.threadLaunchSetupMessages === true
+        ? splitLeadingSlashCommands(messageTextForSend)
+        : { commands: [], prompt: messageTextForSend };
+    const promptTextForSend = firstPromptSplit.prompt;
+    // Distinct timestamps keep the messages in send order wherever they sort by time.
+    const sendStartedAt = Date.now();
     const messageIdForSend = newMessageId();
-    const messageCreatedAt = new Date().toISOString();
+    const leadingCommandMessages = firstPromptSplit.commands.map((text, index) => ({
+      messageId: setupMessageId(messageIdForSend, index),
+      text,
+      createdAt: new Date(sendStartedAt + index).toISOString(),
+    }));
+    const messageCreatedAt = new Date(sendStartedAt + leadingCommandMessages.length).toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      text: promptTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -853,7 +873,7 @@ export function useComposerSend(input: ComposerSendInput) {
     for (const resolved of resolveMultipleModelTargets({
       selections: multipleModelSelections ?? [],
       providerInstanceEntries,
-      messageText: messageTextForSend,
+      messageText: promptTextForSend,
       planModeEnabled,
       interactionMode: sendInteractionMode,
     })) {
@@ -1099,6 +1119,8 @@ export function useComposerSend(input: ComposerSendInput) {
         branch: activeThreadBranch!,
         selections: multipleModelSelections,
         targets: multipleTargets,
+        setupCommands: firstPromptSplit.commands,
+        promptText: promptTextForSend,
         sendSnapshot,
         createdAt: messageCreatedAt,
         attachmentsPromise: turnAttachmentsPromise,
@@ -1110,14 +1132,25 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const optimisticAttachments = optimisticMessageAttachments(composerAttachmentsSnapshot);
+    const promptQueued = shouldQueueBehindActiveRun || leadingCommandMessages.length > 0;
     if (!shouldQueueBehindActiveRun) {
       anchorNewTurn(
         scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-        messageIdForSend,
+        leadingCommandMessages[0]?.messageId ?? messageIdForSend,
       );
     }
     setOptimisticUserMessages((existing) => [
       ...existing,
+      ...leadingCommandMessages.map((command, index) => ({
+        id: command.messageId,
+        role: "user" as const,
+        text: command.text,
+        runId: null,
+        createdAt: command.createdAt,
+        updatedAt: command.createdAt,
+        streaming: false,
+        ...(index > 0 ? { inputIntent: "queued_turn" as const } : {}),
+      })),
       {
         id: messageIdForSend,
         role: "user",
@@ -1128,7 +1161,7 @@ export function useComposerSend(input: ComposerSendInput) {
         createdAt: messageCreatedAt,
         updatedAt: messageCreatedAt,
         streaming: false,
-        ...(shouldQueueBehindActiveRun
+        ...(promptQueued
           ? { inputIntent: "queued_turn" as const }
           : phase === "running" && dispatchMode === "steer"
             ? { inputIntent: "steer" as const }
@@ -1159,7 +1192,7 @@ export function useComposerSend(input: ComposerSendInput) {
     composerRef.current?.resetCursorState();
 
     const title = deriveThreadTitleSeed({
-      text: messageTextForSend,
+      text: promptTextForSend,
       attachments: composerAttachmentsSnapshot,
       fallbackLabels: sendTitleFallbackLabels(sendSnapshot),
     });
@@ -1232,6 +1265,14 @@ export function useComposerSend(input: ComposerSendInput) {
                       worktreePath: activeThread.worktreePath,
                       createdAt: activeThread.createdAt,
                     },
+                    ...(leadingCommandMessages.length > 0
+                      ? {
+                          setupMessages: leadingCommandMessages.map(({ messageId, text }) => ({
+                            messageId,
+                            text,
+                          })),
+                        }
+                      : {}),
                   }
                 : {}),
               ...(baseBranchForWorktree
@@ -1368,11 +1409,15 @@ export function useComposerSend(input: ComposerSendInput) {
         )
       ) {
         setOptimisticUserMessages((existing) => {
-          const removed = existing.filter((message) => message.id === messageIdForSend);
+          const sentIds = new Set([
+            messageIdForSend,
+            ...leadingCommandMessages.map((command) => command.messageId),
+          ]);
+          const removed = existing.filter((message) => sentIds.has(message.id));
           for (const message of removed) {
             revokeUserMessagePreviewUrls(message);
           }
-          const next = existing.filter((message) => message.id !== messageIdForSend);
+          const next = existing.filter((message) => !sentIds.has(message.id));
           return next.length === existing.length ? existing : next;
         });
         const retryComposerImages = restoreComposerDraft(composerDraftTarget, sendSnapshot);

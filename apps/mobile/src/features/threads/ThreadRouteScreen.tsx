@@ -1,7 +1,10 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
-import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
+import {
+  buildProjectThreadStartTurnInput,
+  resolveLaunchResend,
+} from "../../lib/projectThreadStartTurn";
 import { useWorktreeSetup } from "./use-worktree-setup";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { AppBar } from "../../components/ui/AppBar";
@@ -804,7 +807,9 @@ function ThreadRouteContent(
   };
   const startLocalThread = useAtomCommand(threadEnvironment.startTurn, "work locally");
   const localResendBusy = useRef(false);
-  const setupMessage = selectedThreadDetail?.messages.find((message) => message.role === "user");
+  const launchResend =
+    selectedThreadDetail === null ? null : resolveLaunchResend(selectedThreadDetail);
+  const setupMessage = launchResend?.prompt;
   const handleWorkLocally = async () => {
     if (!selectedThread || !selectedThreadProject || !setupMessage || localResendBusy.current)
       return;
@@ -828,6 +833,7 @@ function ThreadRouteContent(
         projectCwd: selectedThreadProject.workspaceRoot,
         text: setupMessage.text,
         titleText: selectedThread.title,
+        setupCommands: launchResend?.setupCommands ?? [],
         ...(setupMessage.context ? { context: setupMessage.context } : {}),
         uploadedAttachments: setupMessage.attachments,
         modelSelection: selectedThread.modelSelection,

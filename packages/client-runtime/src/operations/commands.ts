@@ -158,6 +158,8 @@ interface StartThreadBootstrap {
     readonly createBranch?: boolean;
   };
   readonly runSetupScript?: boolean;
+  /** Sent in order before `message`; needs the server's `threadLaunchSetupMessages`. */
+  readonly setupMessages?: ReadonlyArray<{ readonly messageId: MessageId; readonly text: string }>;
 }
 
 export interface StartThreadTurnInput extends ThreadCommandInput {
@@ -687,6 +689,9 @@ export const startThreadTurn = Effect.fn("EnvironmentCommands.startThreadTurn")(
         ...(context ? { context } : {}),
         attachments,
       },
+      ...(input.bootstrap?.setupMessages?.length
+        ? { setupMessages: input.bootstrap.setupMessages }
+        : {}),
     });
   }
 

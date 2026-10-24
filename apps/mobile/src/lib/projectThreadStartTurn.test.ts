@@ -5,6 +5,7 @@ import { serializeComposerMessageForServer } from "./composerContext";
 
 import {
   buildProjectThreadStartTurnInput,
+  resolveLaunchResend,
   type ProjectThreadStartTurnSpec,
 } from "./projectThreadStartTurn";
 
@@ -115,4 +116,56 @@ describe("new worktree branch choice", () => {
       expect(input.bootstrap.createThread.branch).toBe("feature/existing");
     },
   );
+});
+
+describe("resolveLaunchResend", () => {
+  const message = (id: string, text: string) => ({ id, role: "user", text });
+  const messages = [
+    // Equal timestamps sort queued messages by id, which puts the prompt between commands.
+    message("m:setup:0", "/one"),
+    message("m", "Fix bug"),
+    message("m:setup:1", "/two on"),
+    message("m4", "Also add tests"),
+  ];
+  const launchRuns = [{ ordinal: 1, userMessageId: "m:setup:0", status: "preparing" }];
+
+  it("resends the launch's setup commands and prompt, not later follow-ups", () => {
+    const resend = resolveLaunchResend({ messages, runs: launchRuns });
+    expect(resend?.setupCommands).toEqual(["/one", "/two on"]);
+    expect(resend?.prompt.text).toBe("Fix bug");
+  });
+
+  it("leaves out launch messages the user removed from the queue", () => {
+    const resend = resolveLaunchResend({
+      messages,
+      runs: [...launchRuns, { ordinal: 2, userMessageId: "m:setup:1", status: "cancelled" }],
+    });
+    expect(resend?.setupCommands).toEqual(["/one"]);
+    expect(resend?.prompt.text).toBe("Fix bug");
+  });
+
+  it("keeps the commands after one a fresh snapshot left out", () => {
+    const resend = resolveLaunchResend({
+      messages: [
+        message("m:setup:0", "/one"),
+        message("m:setup:2", "/three"),
+        message("m:setup:10", "/eleven"),
+      ],
+      runs: [{ ordinal: 1, userMessageId: "m:setup:0", status: "preparing" }],
+    });
+    expect(resend?.setupCommands).toEqual(["/one", "/three"]);
+    expect(resend?.prompt.text).toBe("/eleven");
+  });
+
+  it("resends only the first message of a launch without setup messages", () => {
+    const resend = resolveLaunchResend({
+      messages: [message("a", "/review 12"), message("b:setup:0", "Also add tests")],
+      runs: [
+        { ordinal: 1, userMessageId: "a", status: "preparing" },
+        { ordinal: 2, userMessageId: "b:setup:0", status: "queued" },
+      ],
+    });
+    expect(resend?.setupCommands).toEqual([]);
+    expect(resend?.prompt.text).toBe("/review 12");
+  });
 });

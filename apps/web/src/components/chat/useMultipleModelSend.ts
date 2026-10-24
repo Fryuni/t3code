@@ -5,7 +5,7 @@ import {
   type ThreadId,
 } from "@t3tools/contracts";
 import { scopeThreadRef } from "@t3tools/client-runtime/environment";
-import { deriveThreadTitleSeed } from "@t3tools/client-runtime/operations";
+import { deriveThreadTitleSeed, setupMessageId } from "@t3tools/client-runtime/operations";
 import { settlePromise, squashAtomCommandFailure } from "@t3tools/client-runtime/state/runtime";
 import type { EnvironmentProject } from "@t3tools/client-runtime/state/shell";
 import { useNavigate } from "@tanstack/react-router";
@@ -90,6 +90,8 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     branch,
     selections,
     targets,
+    setupCommands,
+    promptText,
     sendSnapshot,
     createdAt,
     attachmentsPromise,
@@ -103,6 +105,9 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     readonly branch: string;
     readonly selections: ReadonlyArray<ModelSelection>;
     readonly targets: ReadonlyArray<MultipleModelTarget>;
+    /** Leading slash commands each thread receives as separate messages before the prompt. */
+    readonly setupCommands: ReadonlyArray<string>;
+    readonly promptText: string;
     readonly sendSnapshot: ComposerSendSnapshot;
     readonly createdAt: string;
     readonly attachmentsPromise: ReturnType<typeof prepareTurnAttachments>;
@@ -130,7 +135,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
         boundAttachmentIds(attachments, attachmentsSnapshot),
       );
       const title = deriveThreadTitleSeed({
-        text: messageText,
+        text: promptText,
         attachments: attachmentsSnapshot,
       });
       promptRef.current = "";
@@ -162,12 +167,13 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
               const supportsInlineMessageContext =
                 appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
                   .capabilities.inlineMessageContext === true;
+              const promptMessageId = newMessageId();
               return startThreadTurn({
                 environmentId,
                 input: {
                   threadId: targetThreadId,
                   message: {
-                    messageId: newMessageId(),
+                    messageId: promptMessageId,
                     role: "user",
                     attachments,
                     ...withMessageContext({
@@ -198,6 +204,14 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
+                    ...(setupCommands.length > 0
+                      ? {
+                          setupMessages: setupCommands.map((text, index) => ({
+                            messageId: setupMessageId(promptMessageId, index),
+                            text,
+                          })),
+                        }
+                      : {}),
                   },
                   createdAt: createdAt,
                 },

@@ -11,6 +11,8 @@ import {
 } from "@t3tools/contracts";
 import {
   deriveThreadTitleSeed,
+  parseSetupMessageId,
+  setupMessageId,
   threadTitleTextFromPrompt,
 } from "@t3tools/client-runtime/operations";
 
@@ -25,6 +27,8 @@ export interface ProjectThreadStartTurnSpec {
   readonly createdAt: string;
   readonly text: string;
   readonly titleText?: string;
+  /** Sent in order before `text`; needs the server's `threadLaunchSetupMessages`. */
+  readonly setupCommands?: ReadonlyArray<string>;
   readonly context?: OrchestrationMessageContext;
   readonly uploadedAttachments: ReadonlyArray<UploadedMobileAttachment | ChatAttachment>;
   readonly modelSelection: ModelSelection;
@@ -88,6 +92,14 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
             runSetupScript: true,
           }
         : {}),
+      ...(spec.setupCommands?.length
+        ? {
+            setupMessages: spec.setupCommands.map((text, index) => ({
+              messageId: setupMessageId(spec.messageId, index),
+              text,
+            })),
+          }
+        : {}),
     },
     createdAt: spec.createdAt,
   };
@@ -96,4 +108,51 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
 export function deriveThreadTitleFromPrompt(value: string): string {
   const title = threadTitleTextFromPrompt(value) || "New thread";
   return title.length <= 72 ? title : `${title.slice(0, 69).trimEnd()}...`;
+}
+
+/**
+ * The launch to resend when worktree setup is abandoned: its setup commands in order and its
+ * prompt, minus any the user removed from the queue. A thread without setup messages resends
+ * its first user message, as before.
+ */
+export function resolveLaunchResend<
+  Message extends { readonly id: string; readonly role: string; readonly text: string },
+>(input: {
+  readonly messages: ReadonlyArray<Message>;
+  readonly runs: ReadonlyArray<{
+    readonly ordinal: number;
+    readonly userMessageId: string | null;
+    readonly status: string;
+  }>;
+}): { readonly setupCommands: ReadonlyArray<string>; readonly prompt: Message } | null {
+  const userMessages = input.messages.filter((message) => message.role === "user");
+  // The launch is anchored on the thread's first run, whose message a setup launch gives a
+  // setup id.
+  const firstRunMessageId = [...input.runs].sort((left, right) => left.ordinal - right.ordinal)[0]
+    ?.userMessageId;
+  const first = userMessages.find((message) => message.id === firstRunMessageId) ?? userMessages[0];
+  const launchPromptId =
+    first === undefined ? undefined : parseSetupMessageId(first.id)?.promptMessageId;
+  if (first === undefined || launchPromptId === undefined) {
+    return first === undefined ? null : { setupCommands: [], prompt: first };
+  }
+  // Snapshots can omit removed queue messages entirely, so setup ids need not be contiguous.
+  const setup = userMessages.flatMap((message) => {
+    const parsed = parseSetupMessageId(message.id);
+    return parsed === null ? [] : [{ ...parsed, message }];
+  });
+  const removed = new Set(
+    input.runs.flatMap((run) => (run.status === "cancelled" ? [run.userMessageId] : [])),
+  );
+  const launch = [
+    ...setup
+      .filter((entry) => entry.promptMessageId === launchPromptId)
+      .sort((left, right) => left.index - right.index)
+      .map((entry) => entry.message),
+    ...userMessages.filter((message) => message.id === launchPromptId),
+  ].filter((message) => !removed.has(message.id));
+  const prompt = launch.pop();
+  return prompt === undefined
+    ? null
+    : { setupCommands: launch.map((message) => message.text), prompt };
 }
