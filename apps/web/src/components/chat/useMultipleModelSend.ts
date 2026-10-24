@@ -90,6 +90,8 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     branch,
     selections,
     targets,
+    setupCommands,
+    promptText,
     sendSnapshot,
     createdAt,
     attachmentsPromise,
@@ -103,6 +105,9 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
     readonly branch: string;
     readonly selections: ReadonlyArray<ModelSelection>;
     readonly targets: ReadonlyArray<MultipleModelTarget>;
+    /** Leading slash commands each thread receives as separate messages before the prompt. */
+    readonly setupCommands: ReadonlyArray<string>;
+    readonly promptText: string;
     readonly sendSnapshot: ComposerSendSnapshot;
     readonly createdAt: string;
     readonly attachmentsPromise: ReturnType<typeof prepareTurnAttachments>;
@@ -130,7 +135,7 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
         boundAttachmentIds(attachments, attachmentsSnapshot),
       );
       const title = deriveThreadTitleSeed({
-        text: messageText,
+        text: promptText,
         attachments: attachmentsSnapshot,
       });
       promptRef.current = "";
@@ -198,6 +203,14 @@ export function useMultipleModelSend(input: MultipleModelSendInput) {
                       ...(startFromOrigin ? { startFromOrigin: true } : {}),
                     },
                     runSetupScript: true,
+                    ...(setupCommands.length > 0
+                      ? {
+                          setupMessages: setupCommands.map((text) => ({
+                            messageId: newMessageId(),
+                            text,
+                          })),
+                        }
+                      : {}),
                   },
                   createdAt: createdAt,
                 },

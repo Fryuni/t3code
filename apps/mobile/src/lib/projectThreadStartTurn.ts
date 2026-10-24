@@ -25,6 +25,8 @@ export interface ProjectThreadStartTurnSpec {
   readonly createdAt: string;
   readonly text: string;
   readonly titleText?: string;
+  /** Sent in order before `text`; needs the server's `threadLaunchSetupMessages`. */
+  readonly setupCommands?: ReadonlyArray<string>;
   readonly context?: OrchestrationMessageContext;
   readonly uploadedAttachments: ReadonlyArray<UploadedMobileAttachment | ChatAttachment>;
   readonly modelSelection: ModelSelection;
@@ -86,6 +88,15 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
                   }),
             },
             runSetupScript: true,
+          }
+        : {}),
+      ...(spec.setupCommands?.length
+        ? {
+            setupMessages: spec.setupCommands.map((text, index) => ({
+              // Derived ids keep outbox retries of one creation idempotent.
+              messageId: MessageId.make(`${spec.messageId}:setup:${index}`),
+              text,
+            })),
           }
         : {}),
     },

@@ -548,6 +548,44 @@ it.effect("retains automation and sender attribution while a message waits in th
   }).pipe(Effect.provide(harness.layer));
 });
 
+it.effect("queues setup messages and then the prompt behind the preparing first message", () => {
+  const harness = makeHarness({ runSetup: () => Effect.never });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const outbox = yield* EffectOutbox.EffectOutboxV2;
+    const launched = yield* launches.launch({
+      ...launchInput({
+        command: "command:launch:setup",
+        thread: "thread:launch:setup",
+        message: "Fix the bug",
+        workspace: { type: "worktree", baseRef: "main" },
+      }),
+      generateTitle: true,
+      setupMessages: [
+        { messageId: MessageId.make("message:setup:one"), text: "/one" },
+        { messageId: MessageId.make("message:setup:two"), text: "/two on" },
+      ],
+    });
+    const { runs, messages } = launched.projection;
+    const textOf = (run: (typeof runs)[number]) =>
+      messages.find((message) => message.id === run.userMessageId)?.text;
+    assert.deepEqual(runs.filter((run) => run.status === "preparing").map(textOf), ["/one"]);
+    assert.deepEqual(
+      runs
+        .filter((run) => run.status === "queued")
+        .toSorted((left, right) => (left.queuePosition ?? 0) - (right.queuePosition ?? 0))
+        .map(textOf),
+      ["/two on", "Fix the bug"],
+    );
+    // A slash command makes a poor generated title; the launch keeps its own.
+    assert.isFalse(
+      (yield* outbox.listByCommandId(CommandId.make("command:launch:setup:setup-message:0"))).some(
+        (effect) => effect.request.type === "thread-title.generate",
+      ),
+    );
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("provisions independent launches concurrently instead of behind a global semaphore", () =>
   Effect.gen(function* () {
     const setupCount = yield* Ref.make(0);

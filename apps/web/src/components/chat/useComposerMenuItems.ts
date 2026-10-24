@@ -59,6 +59,7 @@ export function useComposerMenuItems({
   selectedProviderSkills,
   selectedProviderSlashCommands,
   showSkillsInSlashMenu,
+  triggerStartsLeadingCommandLine,
 }: {
   readonly composerTrigger: ComposerTrigger | null;
   readonly environmentId: EnvironmentId;
@@ -73,6 +74,8 @@ export function useComposerMenuItems({
   readonly selectedProviderSkills: ServerProvider["skills"];
   readonly selectedProviderSlashCommands: ServerProvider["slashCommands"];
   readonly showSkillsInSlashMenu: boolean;
+  /** A new thread sends each leading command line as its own message, so each takes commands. */
+  readonly triggerStartsLeadingCommandLine: boolean;
 }) {
   const composerTriggerKind = composerTrigger?.kind ?? null;
   const pathTriggerQuery = composerTrigger?.kind === "path" ? composerTrigger.query : "";
@@ -234,7 +237,7 @@ export function useComposerMenuItems({
       );
       const slashCommandItems = slashCommandItemsForPromptPosition(
         [...builtInSlashCommandItems, ...visibleProviderSlashCommandItems, ...skillItems],
-        composerTrigger.rangeStart === 0,
+        composerTrigger.rangeStart === 0 || triggerStartsLeadingCommandLine,
       );
       return searchSlashCommandItems(slashCommandItems, query);
     }

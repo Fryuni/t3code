@@ -8,6 +8,7 @@ import {
   type MessageId,
   type ModelSelection,
   type OrchestrationV2Actor,
+  type OrchestrationV2Command,
   type OrchestrationV2CreationSource,
   type OrchestrationV2ProviderThreadNativeMetadata,
   type OrchestrationV2ThreadProjection,
@@ -89,6 +90,7 @@ export interface ThreadLaunchInput {
   readonly interactionMode: ProviderInteractionMode;
   readonly workspaceStrategy: ThreadLaunchWorkspaceStrategy;
   readonly initialMessage?: ThreadLaunchInitialMessage;
+  readonly setupMessages?: ReadonlyArray<{ readonly messageId: MessageId; readonly text: string }>;
   readonly importedNativeThread?: {
     readonly ref: {
       readonly driver: ProviderDriverKind;
@@ -1046,37 +1048,68 @@ const make = Effect.gen(function* () {
 
         let runId: RunId | null = null;
         let messageWasAlreadyAccepted = false;
+        const setupMessages = input.setupMessages ?? [];
+        const launchMessages: Array<{
+          readonly commandId: CommandId;
+          readonly message: Pick<
+            Extract<OrchestrationV2Command, { readonly type: "message.dispatch" }>,
+            | "messageId"
+            | "text"
+            | "attachments"
+            | "context"
+            | "titleSeed"
+            | "scheduledTaskId"
+            | "senderThreadId"
+          >;
+        }> = setupMessages.map((message, index) => ({
+          commandId: CommandId.make(`${input.commandId}:setup-message:${index}`),
+          message: { messageId: message.messageId, text: message.text, attachments: [] },
+        }));
         if (input.initialMessage !== undefined) {
-          const messageCommandId = CommandId.make(`${input.commandId}:initial-message`);
-          const messageReceipt = yield* readReceipt(input, messageCommandId);
-          messageWasAlreadyAccepted = Option.isSome(messageReceipt);
-          const messageId =
-            input.initialMessage.messageId ??
-            (yield* ids.allocate
-              .message({ threadId, ordinal: 1 })
-              .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId))));
+          const initialMessage = input.initialMessage;
+          launchMessages.push({
+            commandId: CommandId.make(`${input.commandId}:initial-message`),
+            message: {
+              messageId:
+                initialMessage.messageId ??
+                (yield* ids.allocate
+                  .message({ threadId, ordinal: setupMessages.length + 1 })
+                  .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)))),
+              text: initialMessage.text,
+              ...(initialMessage.scheduledTaskId === undefined
+                ? {}
+                : { scheduledTaskId: initialMessage.scheduledTaskId }),
+              ...(initialMessage.senderThreadId === undefined
+                ? {}
+                : { senderThreadId: initialMessage.senderThreadId }),
+              attachments: initialMessage.attachments,
+              ...(initialMessage.context ? { context: initialMessage.context } : {}),
+              ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
+            },
+          });
+        }
+        // The first message's run stays preparing until the workspace is ready, so every later
+        // message queues behind it here, in order, before preparation is scheduled below.
+        for (const [index, { commandId, message }] of launchMessages.entries()) {
+          if (index === 0) {
+            messageWasAlreadyAccepted = Option.isSome(yield* readReceipt(input, commandId));
+          }
           const dispatched = yield* threads
             .dispatch({
               type: "message.dispatch",
-              commandId: messageCommandId,
+              commandId,
               threadId,
-              messageId,
-              text: input.initialMessage.text,
-              ...(input.initialMessage.scheduledTaskId === undefined
-                ? {}
-                : { scheduledTaskId: input.initialMessage.scheduledTaskId }),
-              ...(input.initialMessage.senderThreadId === undefined
-                ? {}
-                : { senderThreadId: input.initialMessage.senderThreadId }),
-              attachments: input.initialMessage.attachments,
-              ...(input.initialMessage.context ? { context: input.initialMessage.context } : {}),
-              ...(input.generateTitle === true ? { titleSeed: input.title } : {}),
+              ...message,
               modelSelection: input.modelSelection,
-              dispatchMode: { type: "defer_start", workspaceStrategy },
+              dispatchMode:
+                index === 0
+                  ? { type: "defer_start", workspaceStrategy }
+                  : { type: "queue_after_active" },
               createdBy: input.createdBy,
               creationSource: input.creationSource,
             })
             .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)));
+          if (index > 0) continue;
           const runCreated = dispatched.storedEvents.find(
             (stored) => stored.event.type === "run.created",
           );

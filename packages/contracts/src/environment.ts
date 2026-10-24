@@ -90,6 +90,8 @@ export const ExecutionEnvironmentCapabilities = Schema.Struct({
   /** Server understands `createBranch: false` on worktree launches. Older servers drop the key
       and create a new branch anyway, so clients hide the toggle when this is absent. */
   existingBranchWorktree: Schema.optionalKey(Schema.Boolean),
+  /** Server sends a thread launch's `setupMessages` before its first prompt. */
+  threadLaunchSetupMessages: Schema.optionalKey(Schema.Boolean),
   threadSettlement: Schema.optionalKey(Schema.Boolean),
   threadAutoSettlement: Schema.optionalKey(Schema.Boolean),
   storageCleanup: Schema.optionalKey(Schema.Boolean),

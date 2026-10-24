@@ -8,6 +8,7 @@ import type {
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 import { matchComposerThreadItems } from "@t3tools/client-runtime/composerThreadItems";
+import { startsLeadingSlashCommandLine } from "@t3tools/client-runtime/operations";
 import type { EnvironmentThreadShell } from "@t3tools/client-runtime/state/models";
 
 const EMPTY_THREAD_SHELLS: ReadonlyArray<EnvironmentThreadShell> = [];
@@ -381,7 +382,10 @@ export function useComposerCommandMenu({
       const visibleSkills = getProviderSkillsForSlashMenu(skills, true);
       const commandItems = buildComposerSlashCommandItems({
         query: q,
-        atMessageStart: trigger.rangeStart === 0,
+        // A new task sends each leading command line as its own message.
+        atMessageStart:
+          trigger.rangeStart === 0 ||
+          (!hasThread && startsLeadingSlashCommandLine(draftMessage, trigger.rangeStart)),
         hasThread,
         hasCompactableConversation,
         offersUsageLimits,
