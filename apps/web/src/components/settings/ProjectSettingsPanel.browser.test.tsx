@@ -152,7 +152,7 @@ const environments = [primaryId, remoteId].map((environmentId) => ({
   serverConfig: {
     keybindings: DEFAULT_RESOLVED_KEYBINDINGS,
     settings: DEFAULT_SERVER_SETTINGS,
-    environment: { platform: { machine: "server" } },
+    environment: { platform: { machine: "server" }, capabilities: {} },
   },
 }));
 const session = (scopes: ReadonlyArray<AuthEnvironmentScope>): AuthSessionState => ({
@@ -600,7 +600,8 @@ describe("project checkouts", () => {
         id === remoteId && input.remote?.scopes
           ? input.remote.scopes
           : [AuthOrchestrationOperateScope, AuthSourceControlWriteScope];
-      await grant(id, AsyncResult.success(session(scopes)));
+      // Explicit permissions, since a legacy grant of orchestration:operate implies cloning.
+      await grant(id, AsyncResult.success({ ...session(scopes), permissions: scopes }));
     }
   }
 
