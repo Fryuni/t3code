@@ -63,6 +63,7 @@ import {
 import { useEnvironmentSessionState } from "../../state/session";
 import { useProjects } from "../../state/entities";
 import { useAtomCommand } from "../../state/use-atom-command";
+import { appAtomRegistry } from "~/rpc/atomRegistry";
 import { useRelativeTimeState } from "../../hooks/useRelativeTimeState";
 import {
   ConnectionStatusDot,
@@ -110,8 +111,14 @@ import {
   buildProviderInstanceUpdatePatch,
   durationToSeconds,
   normalizeIntervalSeconds,
+  isPendingProviderSyncCurrent,
+  type PendingProviderSync,
+  planProviderInstanceSync,
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
+  sendPendingProviderSync,
+  settlePendingProviderSync,
 } from "./SettingsPanels.logic";
+import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import {
   PolicyTooltip,
   SettingResetButton,
@@ -576,6 +583,19 @@ export function EnvironmentProviderSettings({
   const updateModelPreferences = useUpdateEnvironmentModelPreferences(environmentId);
   const toggleModelFavorite = useToggleEnvironmentModelFavorite(environmentId);
   const persistProviderInstance = usePersistEnvironmentProviderInstanceMutation(environmentId);
+  const mutateProviderInstance = useAtomCommand(serverEnvironment.mutateProviderInstance, {
+    reportFailure: false,
+  });
+  // Under "All environments" this page shows one environment, and provider
+  // edits also reach every other connected one.
+  const pendingSyncRef = useRef(new Map<string, PendingProviderSync>());
+  const settingsScope = useOptionalSettingsScope();
+  const syncEnvironments =
+    settingsScope?.scope.kind === "all"
+      ? settingsScope.connectedEnvironments.filter(
+          (environment) => environment.environmentId !== environmentId,
+        )
+      : [];
   const serverProviders = useAtomValue(providersIgnoringCheckedAtAtom(environmentId));
   // Older servers decode an unknown providerInstances key away, so sending
   // a project override patch would silently do nothing. Hide the switch
@@ -833,6 +853,99 @@ export function EnvironmentProviderSettings({
     }
   };
 
+  const syncInstance = async (
+    instanceId: ProviderInstanceId,
+    previous: ProviderInstanceConfig,
+    next: ProviderInstanceConfig,
+  ) => {
+    const pendingKey = (targetId: EnvironmentId) => JSON.stringify([targetId, instanceId]);
+    const latestSettings = (targetId: EnvironmentId) =>
+      appAtomRegistry.get(serverEnvironment.settingsValueAtom(targetId));
+    const planned = planProviderInstanceSync({
+      instanceId,
+      previous,
+      next,
+      targets: syncEnvironments.flatMap((environment) => {
+        const settings = latestSettings(environment.environmentId);
+        if (!settings) return [];
+        const key = pendingKey(environment.environmentId);
+        let pending = pendingSyncRef.current.get(key);
+        if (pending && isPendingProviderSyncCurrent(pending, instanceId, settings)) {
+          pendingSyncRef.current.delete(key);
+          pending = undefined;
+        }
+        return [
+          {
+            environmentId: environment.environmentId,
+            settings: pending
+              ? {
+                  ...settings,
+                  providerInstances: {
+                    ...settings.providerInstances,
+                    [instanceId]: pending.instance,
+                  },
+                }
+              : settings,
+          },
+        ];
+      }),
+    });
+    const writes = planned.filter(({ environmentId: targetId }) =>
+      readEnvironmentScope(targetId, AuthProvidersManageScope),
+    );
+    const results = await Promise.all(
+      writes.map(async ({ environmentId: targetId, instance, patch }) => {
+        const key = pendingKey(targetId);
+        pendingSyncRef.current.set(
+          key,
+          sendPendingProviderSync(pendingSyncRef.current.get(key), instance),
+        );
+        const result = await mutateProviderInstance({
+          environmentId: targetId,
+          input: {
+            // Without settings:write the text generation reset would fail the
+            // whole upsert, so it is skipped there, as on the source.
+            patch: readEnvironmentScope(targetId, AuthSettingsWriteScope) ? patch : {},
+            providerInstanceMutation: { operation: "upsert", instanceId, instance },
+          },
+        });
+        const settled = settlePendingProviderSync({
+          pending: pendingSyncRef.current.get(key)!,
+          instanceId,
+          sent: instance,
+          reply: result._tag === "Success" ? result.value : null,
+          latest: latestSettings(targetId),
+        });
+        if (settled) pendingSyncRef.current.set(key, settled);
+        else pendingSyncRef.current.delete(key);
+        return result;
+      }),
+    );
+    const labelOf = (targetId: EnvironmentId) =>
+      syncEnvironments.find((environment) => environment.environmentId === targetId)?.label ??
+      targetId;
+    const failed = writes.flatMap(({ environmentId: targetId }, index) => {
+      const result = results[index]!;
+      return result._tag === "Failure" && !isAtomCommandInterrupted(result)
+        ? [labelOf(targetId)]
+        : [];
+    });
+    const denied = planned
+      .filter((write) => !writes.includes(write))
+      .map(({ environmentId: targetId }) => labelOf(targetId));
+    if (failed.length === 0 && denied.length === 0) return;
+    toastManager.add({
+      type: "error",
+      title: "Provider not updated everywhere",
+      description: [
+        ...(failed.length > 0 ? [`Could not save on ${failed.join(", ")}.`] : []),
+        ...(denied.length > 0
+          ? [`This connection can't manage providers on ${denied.join(", ")}.`]
+          : []),
+      ].join("\n"),
+    });
+  };
+
   const updateInstance = useStableCallback(
     (
       instanceId: ProviderInstanceId,
@@ -849,6 +962,7 @@ export function EnvironmentProviderSettings({
         next,
         shouldClearTextGen ? DEFAULT_UNIFIED_SETTINGS.textGenerationModelSelection : undefined,
       );
+      void syncInstance(instanceId, previous, next);
     },
   );
 
@@ -1047,6 +1161,13 @@ export function EnvironmentProviderSettings({
             <SettingsRow
               title="Limited permissions"
               description={`This session can view ${environmentLabel}'s providers but can't change their settings.`}
+            />
+          </SettingsGroup>
+        ) : syncEnvironments.length > 0 ? (
+          <SettingsGroup divided={false} className="overflow-hidden">
+            <SettingsRow
+              title={`Showing ${environmentLabel}`}
+              description={`Changes to a provider's settings also apply to ${syncEnvironments.map((environment) => environment.label).join(", ")} wherever the same provider exists. Adding, removing, resetting, and setting up providers apply to ${environmentLabel} only.`}
             />
           </SettingsGroup>
         ) : null}
