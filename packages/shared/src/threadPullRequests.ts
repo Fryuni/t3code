@@ -1,17 +1,12 @@
 import type {
   OrchestrationV2AppThread,
-  RepositoryIdentity,
   ThreadLinkedPullRequest,
   ThreadPullRequestKey,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
 
-import { changeRequestLinkMatchesRepository, parseChangeRequestUrl } from "./changeRequestUrl.ts";
-import {
-  canonicalRepositoryKey,
-  normalizeSourceControlRepository,
-  sourceControlRepositorySelector,
-} from "./sourceControl.ts";
+import { parseChangeRequestUrl } from "./changeRequestUrl.ts";
+import { canonicalRepositoryKey, normalizeSourceControlRepository } from "./sourceControl.ts";
 
 type ThreadPullRequestKeySource = ThreadPullRequestKey & {
   readonly authority?: string;
@@ -191,31 +186,6 @@ export function resolveThreadCurrentPullRequestLink(
   const current = resolveThreadCurrentPullRequest(links);
   if (current === null) return null;
   return current.kind === "single" ? current.link : current.top;
-}
-
-export function legacyLinkedPullRequestOf(
-  links: ReadonlyArray<ThreadPullRequestLink>,
-  projectId: ThreadLinkedPullRequest["projectId"],
-  identity: RepositoryIdentity | null | undefined,
-): ThreadLinkedPullRequest | null {
-  if (!identity) return null;
-  const repository = sourceControlRepositorySelector(identity);
-  if (repository === null) return null;
-  // A link's URL says which instance it came from; the stored fields stand in when it does not
-  // parse, which is how links on hosts of unknown shape were recorded.
-  const link = resolveThreadCurrentPullRequestLink(
-    links.filter((link) =>
-      changeRequestLinkMatchesRepository(parseChangeRequestUrl(link.url) ?? link, identity),
-    ),
-  );
-  if (link === null) return null;
-  return {
-    projectId,
-    // Azure reads take the repository name alone; every other provider takes the path as linked.
-    repository: identity.provider === "azure-devops" ? repository : link.repository,
-    number: link.number,
-    url: link.url,
-  };
 }
 
 export interface ThreadPullRequestChain {

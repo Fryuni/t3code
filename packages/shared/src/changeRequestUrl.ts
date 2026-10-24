@@ -1,14 +1,5 @@
-import {
-  pullRequestHostOf,
-  type RepositoryIdentity,
-  SourceControlProviderKind,
-  type ThreadLinkedPullRequest,
-} from "@t3tools/contracts";
-import {
-  canonicalRepositoryKey,
-  normalizeSourceControlRepository,
-  sourceControlRepositorySelector,
-} from "./sourceControl.ts";
+import type { RepositoryIdentity, ThreadLinkedPullRequest } from "@t3tools/contracts";
+import { canonicalRepositoryKey, normalizeSourceControlRepository } from "./sourceControl.ts";
 
 /**
  * The two strings are what `pullRequestHostOf` and the project's `repositoryIdentity` produce
@@ -43,7 +34,8 @@ export function parseChangeRequestUrl(targetUrl: string): ChangeRequestLink | nu
   const host = url.hostname.toLowerCase();
 
   if (host === "git.cafe" || host === "staging.git.cafe") {
-    const match = /^\/([^/]+\/[^/]+)\/pulls\/(\d+)(?:\/|$)/u.exec(url.pathname);
+    // GitCafe serves pull requests at `/pull/<n>` and redirects the older `/pulls/<n>` there.
+    const match = /^\/([^/]+\/[^/]+)\/pulls?\/(\d+)(?:\/|$)/u.exec(url.pathname);
     if (match) return claim(host, match);
   } else {
     if (isHostOf(host, "github.com", "github")) {
@@ -206,71 +198,6 @@ function httpUrl(value: string | null | undefined): URL | null {
   } catch {
     return null;
   }
-}
-
-const trimSlashes = (path: string) => path.replace(/^\/+|\/+$/g, "");
-
-/**
- * Whether a link was read from the instance an identity's repository lives on: the same host,
- * and for Forgejo the same web port and mount path.
- *
- * A Forgejo link carries its web authority. An identity that knows its own — the resolved
- * `webUrl` first, else an HTTP remote — compares it, so two instances on one hostname stay
- * apart; the canonical key cannot say, since it drops the scheme and an SSH remote names a
- * clone host. One that only knows an SSH clone host compares hostnames: the port and mount are
- * the login's to resolve, and refusing every link would be worse than trusting the host. Links
- * from other providers carry no authority and their identities record no port, so hostnames
- * decide.
- */
-export function changeRequestLinkOnRepositoryInstance(
-  link: Pick<ChangeRequestLink, "host" | "repository" | "authority">,
-  identity: RepositoryIdentity | null | undefined,
-): boolean {
-  if (!identity) return false;
-  const kind = identity.provider as SourceControlProviderKind | undefined;
-  if (kind !== "forgejo" || link.authority === undefined) {
-    return (
-      pullRequestHostOf(identity, kind ?? SourceControlProviderKind.make("unknown")) ===
-      link.host.toLowerCase()
-    );
-  }
-  const web = httpUrl(identity.webUrl);
-  const known = web ?? httpUrl(identity.locator.remoteUrl);
-  if (known === null) return pullRequestHostOf(identity, kind) === link.host.toLowerCase();
-  if (known.host.toLowerCase() !== link.authority) return false;
-  // Both web and HTTP clone URLs end in owner/name. Everything above those segments is the
-  // instance's mount, including an empty root mount; a nested mount can be another instance.
-  const mount = trimSlashes(known.pathname).split("/").slice(0, -2).join("/");
-  return mount === trimSlashes(link.repository).split("/").slice(0, -2).join("/");
-}
-
-/**
- * Whether a link names the repository behind an identity. The identity's repository is its
- * `webUrl` path for Forgejo — the mount path lives there and not in an SSH remote — and its
- * `displayName` otherwise; Azure compares canonical keys because its SSH and web spellings
- * share no path. Both sides fold the way the provider folds.
- */
-export function changeRequestLinkMatchesRepository(
-  link: Pick<ChangeRequestLink, "host" | "repository" | "authority">,
-  identity: RepositoryIdentity | null | undefined,
-): boolean {
-  if (!identity) return false;
-  const kind = identity.provider as SourceControlProviderKind | undefined;
-  if (kind === "azure-devops") {
-    return (
-      canonicalRepositoryKey(identity.canonicalKey) ===
-      canonicalRepositoryKey(`${link.host}/${link.repository}`)
-    );
-  }
-  const web = kind === "forgejo" ? httpUrl(identity.webUrl) : null;
-  const repository =
-    web === null ? sourceControlRepositorySelector(identity) : trimSlashes(web.pathname);
-  return (
-    !!repository &&
-    changeRequestLinkOnRepositoryInstance(link, identity) &&
-    normalizeSourceControlRepository(repository, kind) ===
-      normalizeSourceControlRepository(link.repository, kind)
-  );
 }
 
 export function matchesLinkedPullRequestUrl(

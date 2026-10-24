@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
+- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -83,6 +83,13 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   update offer for outdated servers
   ([pingdotgg/t3code#21402](https://github.com/pingdotgg/t3code/pull/21402)) passes the
   descriptor's `releaseRepository` to that check too.
+- When a new release needs a newer service launcher, upstream's preflight tells the user
+  to reinstall that exact version
+  ([pingdotgg/t3code#23541](https://github.com/pingdotgg/t3code/pull/23541)). The command
+  comes from `cliInstallCommand`, which in a fork build runs the fork's `install.sh` with
+  `T3CODE_RELEASE_BASE_URL` set to the fork's releases, as
+  [Install the Fryuni fork](../user/install.md#install-the-fryuni-fork) does. Upstream's
+  `t3.codes/install.sh` cannot download a fork version.
 
 Builds without the define, including every build from source, behave exactly like
 upstream. The workflow publishes a linux-x64 build every four hours when `main` has
@@ -111,10 +118,10 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, now `0.1.0`, so
-  builds are `0.1.0-fork.*`. A `-fork.` suffix is a semver prerelease. These builds
-  sort above the earlier `0.0.45-fork.*` releases but below upstream's stable
-  `0.1.0`, while upstream labels newer code `0.1.1-nightly.*`. `cliReleaseChannelOf`
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.2` at
+  upstream `27e0c684c`, so builds are `0.1.2-fork.*`. A `-fork.` suffix is a semver
+  prerelease. These builds sort above earlier fork releases with a lower core but below
+  upstream's stable `0.1.2`, while upstream labels newer code `0.1.3-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an

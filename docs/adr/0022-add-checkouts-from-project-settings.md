@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
+- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
 
 The **Checkouts** section in a project's settings appeared only when the project
 already had more than one checkout. A project checked out on one machine gave no
@@ -68,7 +68,10 @@ so this decision stands, but web now uses that dialog instead of a flow of its o
 
 Upstream stopped exporting `resolveProjectGroupingMode` when it trimmed its tests
 ([pingdotgg/t3code#22557](https://github.com/pingdotgg/t3code/pull/22557)); the fork
-exports it again for the web visibility rule.
+exports it again for the web visibility rule. Upstream later restored its own
+`ProjectSettingsPanel` browser tests
+([pingdotgg/t3code#24011](https://github.com/pingdotgg/t3code/pull/24011)), and the fork's
+checkout tests now run in that file's harness.
 
 When updating from upstream, keep the section visible with a second connected
 machine, keep web on upstream's add-to-machine dialog and mobile on its existing

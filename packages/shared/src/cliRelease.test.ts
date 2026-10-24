@@ -32,6 +32,11 @@ describe("cliRelease", () => {
         expect(release.cliReleaseDownloadBaseUrl("1.0.0")).toBe(
           `https://github.com/${repository}/releases/download/v1.0.0`,
         );
+        expect(release.cliInstallCommand("1.0.0")).toBe(
+          fork === undefined
+            ? "curl -fsSL https://t3.codes/install.sh | T3CODE_VERSION=1.0.0 sh"
+            : `curl -fsSL https://raw.githubusercontent.com/${fork}/main/scripts/install.sh | T3CODE_VERSION=1.0.0 T3CODE_RELEASE_BASE_URL=https://github.com/${fork}/releases/download sh`,
+        );
       },
     );
   });

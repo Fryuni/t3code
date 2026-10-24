@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
+- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -60,6 +60,9 @@ Upstream later moved the web composer's send and selection logic out of `ChatVie
 holds the chosen branch in local mode
 ([pingdotgg/t3code#20825](https://github.com/pingdotgg/t3code/pull/20825)); with
 **Create new branch** off, branches held by another worktree stay disabled as before.
+Upstream then moved the mobile branch rows onto a shared `SelectionRow`
+([pingdotgg/t3code#23924](https://github.com/pingdotgg/t3code/pull/23924)), which
+receives that disabled rule.
 
 ## Continue on the current branch from the command palette
 

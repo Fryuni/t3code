@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `8d3b06112` (2026-10-22)
+- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -58,3 +58,9 @@ preserves the prefix and folds only owner/name: losing a case-sensitive mount is
 irreversible, while callers that know the provider can apply its complete rule.
 The cost is that URL-less references must already carry the correct prefix;
 normalization cannot reconstruct missing instance information.
+
+Upstream deleted `legacyLinkedPullRequestOf`, which nothing called
+([pingdotgg/t3code#24058](https://github.com/pingdotgg/t3code/pull/24058)). The fork's
+`changeRequestLinkMatchesRepository` and `changeRequestLinkOnRepositoryInstance` only
+applied this rule inside it, so the fork dropped them too when it synced onto upstream
+`27e0c684c`.
