@@ -23,6 +23,7 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerProvider,
+  type ServerSettings,
   resolveEnvironmentMachineKind,
   resolveProjectProviderInstanceEnabled,
   resolveProviderInstanceEnabled,
@@ -584,7 +585,14 @@ export function EnvironmentProviderSettings({
   // Under "All environments" this page shows one environment, and provider
   // edits also reach every other connected one.
   const pendingSyncRef = useRef(
-    new Map<string, { readonly instance: ProviderInstanceConfig; readonly inFlight: number }>(),
+    new Map<
+      string,
+      {
+        readonly instance: ProviderInstanceConfig;
+        readonly inFlight: number;
+        readonly seen: ServerSettings;
+      }
+    >(),
   );
   const settingsScope = useOptionalSettingsScope();
   const syncEnvironments =
@@ -856,6 +864,7 @@ export function EnvironmentProviderSettings({
     next: ProviderInstanceConfig,
   ) => {
     const pendingKey = (targetId: EnvironmentId) => JSON.stringify([targetId, instanceId]);
+    const seenSettings = new Map<EnvironmentId, ServerSettings>();
     const planned = planProviderInstanceSync({
       instanceId,
       previous,
@@ -863,7 +872,15 @@ export function EnvironmentProviderSettings({
       targets: syncEnvironments.flatMap((environment) => {
         if (!environment.serverConfig) return [];
         const { settings } = environment.serverConfig;
-        const pending = pendingSyncRef.current.get(pendingKey(environment.environmentId));
+        seenSettings.set(environment.environmentId, settings);
+        const key = pendingKey(environment.environmentId);
+        let pending = pendingSyncRef.current.get(key);
+        // Settled writes have reached this environment once its settings
+        // arrive anew; they come on a stream separate from the reply.
+        if (pending?.inFlight === 0 && pending.seen !== settings) {
+          pendingSyncRef.current.delete(key);
+          pending = undefined;
+        }
         return [
           {
             environmentId: environment.environmentId,
@@ -889,7 +906,11 @@ export function EnvironmentProviderSettings({
         // must build on what was sent, or it would undo that write there.
         const key = pendingKey(targetId);
         const pending = pendingSyncRef.current.get(key);
-        pendingSyncRef.current.set(key, { instance, inFlight: (pending?.inFlight ?? 0) + 1 });
+        pendingSyncRef.current.set(key, {
+          instance,
+          inFlight: (pending?.inFlight ?? 0) + 1,
+          seen: seenSettings.get(targetId)!,
+        });
         const result = await mutateProviderInstance({
           environmentId: targetId,
           input: {
@@ -899,11 +920,13 @@ export function EnvironmentProviderSettings({
             providerInstanceMutation: { operation: "upsert", instanceId, instance },
           },
         });
-        // The server publishes settings before it replies, so once nothing is
-        // in flight the environment's own settings are current again.
         const current = pendingSyncRef.current.get(key)!;
-        if (current.inFlight === 1) pendingSyncRef.current.delete(key);
-        else pendingSyncRef.current.set(key, { ...current, inFlight: current.inFlight - 1 });
+        // A failed write changed nothing there, so no settings will arrive.
+        if (current.inFlight === 1 && result._tag === "Failure") {
+          pendingSyncRef.current.delete(key);
+        } else {
+          pendingSyncRef.current.set(key, { ...current, inFlight: current.inFlight - 1 });
+        }
         return result;
       }),
     );
