@@ -1093,6 +1093,18 @@ const make = Effect.gen(function* () {
         for (const [index, { commandId, message }] of launchMessages.entries()) {
           if (index === 0) {
             messageWasAlreadyAccepted = Option.isSome(yield* readReceipt(input, commandId));
+          } else if (runId !== null && Option.isNone(yield* readReceipt(input, commandId))) {
+            // A replay after the first run failed would start this message in its place.
+            const first = yield* threads
+              .getThreadRecords(threadId, ["runs"], { runIds: [runId] })
+              .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)));
+            if (!first.runs.some((run) => run.id === runId && run.status === "preparing")) {
+              return yield* mapError(
+                input,
+                "dispatch-message",
+                threadId,
+              )("The launch's first message did not start, so the rest were not sent.");
+            }
           }
           const dispatched = yield* threads
             .dispatch({

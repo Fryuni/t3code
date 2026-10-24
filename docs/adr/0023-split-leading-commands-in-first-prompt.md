@@ -29,7 +29,14 @@ missing worktree already did. The first command never reached the provider, so
 the prompt must not run without it; **Retry** releases the hold. This also holds
 any follow-up a user queued during setup, which previously ran after a setup
 script failure. If a later launch message is rejected, the launch fails the
-first run instead of leaving it preparing with nothing scheduled.
+first run instead of leaving it preparing with nothing scheduled, and a replay
+of that launch sends nothing past it.
+
+The rule is that automatic progress never runs the rest of a launch without its
+first message. An explicit user action may: sending a new message releases held
+messages as it does after a Stop, and **Resume** after a server restart during
+preparation runs them without the cancelled first message. The failed or
+cancelled message stays visible, so that choice is the user's.
 
 Web and desktop split on the draft composer, including multiple-model starts.
 Mobile splits when its outbox delivers a **New task**. Setup message ids derive
