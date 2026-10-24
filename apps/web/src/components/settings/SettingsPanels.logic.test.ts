@@ -13,7 +13,10 @@ import {
   backgroundActivitySharedPolicySettings,
   getChangedBrowserSettingLabels,
   hasChangedBackgroundActivitySettings,
+  isPendingProviderSyncCurrent,
   planProviderInstanceSync,
+  sendPendingProviderSync,
+  settlePendingProviderSync,
 } from "./SettingsPanels.logic";
 
 describe("background activity settings restore", () => {
@@ -241,5 +244,84 @@ describe("planProviderInstanceSync", () => {
         },
       },
     ]);
+  });
+});
+
+describe("pending provider sync", () => {
+  const codex = ProviderDriverKind.make("codex");
+  const id = ProviderInstanceId.make("codex");
+  const settingsWith = (displayName?: string) => ({
+    providerInstances: {
+      [id]: displayName === undefined ? { driver: codex } : { driver: codex, displayName },
+    } as ServerSettings["providerInstances"],
+  });
+  const named = (displayName: string): ProviderInstanceConfig => ({ driver: codex, displayName });
+
+  it("stays the basis after the reply until the echo arrives", () => {
+    const before = settingsWith();
+    const sent = named("A");
+    const sending = sendPendingProviderSync(undefined, sent);
+    expect(isPendingProviderSyncCurrent(sending, id, before)).toBe(false);
+    const settled = settlePendingProviderSync({
+      pending: sending,
+      instanceId: id,
+      sent,
+      reply: settingsWith("A"),
+      latest: before,
+    })!;
+    expect(isPendingProviderSyncCurrent(settled, id, before)).toBe(false);
+    expect(isPendingProviderSyncCurrent(settled, id, settingsWith("A"))).toBe(true);
+  });
+
+  it("is current right away when the echo arrived before the reply", () => {
+    const echoed = settingsWith("A");
+    const sent = named("A");
+    const settled = settlePendingProviderSync({
+      pending: sendPendingProviderSync(undefined, sent),
+      instanceId: id,
+      sent,
+      reply: settingsWith("A"),
+      latest: echoed,
+    })!;
+    expect(isPendingProviderSyncCurrent(settled, id, echoed)).toBe(true);
+  });
+
+  it("keeps the second edit when the first echo lands before the second reply", () => {
+    const first = named("A");
+    const second = named("B");
+    let pending = sendPendingProviderSync(undefined, first);
+    pending = sendPendingProviderSync(pending, second);
+    const echoOfFirst = settingsWith("A");
+    pending = settlePendingProviderSync({
+      pending,
+      instanceId: id,
+      sent: first,
+      reply: echoOfFirst,
+      latest: echoOfFirst,
+    })!;
+    expect(pending.instance).toBe(second);
+    pending = settlePendingProviderSync({
+      pending,
+      instanceId: id,
+      sent: second,
+      reply: settingsWith("B"),
+      latest: echoOfFirst,
+    })!;
+    expect(pending.instance).toEqual(second);
+    expect(isPendingProviderSyncCurrent(pending, id, echoOfFirst)).toBe(false);
+    expect(isPendingProviderSyncCurrent(pending, id, settingsWith("B"))).toBe(true);
+  });
+
+  it("drops a failed last write, since nothing will be echoed", () => {
+    const sent = named("A");
+    expect(
+      settlePendingProviderSync({
+        pending: sendPendingProviderSync(undefined, sent),
+        instanceId: id,
+        sent,
+        reply: null,
+        latest: settingsWith(),
+      }),
+    ).toBeUndefined();
   });
 });

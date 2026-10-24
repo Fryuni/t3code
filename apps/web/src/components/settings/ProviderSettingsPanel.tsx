@@ -23,7 +23,6 @@ import {
   type ProviderInstanceConfig,
   type ProviderInstanceId,
   type ServerProvider,
-  type ServerSettings,
   resolveEnvironmentMachineKind,
   resolveProjectProviderInstanceEnabled,
   resolveProviderInstanceEnabled,
@@ -35,7 +34,6 @@ import {
 } from "@t3tools/shared/backgroundActivitySettings";
 import * as Arr from "effect/Array";
 import * as Duration from "effect/Duration";
-import * as Equal from "effect/Equal";
 import * as Result from "effect/Result";
 import { PlusIcon } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
@@ -113,8 +111,12 @@ import {
   buildProviderInstanceUpdatePatch,
   durationToSeconds,
   normalizeIntervalSeconds,
+  isPendingProviderSyncCurrent,
+  type PendingProviderSync,
   planProviderInstanceSync,
   PROVIDER_HEALTH_INTERVAL_STEP_SECONDS,
+  sendPendingProviderSync,
+  settlePendingProviderSync,
 } from "./SettingsPanels.logic";
 import { useOptionalSettingsScope } from "./SettingsScopeContext";
 import {
@@ -586,16 +588,7 @@ export function EnvironmentProviderSettings({
   });
   // Under "All environments" this page shows one environment, and provider
   // edits also reach every other connected one.
-  const pendingSyncRef = useRef(
-    new Map<
-      string,
-      {
-        readonly instance: ProviderInstanceConfig;
-        readonly inFlight: number;
-        readonly settledOn: ServerSettings | null;
-      }
-    >(),
-  );
+  const pendingSyncRef = useRef(new Map<string, PendingProviderSync>());
   const settingsScope = useOptionalSettingsScope();
   const syncEnvironments =
     settingsScope?.scope.kind === "all"
@@ -877,14 +870,7 @@ export function EnvironmentProviderSettings({
         if (!settings) return [];
         const key = pendingKey(environment.environmentId);
         let pending = pendingSyncRef.current.get(key);
-        // Settings arrive on a stream separate from the reply. A settled write
-        // is current once they show the server's copy, or once anything newer
-        // than the reply arrives.
-        if (
-          pending?.inFlight === 0 &&
-          (Equal.equals(settings.providerInstances[instanceId], pending.instance) ||
-            settings !== pending.settledOn)
-        ) {
+        if (pending && isPendingProviderSyncCurrent(pending, instanceId, settings)) {
           pendingSyncRef.current.delete(key);
           pending = undefined;
         }
@@ -909,15 +895,11 @@ export function EnvironmentProviderSettings({
     );
     const results = await Promise.all(
       writes.map(async ({ environmentId: targetId, instance, patch }) => {
-        // A remote may not have echoed an earlier write yet; the next edit
-        // must build on what was sent, or it would undo that write there.
         const key = pendingKey(targetId);
-        const pending = pendingSyncRef.current.get(key);
-        pendingSyncRef.current.set(key, {
-          instance,
-          inFlight: (pending?.inFlight ?? 0) + 1,
-          settledOn: null,
-        });
+        pendingSyncRef.current.set(
+          key,
+          sendPendingProviderSync(pendingSyncRef.current.get(key), instance),
+        );
         const result = await mutateProviderInstance({
           environmentId: targetId,
           input: {
@@ -927,23 +909,15 @@ export function EnvironmentProviderSettings({
             providerInstanceMutation: { operation: "upsert", instanceId, instance },
           },
         });
-        const current = pendingSyncRef.current.get(key)!;
-        const inFlight = current.inFlight - 1;
-        if (inFlight === 0 && result._tag === "Failure") {
-          // A failed write changed nothing there, so no settings will arrive.
-          pendingSyncRef.current.delete(key);
-        } else {
-          pendingSyncRef.current.set(key, {
-            // The reply is the server's copy, redacted as the stream sends it,
-            // unless a later write has replaced what this one sent.
-            instance:
-              result._tag === "Success" && current.instance === instance
-                ? (result.value.providerInstances[instanceId] ?? instance)
-                : current.instance,
-            inFlight,
-            settledOn: latestSettings(targetId),
-          });
-        }
+        const settled = settlePendingProviderSync({
+          pending: pendingSyncRef.current.get(key)!,
+          instanceId,
+          sent: instance,
+          reply: result._tag === "Success" ? result.value : null,
+          latest: latestSettings(targetId),
+        });
+        if (settled) pendingSyncRef.current.set(key, settled);
+        else pendingSyncRef.current.delete(key);
         return result;
       }),
     );

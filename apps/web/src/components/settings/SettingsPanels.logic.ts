@@ -334,6 +334,70 @@ export function planProviderInstanceSync(input: {
   });
 }
 
+type ProviderInstances = Pick<ServerSettings, "providerInstances">;
+
+/**
+ * What was last sent to one environment for one instance. A remote may not
+ * have echoed an earlier write yet, and the next edit must build on what was
+ * sent, or it would undo that write there.
+ */
+export interface PendingProviderSync {
+  readonly instance: ProviderInstanceConfig;
+  readonly inFlight: number;
+  /** The environment's settings when the last reply arrived; null while in flight. */
+  readonly settledOn: ProviderInstances | null;
+}
+
+export function sendPendingProviderSync(
+  pending: PendingProviderSync | undefined,
+  instance: ProviderInstanceConfig,
+): PendingProviderSync {
+  return { instance, inFlight: (pending?.inFlight ?? 0) + 1, settledOn: null };
+}
+
+/**
+ * `reply` is the server's settings, or null when the write failed. The reply
+ * is redacted as the settings stream sends it, so it replaces what was sent
+ * unless a later write already has. A failed last write changed nothing there,
+ * so nothing will be echoed.
+ */
+export function settlePendingProviderSync(input: {
+  readonly pending: PendingProviderSync;
+  readonly instanceId: ProviderInstanceId;
+  readonly sent: ProviderInstanceConfig;
+  readonly reply: ProviderInstances | null;
+  readonly latest: ProviderInstances | null;
+}): PendingProviderSync | undefined {
+  const { pending, instanceId, sent, reply, latest } = input;
+  const inFlight = pending.inFlight - 1;
+  if (inFlight === 0 && reply === null) return undefined;
+  return {
+    instance:
+      reply !== null && pending.instance === sent
+        ? (reply.providerInstances[instanceId] ?? sent)
+        : pending.instance,
+    inFlight,
+    settledOn: latest,
+  };
+}
+
+/**
+ * Settings arrive on a stream separate from the reply. A settled write is
+ * current once they show the server's copy, or once anything newer than the
+ * reply arrives.
+ */
+export function isPendingProviderSyncCurrent(
+  pending: PendingProviderSync,
+  instanceId: ProviderInstanceId,
+  settings: ProviderInstances,
+): boolean {
+  return (
+    pending.inFlight === 0 &&
+    (Equal.equals(settings.providerInstances[instanceId], pending.instance) ||
+      settings !== pending.settledOn)
+  );
+}
+
 export const PROVIDER_HEALTH_INTERVAL_STEP_SECONDS = 30;
 
 type BackgroundActivityOverridePatch = Partial<{
