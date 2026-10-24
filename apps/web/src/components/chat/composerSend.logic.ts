@@ -59,6 +59,34 @@ export function multipleModelSendBlock(input: {
   return null;
 }
 
+// A command name has no further slash, so a first line like `/src/app.ts is broken` stays prose.
+const LEADING_SLASH_COMMAND_PATTERN = /^\/[^\s/]+(?:\s|$)/;
+
+/**
+ * A new thread's first prompt split into its leading slash-command lines and the prompt after
+ * them, so session-setup commands reach the agent as their own messages first. Blank lines
+ * between commands are skipped. Text of only commands keeps the last one as the prompt.
+ */
+export function splitLeadingSlashCommands(text: string): {
+  readonly commands: ReadonlyArray<string>;
+  readonly prompt: string;
+} {
+  const lines = text.split("\n");
+  const commands: string[] = [];
+  let index = 0;
+  for (; index < lines.length; index++) {
+    const line = lines[index]!.trim();
+    if (line === "") continue;
+    if (!LEADING_SLASH_COMMAND_PATTERN.test(line)) break;
+    commands.push(line);
+  }
+  const prompt = lines.slice(index).join("\n").trim();
+  if (prompt === "" && commands.length > 0) {
+    return { commands: commands.slice(0, -1), prompt: commands.at(-1)! };
+  }
+  return { commands, prompt };
+}
+
 /** Why a message sent over pending approvals did not go out, or null to stop quietly. */
 export function approvalRedirectNotice(input: {
   readonly draftChanged: boolean;

@@ -8,6 +8,7 @@ import {
   loadBalancingSendWarning,
   multipleModelSendBlock,
   referencedThreadContexts,
+  splitLeadingSlashCommands,
 } from "./composerSend.logic";
 
 const local = EnvironmentId.make("local");
@@ -121,5 +122,29 @@ describe("approvalRedirectNotice", () => {
   it("stays quiet when the decline failed or the user left the thread", () => {
     expect(approvalRedirectNotice({ ...settled, declined: false })).toBeNull();
     expect(approvalRedirectNotice(settled)).toBeNull();
+  });
+});
+
+describe("splitLeadingSlashCommands", () => {
+  it("splits leading command lines from the prompt after them", () => {
+    expect(
+      splitLeadingSlashCommands("/caveman lite\n\n /model opus\nFix the bug\n/not a command"),
+    ).toEqual({
+      commands: ["/caveman lite", "/model opus"],
+      prompt: "Fix the bug\n/not a command",
+    });
+  });
+
+  it("keeps the last command as the prompt when nothing follows", () => {
+    expect(splitLeadingSlashCommands("/one\n/two")).toEqual({ commands: ["/one"], prompt: "/two" });
+    expect(splitLeadingSlashCommands("/review 12")).toEqual({ commands: [], prompt: "/review 12" });
+  });
+
+  it("leaves paths and prose that start with a slash alone", () => {
+    expect(splitLeadingSlashCommands("/src/app.ts is broken\nfix it")).toEqual({
+      commands: [],
+      prompt: "/src/app.ts is broken\nfix it",
+    });
+    expect(splitLeadingSlashCommands("// note\nfix it").commands).toEqual([]);
   });
 });

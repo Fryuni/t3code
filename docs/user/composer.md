@@ -237,6 +237,12 @@ and your next message starts the agent again with the new setup.
 Provider commands must start the message to run. T3 Code commands such as
 `/model` and `/plan`, and skill mentions, work on any line.
 
+To set up a session before the agent reads your prompt, put one provider command
+per line at the top of a new thread's first message on web or desktop. Each
+command is sent as its own message, in order, after the worktree is ready, and
+the rest of the message is sent last. A thread started this way keeps a title
+taken from your prompt instead of a generated one.
+
 Send `/compact` in an existing conversation to reduce context usage when the
 provider supports it. Web and desktop also offer compaction from the context meter.
 

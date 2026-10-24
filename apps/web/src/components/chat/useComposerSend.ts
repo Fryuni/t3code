@@ -93,6 +93,7 @@ import {
   loadBalancingSendWarning,
   multipleModelSendBlock,
   referencedThreadContexts,
+  splitLeadingSlashCommands,
 } from "./composerSend.logic";
 import { usePlanFollowUpSend } from "./useProposedPlanSend";
 import { useMultipleModelSend } from "./useMultipleModelSend";
@@ -820,14 +821,28 @@ export function useComposerSend(input: ComposerSendInput) {
     const outgoingMessageContext = buildOutgoingMessageContext(
       composerAttachmentsSnapshot.map((attachment) => attachment.id),
     );
+    // A new thread's leading slash commands each go out as their own message before the
+    // prompt: the first creates the thread, the rest queue behind it in order.
+    const firstPromptSplit =
+      isLocalDraftThread && multipleModelSelections === null
+        ? splitLeadingSlashCommands(messageTextForSend)
+        : { commands: [], prompt: messageTextForSend };
+    const promptTextForSend = firstPromptSplit.prompt;
+    // Distinct timestamps keep the messages in send order wherever they sort by time.
+    const sendStartedAt = Date.now();
+    const leadingCommandMessages = firstPromptSplit.commands.map((text, index) => ({
+      messageId: newMessageId(),
+      text,
+      createdAt: new Date(sendStartedAt + index).toISOString(),
+    }));
     const messageIdForSend = newMessageId();
-    const messageCreatedAt = new Date().toISOString();
+    const messageCreatedAt = new Date(sendStartedAt + leadingCommandMessages.length).toISOString();
     const outgoingMessageText = formatOutgoingPrompt({
       provider: ctxSelectedProvider,
       model: ctxSelectedModel,
       models: ctxSelectedProviderModels,
       effort: ctxSelectedPromptEffort,
-      text: messageTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
+      text: promptTextForSend || ATTACHMENT_ONLY_BOOTSTRAP_PROMPT,
     });
     if (composerRef.current?.validateProviderInput(outgoingMessageText) === false) {
       return;
@@ -1110,14 +1125,25 @@ export function useComposerSend(input: ComposerSendInput) {
       return;
     }
     const optimisticAttachments = optimisticMessageAttachments(composerAttachmentsSnapshot);
+    const promptQueued = shouldQueueBehindActiveRun || leadingCommandMessages.length > 0;
     if (!shouldQueueBehindActiveRun) {
       anchorNewTurn(
         scopedThreadKey(scopeThreadRef(activeThread.environmentId, threadIdForSend)),
-        messageIdForSend,
+        leadingCommandMessages[0]?.messageId ?? messageIdForSend,
       );
     }
     setOptimisticUserMessages((existing) => [
       ...existing,
+      ...leadingCommandMessages.map((command, index) => ({
+        id: command.messageId,
+        role: "user" as const,
+        text: command.text,
+        runId: null,
+        createdAt: command.createdAt,
+        updatedAt: command.createdAt,
+        streaming: false,
+        ...(index > 0 ? { inputIntent: "queued_turn" as const } : {}),
+      })),
       {
         id: messageIdForSend,
         role: "user",
@@ -1128,7 +1154,7 @@ export function useComposerSend(input: ComposerSendInput) {
         createdAt: messageCreatedAt,
         updatedAt: messageCreatedAt,
         streaming: false,
-        ...(shouldQueueBehindActiveRun
+        ...(promptQueued
           ? { inputIntent: "queued_turn" as const }
           : phase === "running" && dispatchMode === "steer"
             ? { inputIntent: "steer" as const }
@@ -1159,7 +1185,7 @@ export function useComposerSend(input: ComposerSendInput) {
     composerRef.current?.resetCursorState();
 
     const title = deriveThreadTitleSeed({
-      text: messageTextForSend,
+      text: promptTextForSend,
       attachments: composerAttachmentsSnapshot,
       fallbackLabels: sendTitleFallbackLabels(sendSnapshot),
     });
@@ -1251,33 +1277,45 @@ export function useComposerSend(input: ComposerSendInput) {
           ? scopeThreadRef(environmentId, threadIdForSend)
           : null;
       if (backgroundThreadRef) beginBackgroundDraftSubmissionByRef(backgroundThreadRef);
+      const promptMessage = {
+        messageId: messageIdForSend,
+        role: "user" as const,
+        attachments: turnAttachmentsResult.value,
+        ...withMessageContext({
+          text: outgoingMessageText,
+          context: buildOutgoingMessageContext(
+            boundAttachmentIds(turnAttachmentsResult.value, composerAttachmentsSnapshot),
+          ),
+          // Read at dispatch time: the upload and persistence awaits above can
+          // span a server reconnect that changes it.
+          supportsInlineMessageContext:
+            appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
+              .capabilities.inlineMessageContext === true,
+        }),
+      };
+      const [firstCommand, ...queuedCommands] = leadingCommandMessages;
       const startPromise = startThreadTurn({
         environmentId,
         input: {
           threadId: threadIdForSend,
-          message: {
-            messageId: messageIdForSend,
-            role: "user",
-            attachments: turnAttachmentsResult.value,
-            ...withMessageContext({
-              text: outgoingMessageText,
-              context: buildOutgoingMessageContext(
-                boundAttachmentIds(turnAttachmentsResult.value, composerAttachmentsSnapshot),
-              ),
-              // Read at dispatch time: the upload and persistence awaits above can
-              // span a server reconnect that changes it.
-              supportsInlineMessageContext:
-                appAtomRegistry.get(environmentServerConfigsAtom).get(environmentId)?.environment
-                  .capabilities.inlineMessageContext === true,
-            }),
-          },
+          // A leading command takes the bootstrap without a title seed, so the server's
+          // generated title is not drawn from a slash command; the created title is the prompt's.
+          ...(firstCommand
+            ? {
+                message: {
+                  messageId: firstCommand.messageId,
+                  role: "user" as const,
+                  text: firstCommand.text,
+                  attachments: [],
+                },
+                createdAt: firstCommand.createdAt,
+              }
+            : { message: promptMessage, titleSeed: title, createdAt: messageCreatedAt }),
           modelSelection: ctxSelectedModelSelection,
-          titleSeed: title,
           runtimeMode,
           interactionMode: sendInteractionMode,
           dispatchMode: turnDispatchMode,
           ...(bootstrap ? { bootstrap } : {}),
-          createdAt: messageCreatedAt,
         },
       });
       if (backgroundThreadRef) {
@@ -1347,6 +1385,57 @@ export function useComposerSend(input: ComposerSendInput) {
           currentRouteThreadKeyRef.current === routeThreadKey
         ) {
           handleNewThreadInActiveProject();
+        }
+      }
+      if (turnStartSucceeded && firstCommand) {
+        const followUps = [
+          ...queuedCommands.map((command) => ({
+            composerText: command.text,
+            message: {
+              messageId: command.messageId,
+              role: "user" as const,
+              text: command.text,
+              attachments: [],
+            },
+            createdAt: command.createdAt,
+          })),
+          { composerText: promptTextForSend, message: promptMessage, createdAt: messageCreatedAt },
+        ];
+        for (const [index, followUp] of followUps.entries()) {
+          const result = await startThreadTurn({
+            environmentId,
+            input: {
+              threadId: threadIdForSend,
+              message: followUp.message,
+              modelSelection: ctxSelectedModelSelection,
+              runtimeMode,
+              interactionMode: sendInteractionMode,
+              dispatchMode: "queue",
+              createdAt: followUp.createdAt,
+            },
+          });
+          if (result._tag === "Success") continue;
+          // The thread exists now, so what did not go out returns to its composer, not the draft.
+          const unsent = followUps.slice(index);
+          const unsentIds = new Set(unsent.map((entry) => entry.message.messageId));
+          setOptimisticUserMessages((existing) => {
+            for (const message of existing) {
+              if (unsentIds.has(message.id)) revokeUserMessagePreviewUrls(message);
+            }
+            return existing.filter((message) => !unsentIds.has(message.id));
+          });
+          restoreComposerDraft(scopeThreadRef(environmentId, threadIdForSend), {
+            ...sendSnapshot,
+            messageText: unsent.map((entry) => entry.composerText).join("\n"),
+          });
+          if (!isAtomCommandInterrupted(result)) {
+            const error = squashAtomCommandFailure(result);
+            setThreadError(
+              threadIdForSend,
+              error instanceof Error ? error.message : "Failed to send message.",
+            );
+          }
+          break;
         }
       }
     }
