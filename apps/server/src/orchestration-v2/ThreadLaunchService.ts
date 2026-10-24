@@ -1108,7 +1108,14 @@ const make = Effect.gen(function* () {
               createdBy: input.createdBy,
               creationSource: input.creationSource,
             })
-            .pipe(Effect.mapError(mapError(input, "dispatch-message", threadId)));
+            .pipe(
+              Effect.mapError(mapError(input, "dispatch-message", threadId)),
+              // Preparation is not scheduled once a later message fails, so the first run
+              // fails visibly instead of waiting in preparing forever.
+              Effect.tapError((error) =>
+                index === 0 ? Effect.void : failPreparedRun(input, threadId, runId, error),
+              ),
+            );
           if (index > 0) continue;
           const runCreated = dispatched.storedEvents.find(
             (stored) => stored.event.type === "run.created",

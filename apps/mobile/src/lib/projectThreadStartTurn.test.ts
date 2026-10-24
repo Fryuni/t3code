@@ -5,6 +5,7 @@ import { serializeComposerMessageForServer } from "./composerContext";
 
 import {
   buildProjectThreadStartTurnInput,
+  resolveLaunchResend,
   type ProjectThreadStartTurnSpec,
 } from "./projectThreadStartTurn";
 
@@ -115,4 +116,40 @@ describe("new worktree branch choice", () => {
       expect(input.bootstrap.createThread.branch).toBe("feature/existing");
     },
   );
+});
+
+describe("resolveLaunchResend", () => {
+  const message = (id: string, text: string) => ({ id, role: "user", text, attachments: [] });
+
+  it("follows run order and leaves follow-ups queued after the prompt behind", () => {
+    const resend = resolveLaunchResend({
+      runs: [
+        { ordinal: 4, userMessageId: "m4" },
+        { ordinal: 2, userMessageId: "m:setup:1" },
+        { ordinal: 1, userMessageId: "m:setup:0" },
+        { ordinal: 3, userMessageId: "m" },
+      ],
+      // Equal timestamps sort queued messages by id, which puts the prompt between commands.
+      messages: [
+        message("m:setup:0", "/one"),
+        message("m", "Fix bug"),
+        message("m:setup:1", "/two on"),
+        message("m4", "Also add tests"),
+      ],
+    });
+    expect(resend?.setupCommands).toEqual(["/one", "/two on"]);
+    expect(resend?.prompt.text).toBe("Fix bug");
+  });
+
+  it("keeps the last command as the prompt of a commands-only launch", () => {
+    const resend = resolveLaunchResend({
+      runs: [
+        { ordinal: 1, userMessageId: "a" },
+        { ordinal: 2, userMessageId: "b" },
+      ],
+      messages: [message("a", "/one"), message("b", "/two")],
+    });
+    expect(resend?.setupCommands).toEqual(["/one"]);
+    expect(resend?.prompt.text).toBe("/two");
+  });
 });

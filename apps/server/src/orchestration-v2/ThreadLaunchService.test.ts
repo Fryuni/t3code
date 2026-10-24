@@ -586,6 +586,36 @@ it.effect("queues setup messages and then the prompt behind the preparing first 
   }).pipe(Effect.provide(harness.layer));
 });
 
+it.effect("holds the launch's queued messages when workspace preparation fails", () => {
+  const harness = makeHarness({ runSetup: () => Effect.die("setup script failed") });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch({
+      ...launchInput({
+        command: "command:launch:setup-fails",
+        thread: "thread:launch:setup-fails",
+        message: "Fix the bug",
+        workspace: { type: "worktree", baseRef: "main" },
+      }),
+      setupMessages: [{ messageId: MessageId.make("message:setup-fails:one"), text: "/one" }],
+    });
+    const held = yield* threads.streamStoredEventsFrom({ threadId: launched.threadId }).pipe(
+      Stream.filter(
+        (stored) => stored.event.type === "run.updated" && stored.event.payload.queueHeld === true,
+      ),
+      Stream.runHead,
+    );
+    assert.isTrue(Option.isSome(held));
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    const prompt = projection.runs.find(
+      (run) => run.userMessageId === MessageId.make("Fix the bug:id"),
+    );
+    assert.equal(prompt?.status, "queued");
+    assert.isTrue(prompt?.queueHeld);
+  }).pipe(Effect.provide(harness.layer));
+});
+
 it.effect("provisions independent launches concurrently instead of behind a global semaphore", () =>
   Effect.gen(function* () {
     const setupCount = yield* Ref.make(0);

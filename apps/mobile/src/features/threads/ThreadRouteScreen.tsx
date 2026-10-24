@@ -1,8 +1,10 @@
 import * as Dialog from "../../components/ui/Dialog";
 import { useOpenPullRequest } from "../../native/useOpenPullRequest";
 import { makeTurnCommandMetadata } from "../../lib/commandMetadata";
-import { buildProjectThreadStartTurnInput } from "../../lib/projectThreadStartTurn";
-import { isSetupCommandLine } from "@t3tools/client-runtime/operations";
+import {
+  buildProjectThreadStartTurnInput,
+  resolveLaunchResend,
+} from "../../lib/projectThreadStartTurn";
 import { useWorktreeSetup } from "./use-worktree-setup";
 import { worktreeSetupAgentStarted } from "@t3tools/client-runtime/worktree-setup";
 import { AppBar } from "../../components/ui/AppBar";
@@ -805,19 +807,9 @@ function ThreadRouteContent(
   };
   const startLocalThread = useAtomCommand(threadEnvironment.startTurn, "work locally");
   const localResendBusy = useRef(false);
-  const userMessages =
-    selectedThreadDetail?.messages.filter((message) => message.role === "user") ?? [];
-  // A launch's setup commands precede its prompt as text-only messages; resend them with it.
-  const leadingSetupMessages = userMessages.slice(0, -1);
-  const resendsSetupCommands =
-    leadingSetupMessages.length > 0 &&
-    leadingSetupMessages.every(
-      (message) =>
-        message.attachments.length === 0 &&
-        message.context === undefined &&
-        isSetupCommandLine(message.text.trim()),
-    );
-  const setupMessage = resendsSetupCommands ? userMessages.at(-1) : userMessages[0];
+  const launchResend =
+    selectedThreadDetail === null ? null : resolveLaunchResend(selectedThreadDetail);
+  const setupMessage = launchResend?.prompt;
   const handleWorkLocally = async () => {
     if (!selectedThread || !selectedThreadProject || !setupMessage || localResendBusy.current)
       return;
@@ -841,9 +833,7 @@ function ThreadRouteContent(
         projectCwd: selectedThreadProject.workspaceRoot,
         text: setupMessage.text,
         titleText: selectedThread.title,
-        ...(resendsSetupCommands
-          ? { setupCommands: leadingSetupMessages.map((message) => message.text.trim()) }
-          : {}),
+        setupCommands: launchResend?.setupCommands ?? [],
         ...(setupMessage.context ? { context: setupMessage.context } : {}),
         uploadedAttachments: setupMessage.attachments,
         modelSelection: selectedThread.modelSelection,

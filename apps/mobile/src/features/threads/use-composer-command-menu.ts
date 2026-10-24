@@ -180,6 +180,7 @@ export function useComposerCommandMenu({
   threadPullRequests,
   selectedProviderStatus,
   hasThread,
+  splitsSetupCommands,
   hasCompactableConversation,
   offersUsageLimits = false,
   enabled = true,
@@ -198,6 +199,8 @@ export function useComposerCommandMenu({
   readonly threadPullRequests?: ReadonlyArray<ThreadPullRequestLink>;
   readonly selectedProviderStatus: ServerProvider | null;
   readonly hasThread: boolean;
+  /** A new task whose server sends each leading command line as its own message. */
+  readonly splitsSetupCommands?: boolean;
   readonly hasCompactableConversation: boolean;
   readonly offersUsageLimits?: boolean;
   readonly enabled?: boolean;
@@ -382,10 +385,10 @@ export function useComposerCommandMenu({
       const visibleSkills = getProviderSkillsForSlashMenu(skills, true);
       const commandItems = buildComposerSlashCommandItems({
         query: q,
-        // A new task sends each leading command line as its own message.
         atMessageStart:
           trigger.rangeStart === 0 ||
-          (!hasThread && startsLeadingSlashCommandLine(draftMessage, trigger.rangeStart)),
+          (splitsSetupCommands === true &&
+            startsLeadingSlashCommandLine(draftMessage, trigger.rangeStart)),
         hasThread,
         hasCompactableConversation,
         offersUsageLimits,

@@ -571,6 +571,9 @@ export const ThreadComposer = function ThreadComposer(props: ThreadComposerProps
     threadPullRequests: props.selectedThread.pullRequests,
     selectedProviderStatus,
     hasThread: !props.isDraft,
+    splitsSetupCommands:
+      props.isDraft &&
+      props.serverConfig?.environment.capabilities.threadLaunchSetupMessages === true,
     hasCompactableConversation: props.hasCompactableConversation,
     onChangeDraftMessage: props.onChangeDraftMessage,
     onUpdateInteractionMode:

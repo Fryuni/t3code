@@ -374,6 +374,8 @@ export interface ChatComposerProps {
   canOperateThread: boolean;
   attachmentUploadsCapabilityKnown: boolean;
   supportsAttachmentUploads: boolean;
+  /** The server sends a new thread's leading command lines as separate messages. */
+  supportsSetupCommands: boolean;
   supportsQuestionAttachments: boolean;
   maxFileAttachmentBytes: number | null;
   routeKind: "server" | "draft";
@@ -543,6 +545,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     canOperateThread,
     attachmentUploadsCapabilityKnown,
     supportsAttachmentUploads,
+    supportsSetupCommands,
     supportsQuestionAttachments,
     maxFileAttachmentBytes,
     routeKind,
@@ -1216,6 +1219,7 @@ export const ChatComposer = memo(function ChatComposer(props: ChatComposerProps)
     showSkillsInSlashMenu: settings.showSkillsInSlashMenu,
     triggerStartsLeadingCommandLine:
       routeKind === "draft" &&
+      supportsSetupCommands &&
       composerTrigger?.kind === "slash-command" &&
       startsLeadingSlashCommandLine(prompt, composerTrigger.rangeStart),
   });

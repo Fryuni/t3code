@@ -1451,14 +1451,20 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
       // A message queued behind a worktree that was cancelled or never created
       // would run in the project checkout instead, so it waits for the user.
       const failedRun = latestExecutedRun(projection.runs);
-      const failureClass =
+      const rootFailure =
         failedRun?.id === options?.failedRunId
-          ? latestRootProviderFailure(failedRun, projection.turnItems)?.class
-          : undefined;
+          ? latestRootProviderFailure(failedRun, projection.turnItems)
+          : null;
+      const failureClass = rootFailure?.class;
       const worktreeMissing =
         failedRun?.id === options?.endedRunId &&
         failedRun?.workspacePreparation?.type === "worktree" &&
         projection.thread.worktreePath === null;
+      // A run whose workspace preparation failed never reached the provider. The messages
+      // behind it, such as a launch's setup commands and prompt, wait for a retry instead
+      // of running without it.
+      const preparationFailed =
+        rootFailure?.code === ORCHESTRATION_V2_WORKSPACE_PREPARATION_FAILURE_CODE;
       const settings = yield* serverSettings.getSettings.pipe(Effect.orDie);
       const projectOverride =
         settings.projectSettingsOverrides[projection.thread.projectId]?.providerInstances?.[
@@ -1476,6 +1482,7 @@ const makeOrchestrator = Effect.fn("orchestrationV2.Orchestrator.layer")(functio
           : machineInstance !== undefined && !resolveProviderInstanceEnabled(machineInstance);
       if (
         worktreeMissing ||
+        preparationFailed ||
         instanceDisabledForProject ||
         (failureClass !== undefined &&
           failureClass !== "validation_error" &&

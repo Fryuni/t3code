@@ -24,6 +24,13 @@ preparing then, so the queue order is the send order. Sending them one RPC at a
 time from the client could not promise that: a message arriving after one run
 ended but before the queue promoted the next would start ahead of it.
 
+A failed workspace preparation now holds the messages queued behind it, as a
+missing worktree already did. The first command never reached the provider, so
+the prompt must not run without it; **Retry** releases the hold. This also holds
+any follow-up a user queued during setup, which previously ran after a setup
+script failure. If a later launch message is rejected, the launch fails the
+first run instead of leaving it preparing with nothing scheduled.
+
 Web and desktop split on the draft composer, including multiple-model starts.
 Mobile splits when its outbox delivers a **New task** and resends the commands
 with the prompt when the user chooses **Work locally**. Both offer provider
@@ -36,6 +43,6 @@ No setup message carries a title seed, and the prompt is no longer the first
 message, so the server generates no title. The thread keeps the title derived
 from the prompt.
 
-When updating from upstream, preserve the launch-time dispatch order and the
-capability gate. Remove this if upstream adds an equivalent way to run setup
+When updating from upstream, preserve the launch-time dispatch order, the
+preparation-failure queue hold, and the capability gate. Remove this if upstream adds an equivalent way to run setup
 commands before a first prompt.
