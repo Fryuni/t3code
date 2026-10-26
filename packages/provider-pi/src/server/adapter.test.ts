@@ -465,6 +465,7 @@ const OMP_CONFIG_VALUES: Record<string, unknown> = {
     Unleveled: { modelRoles: { default: "openai/gpt" } },
   },
   modelRoles: { default: "openai/gpt", designer: "openai/gpt-mini" },
+  defaultThinkingLevel: "low",
 };
 
 /** Answers `omp config get <key> --json` and hands every other spawn to the fake Pi. */
@@ -1959,10 +1960,11 @@ describe("PiAdapterV2", () => {
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
-  it.effect("returns a preset without a thinking level to the session's configured level", () =>
+  it.effect("returns a preset without a thinking level to omp's configured level", () =>
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
-      fake.queueState({ thinkingLevel: "medium" });
+      // A resumed transcript's level must not stand in for omp's configured default.
+      fake.queueState({ thinkingLevel: "high" });
       const { runtime, takeEvent } = yield* openOmpRuntime(fake, "preset:Anthropic");
       const providerThread = yield* runtime.ensureThread({
         threadId: THREAD_ID,
@@ -1977,7 +1979,7 @@ describe("PiAdapterV2", () => {
       yield* takeEvent((event) => event.type === "turn.terminal");
 
       yield* startTurn(runtime, providerThread, "preset:Unleveled", [], "Hello pi", undefined, 2);
-      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "medium");
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "low");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

@@ -300,8 +300,12 @@ export const readOmpModelPresets = (input: OmpConfigReadInput) =>
 export const resolveOmpPreset = Effect.fn("PiPresets.resolveOmpPreset")(function* (
   input: OmpConfigReadInput & { readonly name: string },
 ) {
-  const [presets, roles] = yield* Effect.all(
-    [readOmpModelPresets(input), readOmpConfigValue({ ...input, key: "modelRoles" })],
+  const [presets, roles, configuredThinking] = yield* Effect.all(
+    [
+      readOmpModelPresets(input),
+      readOmpConfigValue({ ...input, key: "modelRoles" }),
+      readOmpConfigValue({ ...input, key: "defaultThinkingLevel" }),
+    ],
     { concurrency: "unbounded" },
   );
   const preset = presets.find((candidate) => candidate.name === input.name);
@@ -311,5 +315,13 @@ export const resolveOmpPreset = Effect.fn("PiPresets.resolveOmpPreset")(function
       detail: `OhMyPi model preset '${input.name}' was not found, is malformed, or has no main (default) model`,
     });
   }
-  return { preset, overlay: ompPresetOverlay(preset, isStringRecord(roles) ? roles : {}) };
+  return {
+    preset,
+    overlay: ompPresetOverlay(preset, isStringRecord(roles) ? roles : {}),
+    // What omp falls back to when the preset sets no level.
+    configuredThinkingLevel:
+      typeof configuredThinking === "string"
+        ? parseOmpDefaultThinkingLevel(configuredThinking)
+        : undefined,
+  };
 });

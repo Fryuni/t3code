@@ -2336,8 +2336,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             thinking:
               parsed.thinking ??
               resolved.preset.defaultThinkingLevel ??
-              baselineThinking ??
-              undefined,
+              resolved.configuredThinkingLevel,
           };
           // set_model may change the level; a non-null unknown still lets Pi default restore it.
           appliedThinking = UNKNOWN_PI_THINKING;
