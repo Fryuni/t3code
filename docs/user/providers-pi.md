@@ -55,7 +55,9 @@ titles, status lines, and widgets does not have a T3 Code equivalent.
 
 If Pi's binary path points to [OhMyPi](https://github.com/can1357/oh-my-pi) (`omp`), its saved
 model presets appear in the model picker labelled **Preset**. Save presets in `omp` with
-`/modelpreset save <name>`, then refresh the provider in Settings to see new ones.
+`/modelpreset save <name>`, then refresh the provider in Settings to see new ones. The picker lists
+presets saved in your user configuration; presets saved only in a project's configuration do not
+appear.
 
 Choosing a preset applies all of its role models and its thinking level to that thread only. Other
 threads and `omp` sessions outside T3 Code keep their own models. Switching a thread to another

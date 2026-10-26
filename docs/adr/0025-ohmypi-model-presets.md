@@ -12,7 +12,9 @@ so T3 could only change the main model.
 When the Pi binary reports an `omp/<version>` version, discovery reads
 `omp config get modelPresets --json` and lists each preset as a model with the
 slug `preset:<name>` and a "Preset" qualifier. Its Thinking select is the one
-for the preset's main model and starts at the preset's level.
+for the preset's main model and starts at the preset's level. Config reads pass
+the instance's `--profile` and time out on their own, so a slow read only loses
+the presets, not the discovered models.
 
 Applying a preset with omp's own `/modelpreset switch` writes roles to the
 user's global config, and every running omp process reloads it, so one thread

@@ -6,7 +6,7 @@ import * as Predicate from "effect/Predicate";
 import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 
-import { PiRpcError } from "./rpc.ts";
+import { PiRpcError, PiRpcTimeoutError } from "./rpc.ts";
 import {
   EMPTY_PI_MODEL_CAPABILITIES,
   thinkingCapabilitiesForPiModel,
@@ -15,6 +15,17 @@ import {
 // OhMyPi (`omp`) model presets name a whole set of role models; T3 lists them as models.
 const PI_PRESET_SLUG_PREFIX = "preset:";
 const PRESET_NAME_PATTERN = /^[a-zA-Z][\w-]*$/;
+const OMP_CONFIG_TIMEOUT_MS = 10_000;
+// omp accepts these for a preset's `defaultThinkingLevel`; `off` is only a selector suffix.
+const OMP_DEFAULT_THINKING_LEVELS = new Set([
+  "minimal",
+  "low",
+  "medium",
+  "high",
+  "xhigh",
+  "max",
+  "auto",
+]);
 const OMP_THINKING_SUFFIXES = new Set([
   "off",
   "minimal",
@@ -31,6 +42,8 @@ const decodeOmpConfigOutput = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ value: Schema.optional(Schema.Unknown) })),
 );
 export const encodeOmpConfigOverlay = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
+
+export const OMP_AUTO_THINKING = "auto";
 
 export interface OmpModelPreset {
   readonly name: string;
@@ -73,30 +86,52 @@ function parseOmpModelPresets(value: unknown): ReadonlyArray<OmpModelPreset> {
       }
       modelRoles[role] = selector;
     }
-    if (!valid) continue;
     const level = raw.defaultThinkingLevel;
-    presets.push({
-      name,
-      modelRoles,
-      defaultThinkingLevel: typeof level === "string" ? level : undefined,
-    });
+    if (
+      !valid ||
+      (level !== undefined &&
+        (typeof level !== "string" || !OMP_DEFAULT_THINKING_LEVELS.has(level)))
+    ) {
+      continue;
+    }
+    presets.push({ name, modelRoles, defaultThinkingLevel: level });
   }
   return presets.toSorted((left, right) => left.name.localeCompare(right.name));
 }
 
+/** `provider/id` slugs from a Pi RPC `get_available_models` response. */
+export function piModelInventorySlugs(modelInventory: unknown): ReadonlySet<string> {
+  const models = isStringRecord(modelInventory) ? modelInventory.models : undefined;
+  if (!Array.isArray(models)) return new Set();
+  return new Set(
+    models.flatMap((model) =>
+      isStringRecord(model) && typeof model.provider === "string" && typeof model.id === "string"
+        ? [`${model.provider}/${model.id}`]
+        : [],
+    ),
+  );
+}
+
 /**
  * Splits an omp role selector (`provider/model[:level]`) into what Pi RPC `set_model` takes.
+ * Like omp, an exact model id wins over reading its last `:segment` as a thinking level.
  * shortcut: aliases (`@slow`) and bare model patterns need omp's fuzzy resolver, so they are
  * reported as unsupported; add an RPC-side resolution if presets commonly use them.
  */
-export function parseOmpModelSelector(selector: string): {
+export function parseOmpModelSelector(
+  selector: string,
+  knownModels: ReadonlySet<string>,
+): {
   readonly provider: string;
   readonly modelId: string;
   readonly thinking: string | undefined;
 } | null {
   const colon = selector.lastIndexOf(":");
   const suffix = colon === -1 ? undefined : selector.slice(colon + 1);
-  const thinking = suffix !== undefined && OMP_THINKING_SUFFIXES.has(suffix) ? suffix : undefined;
+  const thinking =
+    suffix !== undefined && OMP_THINKING_SUFFIXES.has(suffix) && !knownModels.has(selector)
+      ? suffix
+      : undefined;
   const model = thinking === undefined ? selector : selector.slice(0, colon);
   const separator = model.indexOf("/");
   if (model.startsWith("@") || separator <= 0 || separator === model.length - 1) return null;
@@ -104,10 +139,13 @@ export function parseOmpModelSelector(selector: string): {
 }
 
 /** The level a preset starts at: the `default` selector's suffix wins over `defaultThinkingLevel`. */
-export function ompPresetThinkingLevel(preset: OmpModelPreset): string | undefined {
+export function ompPresetThinkingLevel(
+  preset: OmpModelPreset,
+  knownModels: ReadonlySet<string>,
+): string | undefined {
   const selector = preset.modelRoles.default;
   const fromSelector =
-    selector === undefined ? undefined : parseOmpModelSelector(selector)?.thinking;
+    selector === undefined ? undefined : parseOmpModelSelector(selector, knownModels)?.thinking;
   return fromSelector ?? preset.defaultThinkingLevel;
 }
 
@@ -130,15 +168,35 @@ function ompPresetOverlay(
   };
 }
 
+/** Pi models have no `auto` level; a preset that uses omp's `auto` offers it as its default. */
+function presetThinkingCapabilities(rawModel: unknown, level: string | undefined) {
+  const capabilities = thinkingCapabilitiesForPiModel(rawModel, level);
+  if (level !== OMP_AUTO_THINKING) return capabilities;
+  return {
+    optionDescriptors: capabilities.optionDescriptors?.map((descriptor) =>
+      descriptor.type === "select"
+        ? {
+            ...descriptor,
+            options: [
+              { id: OMP_AUTO_THINKING, label: "Auto", isDefault: true },
+              ...descriptor.options,
+            ],
+          }
+        : descriptor,
+    ),
+  };
+}
+
 export function ompPresetModels(
   presets: ReadonlyArray<OmpModelPreset>,
   modelInventory: unknown,
 ): ReadonlyArray<ServerProviderModel> {
   const inventory = isStringRecord(modelInventory) ? modelInventory.models : undefined;
   const rawModels: ReadonlyArray<unknown> = Array.isArray(inventory) ? inventory : [];
+  const knownModels = piModelInventorySlugs(modelInventory);
   return presets.map((preset) => {
     const selector = preset.modelRoles.default;
-    const parsed = selector === undefined ? null : parseOmpModelSelector(selector);
+    const parsed = selector === undefined ? null : parseOmpModelSelector(selector, knownModels);
     const rawModel =
       parsed === null
         ? undefined
@@ -156,62 +214,82 @@ export function ompPresetModels(
       capabilities:
         rawModel === undefined
           ? EMPTY_PI_MODEL_CAPABILITIES
-          : thinkingCapabilitiesForPiModel(rawModel, ompPresetThinkingLevel(preset)),
+          : presetThinkingCapabilities(rawModel, ompPresetThinkingLevel(preset, knownModels)),
     };
   });
 }
 
-const readOmpConfigValue = Effect.fn("PiPresets.readOmpConfigValue")(function* (input: {
+interface OmpConfigReadInput {
   readonly binaryPath: string;
   readonly environment: NodeJS.ProcessEnv;
   readonly cwd: string | undefined;
-  readonly key: string;
-}) {
-  const args = ["config", "get", input.key, "--json"];
-  const spawnCommand = yield* resolveSpawnCommand(input.binaryPath, args, {
-    env: input.environment,
-  });
-  const result = yield* spawnAndCollect(
-    input.binaryPath,
-    ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-      env: input.environment,
-      shell: spawnCommand.shell,
-      ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
-    }),
-  );
-  const detail = `\`omp config get ${input.key}\``;
-  if (result.code !== 0) {
-    return yield* new PiRpcError({
-      operation: "omp_config",
-      detail: `${detail} exited ${result.code}`,
-    });
-  }
-  const parsed = yield* decodeOmpConfigOutput(result.stdout).pipe(
-    Effect.mapError(
-      (cause) =>
-        new PiRpcError({
-          operation: "omp_config",
-          detail: `${detail} printed invalid JSON`,
-          cause,
-        }),
-    ),
-  );
-  return parsed.value;
-});
+  /** Resolved Pi launch args; their `--profile` selects which omp config is read. */
+  readonly launchArgs: ReadonlyArray<string>;
+}
 
-export const readOmpModelPresets = (input: {
-  readonly binaryPath: string;
-  readonly environment: NodeJS.ProcessEnv;
-  readonly cwd: string | undefined;
-}) => readOmpConfigValue({ ...input, key: "modelPresets" }).pipe(Effect.map(parseOmpModelPresets));
+function ompProfileArgs(launchArgs: ReadonlyArray<string>): ReadonlyArray<string> {
+  const index = launchArgs.findIndex((arg) => arg === "--profile" || arg.startsWith("--profile="));
+  if (index === -1) return [];
+  const arg = launchArgs[index]!;
+  if (arg !== "--profile") return [arg];
+  const value = launchArgs[index + 1];
+  return value === undefined ? [] : [arg, value];
+}
+
+const readOmpConfigValue = Effect.fn("PiPresets.readOmpConfigValue")(
+  function* (input: OmpConfigReadInput & { readonly key: string }) {
+    // omp only reads `--profile` before the subcommand.
+    const args = [...ompProfileArgs(input.launchArgs), "config", "get", input.key, "--json"];
+    const spawnCommand = yield* resolveSpawnCommand(input.binaryPath, args, {
+      env: input.environment,
+    });
+    const result = yield* spawnAndCollect(
+      input.binaryPath,
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        env: input.environment,
+        shell: spawnCommand.shell,
+        ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
+      }),
+    );
+    const detail = `\`omp config get ${input.key}\``;
+    if (result.code !== 0) {
+      return yield* new PiRpcError({
+        operation: "omp_config",
+        detail: `${detail} exited ${result.code}`,
+      });
+    }
+    const parsed = yield* decodeOmpConfigOutput(result.stdout).pipe(
+      Effect.mapError(
+        (cause) =>
+          new PiRpcError({
+            operation: "omp_config",
+            detail: `${detail} printed invalid JSON`,
+            cause,
+          }),
+      ),
+    );
+    return parsed.value;
+  },
+  Effect.timeoutOrElse({
+    duration: OMP_CONFIG_TIMEOUT_MS,
+    orElse: () =>
+      Effect.fail(
+        new PiRpcTimeoutError({ operation: "omp_config", timeoutMs: OMP_CONFIG_TIMEOUT_MS }),
+      ),
+  }),
+);
+
+/**
+ * shortcut: `omp config get` returns presets deep-merged across config layers, while omp takes a
+ * same-name preset whole from its highest layer; read the layer files if that ever matters.
+ */
+export const readOmpModelPresets = (input: OmpConfigReadInput) =>
+  readOmpConfigValue({ ...input, key: "modelPresets" }).pipe(Effect.map(parseOmpModelPresets));
 
 /** Resolves a preset by name and builds its overlay against the workspace's current roles. */
-export const resolveOmpPreset = Effect.fn("PiPresets.resolveOmpPreset")(function* (input: {
-  readonly binaryPath: string;
-  readonly environment: NodeJS.ProcessEnv;
-  readonly cwd: string | undefined;
-  readonly name: string;
-}) {
+export const resolveOmpPreset = Effect.fn("PiPresets.resolveOmpPreset")(function* (
+  input: OmpConfigReadInput & { readonly name: string },
+) {
   const [presets, roles] = yield* Effect.all(
     [readOmpModelPresets(input), readOmpConfigValue({ ...input, key: "modelRoles" })],
     { concurrency: "unbounded" },

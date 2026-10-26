@@ -75,6 +75,8 @@ import {
   ompPresetThinkingLevel,
   parseOmpModelSelector,
   encodeOmpConfigOverlay,
+  OMP_AUTO_THINKING,
+  piModelInventorySlugs,
   piPresetNameFromSlug,
   resolveOmpPreset,
   type OmpModelPreset,
@@ -484,6 +486,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           binaryPath: options.settings.binaryPath || "pi",
           environment: options.environment,
           cwd,
+          launchArgs: resolvedLaunchArgs.args,
           name: presetName,
         }).pipe(
           Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
@@ -2287,6 +2290,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return providerThread;
       });
 
+      let presetKnownModels: ReadonlySet<string> | null = null;
+      let presetMainModel: string | null = null;
       const applyPresetSelection = Effect.fnUntraced(function* (
         modelSelection: ModelSelection,
         presetName: string,
@@ -2296,14 +2301,20 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             `OhMyPi preset '${presetName}' needs a session restart to apply`,
           );
         }
+        const defaultSelector = sessionPreset.modelRoles.default;
+        if (presetKnownModels === null && defaultSelector !== undefined) {
+          presetKnownModels = piModelInventorySlugs(
+            yield* request({ type: "get_available_models" }),
+          );
+        }
+        const knownModels = presetKnownModels ?? new Set<string>();
         const thinking =
           getModelSelectionStringOptionValue(modelSelection, "thinking") ??
-          ompPresetThinkingLevel(sessionPreset);
-        const defaultSelector = sessionPreset.modelRoles.default;
+          ompPresetThinkingLevel(sessionPreset, knownModels);
         if (modelSelection.model !== appliedModel) {
           // Without a `default` role, omp picks the main model itself, as `/modelpreset switch` does.
           if (defaultSelector !== undefined) {
-            const parsed = parseOmpModelSelector(defaultSelector);
+            const parsed = parseOmpModelSelector(defaultSelector, knownModels);
             if (parsed === null) {
               return yield* protocolError(
                 `OhMyPi preset '${presetName}' main model '${defaultSelector}' must use provider/model format`,
@@ -2315,6 +2326,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               modelId: parsed.modelId,
             });
             contextWindow = rememberModelContextWindow(selectedModel);
+            presetMainModel = `${parsed.provider}/${parsed.modelId}`;
           }
           appliedModel = modelSelection.model;
           const updatedAt = yield* DateTime.now;
@@ -2328,7 +2340,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (
           thinking !== undefined &&
           thinking !== appliedThinking &&
-          PI_THINKING_LEVELS.has(thinking)
+          (PI_THINKING_LEVELS.has(thinking) || thinking === OMP_AUTO_THINKING)
         ) {
           yield* request({ type: "set_thinking_level", level: thinking });
           appliedThinking = thinking;
@@ -2436,17 +2448,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           ),
         getModelContextWindow: (selection) => {
           if (selection.instanceId !== options.instanceId) return undefined;
-          const presetDefault =
-            piPresetNameFromSlug(selection.model) === undefined
-              ? null
-              : parseOmpModelSelector(sessionPreset?.modelRoles.default ?? "");
           const slug =
             selection.model === PI_INHERIT_MODEL_SLUG
               ? baselineModel === null
                 ? undefined
                 : `${baselineModel.provider}/${baselineModel.modelId}`
-              : presetDefault !== null
-                ? `${presetDefault.provider}/${presetDefault.modelId}`
+              : piPresetNameFromSlug(selection.model) !== undefined
+                ? (presetMainModel ?? undefined)
                 : selection.model;
           return slug === undefined ? undefined : modelContextWindows.get(slug);
         },

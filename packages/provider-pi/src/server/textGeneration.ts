@@ -9,7 +9,12 @@ import type { PiSettings } from "../settings.ts";
 
 import { makePiRpcConnection, parsePiModelSlug } from "./rpc.ts";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
-import { parseOmpModelSelector, piPresetNameFromSlug, readOmpModelPresets } from "./presets.ts";
+import {
+  parseOmpModelSelector,
+  piModelInventorySlugs,
+  piPresetNameFromSlug,
+  readOmpModelPresets,
+} from "./presets.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 
 const PI_TIMEOUT_MS = 180_000;
@@ -25,12 +30,15 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
   const resolvePresetMainModel = Effect.fnUntraced(function* (
     operation: TextGenerationError["operation"],
     cwd: string,
+    launchArgs: ReadonlyArray<string>,
     presetName: string,
+    listModels: Effect.Effect<unknown>,
   ) {
     const presets = yield* readOmpModelPresets({
       binaryPath: piSettings.binaryPath || "pi",
       environment,
       cwd,
+      launchArgs,
     }).pipe(
       Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
       Effect.mapError(
@@ -46,7 +54,8 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
     }
     const selector = preset.modelRoles.default;
     if (selector === undefined) return "default";
-    const parsed = parseOmpModelSelector(selector);
+    const knownModels = piModelInventorySlugs(yield* listModels);
+    const parsed = parseOmpModelSelector(selector, knownModels);
     if (parsed === null) {
       return yield* new TextGenerationError({
         operation,
@@ -89,7 +98,15 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
       const model =
         presetName === undefined
           ? modelSelection.model
-          : yield* resolvePresetMainModel(operation, cwd, presetName);
+          : yield* resolvePresetMainModel(
+              operation,
+              cwd,
+              resolvedLaunchArgs.args,
+              presetName,
+              connection
+                .request({ type: "get_available_models" })
+                .pipe(Effect.orElseSucceed(() => undefined)),
+            );
       if (model !== "default") {
         // Reject unusable custom slugs; silently using Pi's default would misreport the requested model.
         const parsed = parsePiModelSlug(model);

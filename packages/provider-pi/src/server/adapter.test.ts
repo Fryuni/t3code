@@ -434,6 +434,7 @@ const OMP_CONFIG_VALUES: Record<string, unknown> = {
       modelRoles: { default: "anthropic/claude-opus:high", task: "anthropic/claude-sonnet" },
       defaultThinkingLevel: "auto",
     },
+    Auto: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "auto" },
   },
   modelRoles: { default: "openai/gpt", designer: "openai/gpt-mini" },
 };
@@ -442,9 +443,9 @@ const OMP_CONFIG_VALUES: Record<string, unknown> = {
 const makeOmpPresetAdapter = (fake: FakePi) => {
   const spawner = ChildProcessSpawner.make((command) => {
     const args = ChildProcess.isStandardCommand(command) ? command.args : [];
-    if (args[0] !== "config") return fake.spawner.spawn(command);
+    if (!args.includes("config")) return fake.spawner.spawn(command);
     const stdout = new TextEncoder().encode(
-      encodeJsonLine({ key: args[2], value: OMP_CONFIG_VALUES[args[2] ?? ""] }),
+      encodeJsonLine({ value: OMP_CONFIG_VALUES[args[args.indexOf("config") + 2] ?? ""] }),
     );
     return Effect.succeed(
       ChildProcessSpawner.makeHandle({
@@ -1896,6 +1897,28 @@ describe("PiAdapterV2", () => {
       assert.equal(modelRequest["modelId"], "claude-opus");
       const levelRequest = yield* fake.takeRequest("set_thinking_level");
       assert.equal(levelRequest["level"], "high");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("applies a preset's auto thinking over the resumed session's level", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.queueState({ thinkingLevel: "high" });
+      const adapter = yield* makeOmpPresetAdapter(fake);
+      const runtime = yield* adapter.openSession({
+        threadId: THREAD_ID,
+        providerSessionId: SESSION_ID,
+        modelSelection: modelSelection("preset:Auto"),
+        runtimePolicy,
+      });
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Auto"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread, "preset:Auto");
+      const levelRequest = yield* fake.takeRequest("set_thinking_level");
+      assert.equal(levelRequest["level"], "auto");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

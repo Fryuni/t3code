@@ -1,11 +1,14 @@
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import * as Cause from "effect/Cause";
+import * as Deferred from "effect/Deferred";
 import * as Effect from "effect/Effect";
+import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as TestClock from "effect/testing/TestClock";
 import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
@@ -54,7 +57,11 @@ function piProbeSpawner(version: string) {
 
 const piDiscoverySpawner = (
   inventory: unknown,
-  omp?: { readonly modelPresets: unknown; readonly configCalls: Array<string> },
+  omp?: {
+    readonly modelPresets: unknown;
+    readonly configCalls: Array<string>;
+    readonly stall?: Deferred.Deferred<void>;
+  },
 ) =>
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
@@ -86,8 +93,19 @@ const piDiscoverySpawner = (
     );
     return ChildProcessSpawner.make((command) => {
       const args = ChildProcess.isStandardCommand(command) ? command.args : [];
-      if (args[0] === "config") {
+      if (args.includes("config")) {
         omp?.configCalls.push(args.join(" "));
+        if (omp?.stall !== undefined) {
+          return Deferred.succeed(omp.stall, undefined).pipe(
+            Effect.as(
+              ChildProcessSpawner.makeHandle({
+                ...processHandle({}),
+                exitCode: Effect.never,
+                stdout: Stream.never,
+              }),
+            ),
+          );
+        }
         return Effect.succeed(
           processHandle({ stdout: encodeJsonLine({ value: omp?.modelPresets }) }),
         );
@@ -171,13 +189,17 @@ describe("PiProvider", () => {
             OpenAI: { modelRoles: { default: "openai/gpt" } },
             Anthropic: { modelRoles: { default: "anthropic/claude-opus:low" } },
             Broken: { modelRoles: { default: "" } },
+            NumericThinking: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: 42 },
+            UnknownThinking: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "x" },
           },
         },
       );
-      const snapshot = yield* checkPiProviderStatus({ ...settings, binaryPath: "omp" }).pipe(
-        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-      );
-      assert.deepEqual(configCalls, ["config get modelPresets --json"]);
+      const snapshot = yield* checkPiProviderStatus({
+        ...settings,
+        binaryPath: "omp",
+        launchArgs: "--profile work",
+      }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+      assert.deepEqual(configCalls, ["--profile work config get modelPresets --json"]);
       assert.deepEqual(
         snapshot.models.map((model) => [model.slug, model.subProvider]),
         [
@@ -195,6 +217,28 @@ describe("PiProvider", () => {
           ? thinking.options.filter((option) => option.isDefault).map((option) => option.id)
           : [],
         ["low"],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("keeps discovered models when OhMyPi preset discovery stalls", () =>
+    Effect.gen(function* () {
+      const stall = yield* Deferred.make<void>();
+      const spawner = yield* piDiscoverySpawner(
+        { models: [{ provider: "openai", id: "gpt" }] },
+        { configCalls: [], modelPresets: {}, stall },
+      );
+      const fiber = yield* checkPiProviderStatus({ ...settings, binaryPath: "omp" }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        Effect.forkChild,
+      );
+      yield* Deferred.await(stall);
+      yield* TestClock.adjust("10 seconds");
+      const snapshot = yield* Fiber.join(fiber);
+      assert.equal(snapshot.auth.status, "authenticated");
+      assert.deepEqual(
+        snapshot.models.map((model) => model.slug),
+        ["default", "openai/gpt"],
       );
     }).pipe(Effect.provide(NodeServices.layer)),
   );

@@ -178,6 +178,7 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
         binaryPath: piSettings.binaryPath || "pi",
         environment,
         cwd,
+        launchArgs,
       }).pipe(
         Effect.tapError((error) =>
           Effect.logWarning("OhMyPi model preset discovery failed.", { errorTag: error._tag }),

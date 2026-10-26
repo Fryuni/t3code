@@ -45,7 +45,7 @@ const makeFakePi = (reply: string, setModelError?: string, modelPresets?: unknow
       });
     const spawner = ChildProcessSpawner.make((command) =>
       Effect.succeed(
-        ChildProcess.isStandardCommand(command) && command.args[0] === "config"
+        ChildProcess.isStandardCommand(command) && command.args.includes("config")
           ? ChildProcessSpawner.makeHandle({
               pid: ChildProcessSpawner.ProcessId(999_999_999),
               exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
@@ -108,23 +108,27 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
 
 it.effect("generates with an OhMyPi preset's main model", () =>
   Effect.gen(function* () {
-    const pi = yield* makeFakePi("Update README", undefined, {
-      Cheap: { modelRoles: { default: "loem/z-ai/glm-5.2:high", task: "loem/kimi-k3" } },
-    });
+    const pi = yield* makeFakePi(
+      encodeJsonLine({ subject: "Update README", body: "" }),
+      undefined,
+      {
+        Cheap: { modelRoles: { default: "loem/z-ai/glm-5.2:high", task: "loem/kimi-k3" } },
+      },
+    );
     const textGeneration = yield* makePiTextGeneration(
       { enabled: true, binaryPath: "omp", launchArgs: "", customModels: [] },
       {},
     ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
 
-    yield* textGeneration
-      .generateCommitMessage({
-        cwd: process.cwd(),
-        branch: "main",
-        stagedSummary: "M README.md",
-        stagedPatch: "diff --git a/README.md b/README.md",
-        modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "preset:Cheap"),
-      })
-      .pipe(Effect.ignore);
+    const generated = yield* textGeneration.generateCommitMessage({
+      cwd: process.cwd(),
+      branch: "main",
+      stagedSummary: "M README.md",
+      stagedPatch: "diff --git a/README.md b/README.md",
+      modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "preset:Cheap"),
+    });
+
+    assert.equal(generated.subject, "Update README");
 
     const setModel = pi.received.find((record) => record["type"] === "set_model");
     assert.equal(setModel?.["provider"], "loem");
