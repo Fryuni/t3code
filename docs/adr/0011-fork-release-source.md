@@ -42,8 +42,9 @@ organization's token. `setup-ci-deps` keeps upstream's step, which only runs in
 than upstream's cached `test:cached` runner
 ([pingdotgg/t3code#24966](https://github.com/pingdotgg/t3code/pull/24966)). Upstream's
 file preview browser tests ([pingdotgg/t3code#21466](https://github.com/pingdotgg/t3code/pull/21466)
-and its follow-ups) take about 100 seconds on its 8-core runners and time out on GitHub's
-when three test files run at once, so `Test Web` runs at most two.
+and its follow-ups) render about five times slower on GitHub's runners than on upstream's
+8-core ones and time out, so `Test Web` runs at most two test files at once with a
+60-second test timeout.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
 ([pingdotgg/t3code#22767](https://github.com/pingdotgg/t3code/pull/22767)) reads the same
 mapping locally. Knip found some kept scripts only through the deleted workflows, so

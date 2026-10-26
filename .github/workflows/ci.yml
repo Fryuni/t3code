@@ -163,10 +163,10 @@ jobs:
             node apps/web/node_modules/playwright/cli.js install-deps chromium
           fi
 
-      # GitHub-hosted runners are several times slower than upstream's, and the file preview
-      # browser tests time out when three files share the browser at once.
+      # GitHub-hosted runners render about five times slower than upstream's, so the file
+      # preview browser tests need fewer files sharing the browser and a longer timeout.
       - name: Test
-        run: vp run --filter @t3tools/web test --maxWorkers=2
+        run: vp run --filter @t3tools/web test --maxWorkers=2 --testTimeout=60000
 
   # apps/server sets `fileParallelism: false`, so its test files run strictly
   # one at a time. Sharding spreads them over separate runners instead of
