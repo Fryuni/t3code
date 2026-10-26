@@ -45,6 +45,8 @@ file preview browser tests ([pingdotgg/t3code#21466](https://github.com/pingdotg
 and its follow-ups) render about five times slower on GitHub's runners than on upstream's
 8-core ones and time out, so `Test Web` runs one test file at a time with a 60-second test
 timeout. Their one-second `vi.waitFor` waits failed with two files sharing the browser.
+[AGENTS.md](../../AGENTS.md) notes the raised CI ceiling next to its timeout rule, which
+otherwise stays upstream's.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
 ([pingdotgg/t3code#22767](https://github.com/pingdotgg/t3code/pull/22767)) reads the same
 mapping locally. Knip found some kept scripts only through the deleted workflows, so

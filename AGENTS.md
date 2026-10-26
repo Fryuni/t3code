@@ -110,6 +110,7 @@ An empty database is a bad test. Seed your worktree's `.t3` with a copy of real 
   - `it.effect` runs on a `TestClock`; `Effect.sleep` only advances through `TestClock.adjust`. `it.live` is wall-clock and only for subprocess or network fixtures.
   - No `yieldNow` or `sleep` polling loops. Await the `Deferred`, take from the `Queue`, or drain the worker.
   - No per-test timeout argument or `retry`. The project timeout is the ceiling, and flaky tests are fixed, not retried.
+    This fork's CI `Test Web` job raises that ceiling to 60 seconds for GitHub-hosted runners ([ADR 0011](docs/adr/0011-fork-release-source.md)); tests must still pass within the project timeout locally.
   - No `performance.now()` or `Date.now()` deltas. Assert on events and counts, not elapsed time.
   - Browser tests assert through `expect.element` or `vi.waitFor`, never `requestAnimationFrame` or `transitionend`.
   - `vi.mock` factories must not spread a real module that pulls in Shiki or the diff workers.
