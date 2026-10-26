@@ -313,6 +313,7 @@ function providerRef(
   return { driver: PI_PROVIDER, nativeId, strength };
 }
 
+const UNKNOWN_PI_THINKING = "<unknown>";
 const PI_THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh", "max"]);
 
 interface PiStreamItemState {
@@ -582,6 +583,13 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         }),
       );
       let appliedModel: string | null = null;
+      // Tracked apart from the applied model: a failed set_model leaves the overlay already rewritten.
+      let overlayPreset: string | null = null;
+      let appliedPreset: {
+        readonly slug: string;
+        readonly mainModel: string;
+        readonly thinking: string | undefined;
+      } | null = null;
       let appliedThinking: string | null = null;
       let appliedSessionName: string | null = null;
       const outOfTurnExtensionErrors: Array<PiRpcRecord> = [];
@@ -2183,6 +2191,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           // Failed lifecycle operations can still change native sessions; invalidate bindings and defaults.
           threadState = null;
           appliedModel = null;
+          appliedPreset = null;
           appliedThinking = null;
           appliedSessionName = null;
           baselineModel = null;
@@ -2277,13 +2286,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return providerThread;
       });
 
-      // Tracked apart from the applied model: a failed set_model leaves the overlay already rewritten.
-      let overlayPreset: string | null = null;
-      let appliedPreset: {
-        readonly slug: string;
-        readonly mainModel: string;
-        readonly thinking: string | undefined;
-      } | null = null;
       const writeSessionOverlay = (overlay: Record<string, unknown>) =>
         writeOverlay(overlay).pipe(Effect.mapError((cause) => protocolError(cause.message)));
       const applyPresetSelection = Effect.fnUntraced(function* (
@@ -2330,9 +2332,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           appliedPreset = {
             slug: modelSelection.model,
             mainModel: `${parsed.provider}/${parsed.modelId}`,
-            thinking: parsed.thinking ?? resolved.preset.defaultThinkingLevel,
+            // Like omp, a preset without a level falls back to the configured one.
+            thinking:
+              parsed.thinking ??
+              resolved.preset.defaultThinkingLevel ??
+              baselineThinking ??
+              undefined,
           };
-          appliedThinking = null;
+          // set_model may change the level; a non-null unknown still lets Pi default restore it.
+          appliedThinking = UNKNOWN_PI_THINKING;
           appliedModel = modelSelection.model;
           const updatedAt = yield* DateTime.now;
           sessionEntity = { ...sessionEntity, model: modelSelection.model, updatedAt };
@@ -3027,6 +3035,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                         );
                       lastNativeThreadId = forkSessionFile;
                       appliedModel = null;
+                      appliedPreset = null;
                       appliedThinking = null;
                       appliedSessionName = null;
                       lastKnownLeaf = leafId;

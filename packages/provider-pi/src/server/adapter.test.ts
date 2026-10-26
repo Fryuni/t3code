@@ -462,6 +462,7 @@ const OMP_CONFIG_VALUES: Record<string, unknown> = {
       defaultThinkingLevel: "auto",
     },
     Auto: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "auto" },
+    Unleveled: { modelRoles: { default: "openai/gpt" } },
   },
   modelRoles: { default: "openai/gpt", designer: "openai/gpt-mini" },
 };
@@ -1955,6 +1956,28 @@ describe("PiAdapterV2", () => {
       const plainModel = yield* fake.takeRequest("set_model");
       assert.deepEqual([plainModel["provider"], plainModel["modelId"]], ["xai", "grok-4.6"]);
       assert.deepEqual(yield* readOverlay, {});
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("returns a preset without a thinking level to the session's configured level", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.queueState({ thinkingLevel: "medium" });
+      const { runtime, takeEvent } = yield* openOmpRuntime(fake, "preset:Anthropic");
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Anthropic"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread, "preset:Anthropic");
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "high");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "agent_end", messages: [], willRetry: false });
+      yield* fake.emit({ type: "agent_settled" });
+      yield* takeEvent((event) => event.type === "turn.terminal");
+
+      yield* startTurn(runtime, providerThread, "preset:Unleveled", [], "Hello pi", undefined, 2);
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "medium");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
