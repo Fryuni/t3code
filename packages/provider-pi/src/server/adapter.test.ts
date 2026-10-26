@@ -165,6 +165,7 @@ interface FakePi {
   readonly failNextState: () => void;
   readonly deferNextLifecycle: (type: "switch_session" | "new_session" | "fork") => void;
   readonly deferNextModelSelection: () => void;
+  readonly failNextModelSelection: () => void;
   readonly queueModels: (models: ReadonlyArray<unknown>) => void;
   readonly vetoNextNewSession: () => void;
   readonly allRequests: () => ReadonlyArray<PiRpcRecord>;
@@ -216,6 +217,7 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
   let deferState = false;
   let deferredStateRequest: PiRpcRecord | undefined;
   let failState = false;
+  let failModelSelection = false;
   let vetoSwitch = false;
   let vetoNewSession = false;
   let deferredLifecycle: string | undefined;
@@ -269,6 +271,10 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
         return base;
       case "get_available_models":
         return { ...base, data: { models } };
+      case "set_model":
+        if (!failModelSelection) return base;
+        failModelSelection = false;
+        return { ...base, success: false, error: "No API key for anthropic" };
       case "new_session": {
         const cancelled = vetoNewSession;
         vetoNewSession = false;
@@ -388,6 +394,9 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
     },
     deferNextModelSelection: () => {
       deferredLifecycle = "set_model";
+    },
+    failNextModelSelection: () => {
+      failModelSelection = true;
     },
     queueModels: (value) => {
       models = value;
@@ -1946,6 +1955,29 @@ describe("PiAdapterV2", () => {
       const plainModel = yield* fake.takeRequest("set_model");
       assert.deepEqual([plainModel["provider"], plainModel["modelId"]], ["xai", "grok-4.6"]);
       assert.deepEqual(yield* readOverlay, {});
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("clears a preset overlay whose switch failed when the thread switches back", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime } = yield* openOmpRuntime(fake, "xai/grok-4.6");
+      const args = fake.lastSpawn().args;
+      const overlayPath = args[args.indexOf("--config") + 1]!;
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("xai/grok-4.6"),
+        runtimePolicy,
+      });
+      fake.failNextModelSelection();
+      yield* startTurn(runtime, providerThread, "preset:Anthropic").pipe(Effect.flip);
+
+      yield* startTurn(runtime, providerThread, "xai/grok-4.6", [], "Hello pi", undefined, 2);
+      yield* fake.takeRequest("prompt");
+      assert.deepEqual(
+        decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath)),
+        {},
+      );
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

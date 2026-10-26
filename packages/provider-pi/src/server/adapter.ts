@@ -2277,8 +2277,10 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return providerThread;
       });
 
-      // The preset whose roles the overlay holds; null when it holds none.
+      // Tracked apart from the applied model: a failed set_model leaves the overlay already rewritten.
+      let overlayPreset: string | null = null;
       let appliedPreset: {
+        readonly slug: string;
         readonly mainModel: string;
         readonly thinking: string | undefined;
       } | null = null;
@@ -2293,7 +2295,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             `Model preset '${presetName}' needs Pi's binary path to point to OhMyPi (omp)`,
           );
         }
-        if (modelSelection.model !== appliedModel) {
+        if (overlayPreset !== presetName || modelSelection.model !== appliedModel) {
           const resolved = yield* resolveOmpPreset({
             binaryPath: options.settings.binaryPath || "pi",
             environment: options.environment,
@@ -2318,6 +2320,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           // next role lookup; the main model and thinking switch now over RPC. Wait for a reload
           // signal if omp ever exposes one.
           yield* writeSessionOverlay(resolved.overlay);
+          overlayPreset = presetName;
           const selectedModel = yield* request({
             type: "set_model",
             provider: parsed.provider,
@@ -2325,6 +2328,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           });
           contextWindow = rememberModelContextWindow(selectedModel);
           appliedPreset = {
+            slug: modelSelection.model,
             mainModel: `${parsed.provider}/${parsed.modelId}`,
             thinking: parsed.thinking ?? resolved.preset.defaultThinkingLevel,
           };
@@ -2355,8 +2359,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         if (selectedPreset !== undefined) {
           return yield* applyPresetSelection(modelSelection, selectedPreset);
         }
-        if (appliedPreset !== null) {
+        if (overlayPreset !== null) {
           yield* writeSessionOverlay({});
+          overlayPreset = null;
           appliedPreset = null;
         }
         const thinking = getModelSelectionStringOptionValue(modelSelection, "thinking");
@@ -2461,7 +2466,9 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
                 ? undefined
                 : `${baselineModel.provider}/${baselineModel.modelId}`
               : piPresetNameFromSlug(selection.model) !== undefined
-                ? appliedPreset?.mainModel
+                ? appliedPreset?.slug === selection.model
+                  ? appliedPreset.mainModel
+                  : undefined
                 : selection.model;
           return slug === undefined ? undefined : modelContextWindows.get(slug);
         },
