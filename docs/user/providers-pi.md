@@ -60,10 +60,14 @@ presets saved in your user configuration; presets saved only in a project's conf
 appear.
 
 Choosing a preset applies all of its role models and its thinking level to that thread only. Other
-threads and `omp` sessions outside T3 Code keep their own models. Switching a thread to another
-preset restarts its Pi session and resumes the same conversation. Edits to a preset reach a thread
-the next time its session starts. Use the picker rather than `/modelpreset switch`, which changes
-OhMyPi's global configuration. A preset's main model must be written as `provider/model`.
+threads and `omp` sessions outside T3 Code keep their own models. You can switch presets, or switch
+between a preset and a single model, at any point in a thread. Edits to a preset apply the next time
+a thread switches to it or its session restarts. Use the picker rather than `/modelpreset switch`,
+which changes OhMyPi's global configuration.
+
+A preset needs a main (`default`) model written as `provider/model`. The `--smol`, `--slow`, and
+`--plan` launch arguments, and the matching `PI_SMOL_MODEL`, `PI_SLOW_MODEL`, and `PI_PLAN_MODEL`
+environment variables, override those roles in every preset.
 
 ## Permission Modes
 

@@ -52,8 +52,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         detail: `OhMyPi model preset '${presetName}' was not found or is malformed.`,
       });
     }
-    const selector = preset.modelRoles.default;
-    if (selector === undefined) return "default";
+    const selector = preset.modelRoles.default ?? "";
     const knownModels = piModelInventorySlugs(yield* listModels);
     const parsed = parseOmpModelSelector(selector, knownModels);
     if (parsed === null) {

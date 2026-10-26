@@ -65,6 +65,25 @@ export function isOmpVersionOutput(output: string): boolean {
   return /^omp\/\d/m.test(output);
 }
 
+/** Whether the configured Pi binary is OhMyPi; any failure reads as plain Pi. */
+export const isOmpBinary = Effect.fn("PiPresets.isOmpBinary")(
+  function* (binaryPath: string, environment: NodeJS.ProcessEnv) {
+    const spawnCommand = yield* resolveSpawnCommand(binaryPath, ["--version"], {
+      env: environment,
+    });
+    const result = yield* spawnAndCollect(
+      binaryPath,
+      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
+        env: environment,
+        shell: spawnCommand.shell,
+      }),
+    );
+    return result.code === 0 && isOmpVersionOutput(result.stdout);
+  },
+  Effect.timeoutOrElse({ duration: OMP_CONFIG_TIMEOUT_MS, orElse: () => Effect.succeed(false) }),
+  Effect.orElseSucceed(() => false),
+);
+
 function isStringRecord(input: unknown): input is Record<string, unknown> {
   return Predicate.isObject(input) && !Array.isArray(input);
 }
@@ -87,8 +106,10 @@ function parseOmpModelPresets(value: unknown): ReadonlyArray<OmpModelPreset> {
       modelRoles[role] = selector;
     }
     const level = raw.defaultThinkingLevel;
+    // T3 sets the main model from `default`; without one omp would pick a model T3 cannot see.
     if (
       !valid ||
+      modelRoles.default === undefined ||
       (level !== undefined &&
         (typeof level !== "string" || !OMP_DEFAULT_THINKING_LEVELS.has(level)))
     ) {
@@ -139,7 +160,7 @@ export function parseOmpModelSelector(
 }
 
 /** The level a preset starts at: the `default` selector's suffix wins over `defaultThinkingLevel`. */
-export function ompPresetThinkingLevel(
+function ompPresetThinkingLevel(
   preset: OmpModelPreset,
   knownModels: ReadonlySet<string>,
 ): string | undefined {
@@ -298,7 +319,7 @@ export const resolveOmpPreset = Effect.fn("PiPresets.resolveOmpPreset")(function
   if (preset === undefined) {
     return yield* new PiRpcError({
       operation: "omp_preset",
-      detail: `OhMyPi model preset '${input.name}' was not found or is malformed`,
+      detail: `OhMyPi model preset '${input.name}' was not found, is malformed, or has no main (default) model`,
     });
   }
   return { preset, overlay: ompPresetOverlay(preset, isStringRecord(roles) ? roles : {}) };

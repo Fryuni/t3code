@@ -18,16 +18,23 @@ the presets, not the discovered models.
 
 Applying a preset with omp's own `/modelpreset switch` writes roles to the
 user's global config, and every running omp process reloads it, so one thread
-would change all the others and the user's terminal. T3 instead starts the
-thread's omp process with a `--config` overlay file in T3's cache. The overlay
-holds the preset's roles, `null` tombstones for roles the preset leaves out (as
-`/modelpreset switch` clears them), and its thinking level. The overlay is
-rebuilt from the current preset each time the process starts. Changing which
-preset a thread uses returns `restart_session`, so the session resumes on a
-new process with the new overlay, and the first turn sends `set_model` for the
-preset's `default` role. A preset whose main model is an alias rather than
-`provider/model` fails with a clear error. Text generation has no per-model
-filter, so a preset chosen there uses only its main model.
+would change all the others and the user's terminal. T3 instead starts every
+omp session with its own `--config` overlay file in T3's cache, empty until a
+turn selects a preset. Selecting one rewrites the overlay with the preset's
+roles, `null` tombstones for roles the preset leaves out (as `/modelpreset
+switch` clears them), and its thinking level, read fresh from omp; then the
+turn sets the main model and thinking over RPC. Selecting a plain model empties
+the overlay again. omp watches overlay files and reloads them about 200ms after
+a write, so role models switch from the next role lookup. A restart would avoid
+that delay, but ordinary message dispatch never consults the adapter's
+selection-transition plan, so switching has to work inside the live session.
+
+Presets without a `default` role are not listed, because T3 sets the main model
+from it, and one written as an alias rather than `provider/model` fails with a
+clear error. omp's `--smol`, `--slow`, and `--plan` flags and their
+`PI_*_MODEL` variables are runtime overrides that outrank any overlay. Text
+generation has no per-model filter, so a preset chosen there uses only its
+main model.
 
 When updating from upstream, keep presets inside the Pi provider and keep the
 per-process overlay; do not switch presets by writing omp's global config.
