@@ -6,6 +6,7 @@ import {
   type GitRunStackedActionResult,
   type OrchestrationV2ServerCommand as OrchestrationCommand,
   type OrchestrationProjectShell,
+  SourceControlProviderKind,
 } from "@t3tools/contracts";
 import { describe, expect, it } from "@effect/vitest";
 import * as Effect from "effect/Effect";
@@ -40,7 +41,7 @@ const project: OrchestrationProjectShell = {
       remoteName: "origin",
       remoteUrl: "git@github.acme.test:Platform/API.git",
     },
-    provider: "github",
+    provider: SourceControlProviderKind.make("github"),
     displayName: "Platform/API",
     owner: "Platform",
     name: "API",
@@ -143,7 +144,7 @@ describe("createdPullRequestKey", () => {
           remoteName: "origin",
           remoteUrl: "ssh://git@ssh.example:2222/Owner/Repo.git",
         },
-        provider: "forgejo",
+        provider: SourceControlProviderKind.make("forgejo"),
         displayName: "Forge/Owner/Repo",
         owner: "Owner",
         name: "Repo",

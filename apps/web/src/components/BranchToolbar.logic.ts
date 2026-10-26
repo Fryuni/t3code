@@ -79,8 +79,7 @@ export function shouldShowComposerContextStrip(input: {
   );
 }
 
-// Labels collapse to icons when the strip's content no longer fits. A small
-// hysteresis on the way back out keeps the boundary from flapping.
+// Hysteresis prevents labels and icons from flapping at the width boundary.
 const CONTEXT_STRIP_COMPACT_EXPAND_HYSTERESIS_PX = 16;
 
 export function resolveContextStripLabelsCompact(input: {
@@ -203,11 +202,9 @@ export function resolveBranchToolbarValue(input: {
 }
 
 /**
- * The branch a new worktree's base defaults to: the project's default base branch, else the repo
- * default, else the checked-out branch. The project's branch is kept even when the loaded refs do
- * not list it, so a missing branch fails visibly instead of silently starting elsewhere.
- * Null while checking out an existing branch, since these defaults are usually checked out already
- * and the user has to pick a free one.
+ * A new worktree's base: the project's default base branch, else the repo default, else the
+ * checked-out branch. The project's branch is kept even when refs omit it, so a wrong name fails
+ * visibly. Null while checking out an existing branch: these defaults are usually checked out.
  */
 export function resolveWorktreeBaseBranchCandidate(input: {
   createNewBranch: boolean;

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-11
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 Upstream binds `terminal.split` to `mod+d` and `terminal.splitVertical` to
 `mod+shift+d` while a terminal is focused. Outside macOS `mod` is Ctrl, and

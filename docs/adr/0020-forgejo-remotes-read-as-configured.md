@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-17
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 A checkout can set its remote to the Forgejo web URL and let git push over SSH
 through `url.<base>.insteadOf`, for example `https://forge.example/` rewritten to
@@ -37,6 +37,12 @@ SSH remote, and that host differs from the project's change-request host, the
 [handler](../../apps/server/src/mcp/toolkits/pullRequests/handlers.ts) links the
 same number on the project's host instead. Links to any other repository on that
 host are kept as given.
+
+Upstream rewrote the registry's tests around fake drivers
+([pingdotgg/t3code#24000](https://github.com/pingdotgg/t3code/pull/24000)). The fork's
+configured-remote tests moved onto them, and upstream's tests that count every process
+the registry runs skip the fork's `git config` read. The clone-host mapping now asks
+the source control registry to recognize the remote and name the project's repository.
 
 When updating from upstream, keep the configured-URL read ahead of login
 matching, the configured server in the registry's cache key, and the clone-host

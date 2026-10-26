@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#26](https://github.com/Fryuni/t3code/issues/26)
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 Upstream already discovers Forgejo and Gitea through `fj` and `tea`. The fork
 extends that discovery for installations whose SSH clone authority differs from
@@ -35,6 +35,12 @@ or until Settings change. This fallback answers per repository, so the first SSH
 remote read on a host without a matching `ssh_host` decides for that host: a
 repository no login can see leaves the host's other repositories unrecognized until
 the verdict expires. The fork accepts that rather than keeping a second cache.
+
+Upstream moved each forge's tests into its own package
+([pingdotgg/t3code#24000](https://github.com/pingdotgg/t3code/pull/24000)), and the
+server's registry tests now run against fake drivers. The fork's tests for this
+fallback and for logins on case-distinct mounts moved to
+[`ForgejoSourceControlProvider.test.ts`](../../packages/source-control-forgejo/src/server/ForgejoSourceControlProvider.test.ts).
 
 How the resolved web instance becomes repository identity is a separate decision
 in [ADR 0002](0002-forgejo-repository-identity.md).

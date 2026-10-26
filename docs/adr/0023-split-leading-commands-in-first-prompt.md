@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -53,6 +53,11 @@ drop the key. Threads that already exist, including the empty one
 No setup message carries a title seed, and the prompt is no longer the first
 message, so the server generates no title. The thread keeps the title derived
 from the prompt.
+
+Upstream later reports a launch as resumed when a concurrent retry replays its
+first message ([pingdotgg/t3code#24601](https://github.com/pingdotgg/t3code/pull/24601)).
+The fork checks that on the first launch message only; later messages still fail the
+first run when they are rejected.
 
 When updating from upstream, preserve the launch-time dispatch order, the
 preparation-failure queue hold, and the capability gate. Remove this if upstream adds an equivalent way to run setup

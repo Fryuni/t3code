@@ -3,9 +3,9 @@
 - Status: accepted
 - Date: 2026-09-21
 - Tracking: [Fryuni/t3code#29](https://github.com/Fryuni/t3code/issues/29)
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
-Upstream opens PR links through one URL-based
+Upstream opens PR links through a URL-based
 [shared opener](../../apps/web/src/lib/openPullRequestLink.ts), which selects the
 first project whose repository matches the URL, as decided by each host's client
 definition. In the fork, links opened beside
@@ -21,10 +21,16 @@ project IDs can repeat across environments; it never overrides a repository
 mismatch. The fork preserves upstream's environment and capability boundaries
 rather than borrowing a matching checkout from another server.
 
-The preference only reorders the candidates handed to upstream's matcher, so keep it
-as a reordering when upstream changes how a project matches a URL.
-
-This decision applies to web and desktop, which share the opener. Mobile retains
-its external PR-link navigation. Forgejo instance matching uses the shared rules
-from [ADR 0002](0002-forgejo-repository-identity.md), so checkout preference cannot
+Upstream then moved link resolution into the client-runtime's
+[`resolveChangeRequestLinkTarget`](../../packages/client-runtime/src/changeRequestLinks.ts),
+whose `projectId` is tried first, and mobile passes the project a link came from
+([pingdotgg/t3code#24738](https://github.com/pingdotgg/t3code/pull/24738)). That is
+this preference, so the fork dropped its own reordering when it synced onto upstream
+`6ffde5ba3` and keeps upstream's. The web opener does not pass `projectId` upstream,
+so the fork's remaining change is one line: beside a thread, the web passes that
+thread's project. Mobile, which now opens PR links in the app too, follows
+upstream unchanged. Forgejo instance matching uses the shared rules from
+[ADR 0002](0002-forgejo-repository-identity.md), so checkout preference cannot
 collapse distinct ports or case-sensitive mounts.
+
+Drop this when upstream's web opener passes the thread's project itself.

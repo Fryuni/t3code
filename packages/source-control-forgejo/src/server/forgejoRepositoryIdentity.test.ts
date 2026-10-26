@@ -1,4 +1,4 @@
-import type { RepositoryIdentity } from "@t3tools/contracts";
+import { type RepositoryIdentity, SourceControlProviderKind } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import { forgejoRepositoryIdentity } from "./forgejoRepositoryIdentity.ts";
@@ -6,7 +6,7 @@ import { forgejoRepositoryIdentity } from "./forgejoRepositoryIdentity.ts";
 function identity(remoteUrl: string): RepositoryIdentity {
   return {
     canonicalKey: "ssh.example.test/owner/repo",
-    provider: "unknown",
+    provider: SourceControlProviderKind.make("unknown"),
     displayName: "Owner/Repo",
     rootPath: "/tmp/repo",
     locator: { source: "git-remote", remoteName: "origin", remoteUrl },

@@ -1,34 +1,15 @@
 import {
-  threadPullRequestsOf,
-  threadPullRequestKeysEqual,
-} from "@t3tools/shared/threadPullRequests";
-import {
   CommandId,
-  pullRequestHostOf,
   type OrchestrationProjectShell,
   type OrchestrationV2ThreadShell,
   type SourceControlProviderKind,
   type ThreadId,
   type ThreadPullRequestLink,
 } from "@t3tools/contracts";
-import {
-  type ChangeRequestLink,
-  changeRequestUrlFor,
-  parseChangeRequestUrl,
-} from "@t3tools/shared/changeRequestUrl";
+import { isSshRemoteUrl, normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { repositoryPathFromRemoteUrl } from "@t3tools/source-control-core/server/SourceControlProvider";
-import {
-  detectSourceControlProviderFromRemoteUrl,
-  isSshRemoteUrl,
-  normalizeSourceControlRepository,
-  sourceControlRepositorySelector,
-} from "@t3tools/shared/sourceControl";
-import {
-  normalizeThreadPullRequestKey,
-  resolveThreadPullRequestChains,
-  threadPullRequestKeyOf,
-  visibleThreadPullRequests,
-} from "@t3tools/shared/threadPullRequests";
+import type { ChangeRequestLink } from "@t3tools/source-control-core/shared/definition";
+import { canonicalizeGitCafePullRequestUrl } from "@t3tools/source-control-definitions/registry";
 import * as Cause from "effect/Cause";
 import * as Crypto from "effect/Crypto";
 import * as Effect from "effect/Effect";
@@ -38,6 +19,15 @@ import * as Orchestrator from "../../../orchestration-v2/Orchestrator.ts";
 import * as ProjectService from "../../../project/ProjectService.ts";
 import * as PullRequestReviewGuideService from "../../../pullRequest/PullRequestReviewGuideService.ts";
 import { pullRequestSyncKey } from "../../../pullRequest/pullRequestSyncKey.ts";
+import { sourceControlDefinitions } from "../../../sourceControl/sourceControlDefinitions.ts";
+import {
+  normalizeThreadPullRequestKey,
+  resolveThreadPullRequestChains,
+  threadPullRequestKeyOf,
+  threadPullRequestKeysEqual,
+  threadPullRequestsOf,
+  visibleThreadPullRequests,
+} from "../../../sourceControl/threadPullRequests.ts";
 import * as McpInvocationContext from "../../McpInvocationContext.ts";
 import * as McpToolAccess from "../../McpToolAccess.ts";
 import {
@@ -46,6 +36,7 @@ import {
   PullRequestUrlInvalidError,
   PullRequestTargetIncompleteError,
   PullRequestHostRequiredError,
+  PullRequestUrlUnavailableError,
   PullRequestUnlinkFailedError,
   PullRequestListFailedError,
   PullRequestNotOpenError,
@@ -72,10 +63,10 @@ function projectHostAndProvider(project: OrchestrationProjectShell | undefined):
   readonly kind: SourceControlProviderKind | null;
 } {
   const identity = project?.repositoryIdentity;
-  const kind = (identity?.provider as SourceControlProviderKind | undefined) ?? null;
+  const kind = identity?.provider ?? null;
   if (!identity || kind === null) return { host: null, kind: null };
   return {
-    host: pullRequestHostOf(identity, kind),
+    host: sourceControlDefinitions.changeRequestHost(identity, kind),
     kind,
   };
 }
@@ -92,7 +83,7 @@ function projectRepositoryOnCloneHost(
   const identity = project?.repositoryIdentity;
   const { host, kind } = projectHostAndProvider(project);
   if (!identity || host === null || !isSshRemoteUrl(identity.locator.remoteUrl)) return null;
-  const cloneBaseUrl = detectSourceControlProviderFromRemoteUrl(
+  const cloneBaseUrl = sourceControlDefinitions.recognizeRemote(
     identity.locator.remoteUrl,
   )?.baseUrl;
   const clonePath = repositoryPathFromRemoteUrl(identity.locator.remoteUrl);
@@ -109,7 +100,7 @@ function projectRepositoryOnCloneHost(
       normalizeSourceControlRepository(link.repository, kind)
   )
     return null;
-  return sourceControlRepositorySelector(identity);
+  return sourceControlDefinitions.repositorySelector(identity);
 }
 
 const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
@@ -118,13 +109,16 @@ const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
 ) {
   let reference: Pick<PullRequestTargetInput, "host" | "repository" | "number"> = input;
   if (input.url !== undefined) {
-    const parsed = parseChangeRequestUrl(input.url);
-    if (parsed === null) {
+    const parsed = sourceControlDefinitions.parseChangeRequestUrl(input.url)?.link;
+    if (parsed === undefined) {
       return yield* new PullRequestUrlInvalidError({});
     }
     const repository = projectRepositoryOnCloneHost(parsed, project);
     if (repository === null) {
-      return { ...normalizeThreadPullRequestKey(parsed), url: input.url } satisfies ResolvedTarget;
+      return {
+        ...normalizeThreadPullRequestKey(parsed),
+        url: canonicalizeGitCafePullRequestUrl(input.url),
+      } satisfies ResolvedTarget;
     }
     reference = { repository, number: parsed.number };
   }
@@ -141,28 +135,30 @@ const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(function* (
     reference.repository,
     host === projectHost.host ? projectHost.kind : undefined,
   );
+  // Without a URL, a public forge host says what shape its change request URLs take;
+  // any other host is taken to run the project's own forge.
+  const recognizedKind = sourceControlDefinitions.recognizeRemote(`https://${host}`)?.kind;
+  const kind =
+    sourceControlDefinitions.findByPublicHost(host)?.kind ??
+    (recognizedKind === "gitcafe" ? recognizedKind : projectHost.kind);
+  const identity = project?.repositoryIdentity;
   const url =
-    changeRequestUrlFor(
-      host === projectHost.host ? projectHost.kind : null,
-      host,
-      repository,
-      number,
-      project?.repositoryIdentity?.locator.remoteUrl,
-      project?.repositoryIdentity?.webUrl,
-    ) ??
-    (/(?:^|\/)_git\/[^/]+$/u.test(repository)
-      ? changeRequestUrlFor(
-          "azure-devops",
+    kind === null
+      ? null
+      : sourceControlDefinitions.get(kind).changeRequestUrl({
           host,
           repository,
           number,
-          project?.repositoryIdentity?.locator.remoteUrl,
-        )
-      : null) ??
-    `https://${host}/${repository}/pull/${number}`;
+          // Only the web URL's origin applies, as `repository` need not be the project's; it
+          // knows the scheme an SSH remote cannot say.
+          remoteUrl: identity?.webUrl ?? identity?.locator.remoteUrl,
+        });
+  if (url === null) {
+    return yield* new PullRequestUrlUnavailableError({});
+  }
   return {
     ...normalizeThreadPullRequestKey({ host, repository, number, url }),
-    url,
+    url: canonicalizeGitCafePullRequestUrl(url),
   } satisfies ResolvedTarget;
 });
 
@@ -216,8 +212,7 @@ function projectForPullRequest(
   target: { readonly host: string; readonly repository: string },
   preferred: OrchestrationProjectShell | undefined,
 ): OrchestrationProjectShell | undefined {
-  // The same rule the guide service uses: a pull request reads through a project whose checkout
-  // names it with the same host-level key, which also maps Azure DevOps' org/project/_git/repo.
+  // Match the guide service's host-level repository key, including Azure DevOps org/project/_git/repo.
   const matches = (project: OrchestrationProjectShell) => {
     const own = pullRequestSyncKey(
       { projectId: project.id, host: target.host, repository: target.repository, number: 1 },
@@ -229,7 +224,8 @@ function projectForPullRequest(
         : pullRequestSyncKey(
             {
               projectId: project.id,
-              repository: sourceControlRepositorySelector(project.repositoryIdentity) ?? "",
+              repository:
+                sourceControlDefinitions.repositorySelector(project.repositoryIdentity) ?? "",
               number: 1,
             },
             project.repositoryIdentity,
@@ -271,10 +267,10 @@ const make = Effect.gen(function* () {
     if (threadId === undefined) {
       return yield* new PullRequestThreadRequiredError();
     }
-    const thread = yield* engine
-      .getThreadShell(threadId)
-      .pipe(Effect.map(Option.fromNullishOr))
-      .pipe(Effect.mapError((cause) => new Failure({ cause })));
+    const thread = yield* engine.getThreadShell(threadId).pipe(
+      Effect.map(Option.fromNullishOr),
+      Effect.mapError((cause) => new Failure({ cause })),
+    );
     if (Option.isNone(thread) || thread.value.deletedAt !== null) {
       return yield* new PullRequestThreadNotFoundError({ threadId });
     }
@@ -366,8 +362,18 @@ const make = Effect.gen(function* () {
       .listShells()
       .pipe(Effect.mapError((cause) => new PullRequestListFailedError({ cause })));
     const callerProject = known.find((project) => project.id === callerThread?.projectId);
+    // A pull request named by host and repository builds its URL through the project that holds
+    // it, which need not be the caller's.
+    const urlProject = (input: PullRequestTargetInput) =>
+      input.url === undefined && input.host !== undefined && input.repository !== undefined
+        ? (projectForPullRequest(
+            known,
+            { host: input.host, repository: input.repository },
+            callerProject,
+          ) ?? callerProject)
+        : callerProject;
     return yield* Effect.forEach(targets, (input) =>
-      resolveTarget(input, callerProject).pipe(
+      resolveTarget(input, urlProject(input)).pipe(
         Effect.map((target) => ({
           input,
           target,

@@ -1,5 +1,5 @@
 import type { EnvironmentId, EnvironmentMachineKind, ProjectId } from "@t3tools/contracts";
-import { canonicalRepositoryKey } from "@t3tools/shared/sourceControl";
+import { foldRepositoryKey } from "@t3tools/shared/sourceControl";
 
 export interface AssignableProject {
   readonly id: ProjectId;
@@ -10,7 +10,7 @@ export interface AssignableProject {
 // Preserve the case of instance paths while normalizing the authority and repository names.
 function repositoryKey(project: AssignableProject): string | undefined {
   const key = project.repositoryIdentity?.canonicalKey;
-  return key === undefined ? undefined : canonicalRepositoryKey(key);
+  return key === undefined ? undefined : foldRepositoryKey(key);
 }
 
 export function assignProjectsToEnvironments(

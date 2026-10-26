@@ -5,6 +5,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ProjectId,
+  SourceControlProviderKind,
   type ServerConfig,
 } from "@t3tools/contracts";
 import {
@@ -216,9 +217,9 @@ async function mount(
   );
   const pullRequestsButton = () => {
     const button = screen.container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Pull Requests"]',
+      'button[aria-label="Pull requests"]',
     );
-    if (!button) throw new Error("Pull Requests button is missing");
+    if (!button) throw new Error("Pull requests button is missing");
     return button;
   };
   const owned = stack.move();
@@ -450,7 +451,7 @@ describe("opening pull requests from the sidebar", () => {
         (checkout) => ({
           ...checkout,
           repositoryIdentity: {
-            provider: "github",
+            provider: SourceControlProviderKind.make("github"),
             canonicalKey,
             displayName: "acme/repo",
             webUrl: `https://${canonicalKey}`,

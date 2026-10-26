@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#7](https://github.com/Fryuni/t3code/pull/7)
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 Upstream works out whether a server is reachable from other machines by looking
 only at the address it binds. Its remote routes are binding a LAN or tailnet
@@ -80,6 +80,15 @@ argument, so two backends never claim one proxy origin. A desktop app launched f
 the dock, Start menu, or a launcher does not read shell profiles (the login-shell
 import only copies a fixed list such as `PATH`), so the variable must be set at the
 OS level or the app started from a terminal.
+
+Upstream then made a background service with no `T3CODE_HOST` listen on every
+interface but serve only private-network connections
+([pingdotgg/t3code#24588](https://github.com/pingdotgg/t3code/pull/24588)). A public URL
+still wins as the advertised address, and `t3 pair` drops the "local network only"
+note when one is recorded. Such a service's proxy must reach it over loopback or a
+private network; a proxy connecting from a public address needs `T3CODE_HOST` set.
+[Remote access](../user/remote-access.md#external-reverse-proxy) tells service users to
+set `T3CODE_HOST=127.0.0.1` beside the public URL.
 
 There is no settings UI or desktop IPC for it. The public URL is a fact about the
 deployment, owned by whoever runs the proxy, so it is configured where the server
