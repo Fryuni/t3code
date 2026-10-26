@@ -51,6 +51,18 @@ Pi loads its normal user and project extensions. Blocking `select`, `confirm`, `
 dialogs work in T3 Code. Notifications appear in the work log. Pi terminal decoration such as
 titles, status lines, and widgets does not have a T3 Code equivalent.
 
+## OhMyPi Model Presets
+
+If Pi's binary path points to [OhMyPi](https://github.com/can1357/oh-my-pi) (`omp`), its saved
+model presets appear in the model picker labelled **Preset**. Save presets in `omp` with
+`/modelpreset save <name>`, then refresh the provider in Settings to see new ones.
+
+Choosing a preset applies all of its role models and its thinking level to that thread only. Other
+threads and `omp` sessions outside T3 Code keep their own models. Switching a thread to another
+preset restarts its Pi session and resumes the same conversation. Edits to a preset reach a thread
+the next time its session starts. Use the picker rather than `/modelpreset switch`, which changes
+OhMyPi's global configuration. A preset's main model must be written as `provider/model`.
+
 ## Permission Modes
 
 T3 Code applies the composer permission mode through Pi's blocking tool hook:

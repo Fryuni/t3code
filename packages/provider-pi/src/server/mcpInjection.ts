@@ -243,6 +243,8 @@ export function buildPiRpcLaunch(input: {
   readonly mcpSession: McpProviderSessionConfig | undefined;
   readonly extensionPath: string | undefined;
   readonly sessionPath?: string | undefined;
+  /** OhMyPi `--config` overlay; later overlays win, so it follows user launch args. */
+  readonly configOverlayPath?: string | undefined;
   readonly ephemeral?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
@@ -269,6 +271,7 @@ export function buildPiRpcLaunch(input: {
         ? ["--session", input.sessionPath]
         : []),
     ...launchArgs,
+    ...(input.configOverlayPath === undefined ? [] : ["--config", input.configOverlayPath]),
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
     ...(input.disableExtensions === true ? ["--no-extensions"] : []),
     ...(input.disableTools === true ? ["--no-tools"] : []),

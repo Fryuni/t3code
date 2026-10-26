@@ -7,6 +7,7 @@ import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
 import * as Sink from "effect/Sink";
 import * as Stream from "effect/Stream";
+import * as ChildProcess from "effect/process/ChildProcess";
 import * as ChildProcessSpawner from "effect/process/ChildProcessSpawner";
 
 import { makePiTextGeneration } from "./textGeneration.ts";
@@ -14,7 +15,7 @@ import { makePiTextGeneration } from "./textGeneration.ts";
 const decodeJsonLine = Schema.decodeUnknownSync(Schema.fromJsonString(Schema.Unknown));
 const encodeJsonLine = Schema.encodeSync(Schema.fromJsonString(Schema.Unknown));
 
-const makeFakePi = (reply: string, setModelError?: string) =>
+const makeFakePi = (reply: string, setModelError?: string, modelPresets?: unknown) =>
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
     const received: Array<Record<string, unknown>> = [];
@@ -42,22 +43,38 @@ const makeFakePi = (reply: string, setModelError?: string) =>
           }
         }
       });
-    const spawner = ChildProcessSpawner.make(() =>
+    const spawner = ChildProcessSpawner.make((command) =>
       Effect.succeed(
-        ChildProcessSpawner.makeHandle({
-          // Outside the valid pid range, so PiRpc's process-group kill never lands.
-          pid: ChildProcessSpawner.ProcessId(999_999_999),
-          exitCode: Effect.never,
-          isRunning: Effect.succeed(true),
-          kill: () => Effect.void,
-          unref: Effect.succeed(Effect.void),
-          stdin: Sink.forEach(onStdin),
-          stdout: Stream.fromQueue(stdout),
-          stderr: Stream.empty,
-          all: Stream.empty,
-          getInputFd: () => Sink.drain,
-          getOutputFd: () => Stream.empty,
-        }),
+        ChildProcess.isStandardCommand(command) && command.args[0] === "config"
+          ? ChildProcessSpawner.makeHandle({
+              pid: ChildProcessSpawner.ProcessId(999_999_999),
+              exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+              isRunning: Effect.succeed(false),
+              kill: () => Effect.void,
+              unref: Effect.succeed(Effect.void),
+              stdin: Sink.drain,
+              stdout: Stream.succeed(
+                new TextEncoder().encode(encodeJsonLine({ value: modelPresets })),
+              ),
+              stderr: Stream.empty,
+              all: Stream.empty,
+              getInputFd: () => Sink.drain,
+              getOutputFd: () => Stream.empty,
+            })
+          : ChildProcessSpawner.makeHandle({
+              // Outside the valid pid range, so PiRpc's process-group kill never lands.
+              pid: ChildProcessSpawner.ProcessId(999_999_999),
+              exitCode: Effect.never,
+              isRunning: Effect.succeed(true),
+              kill: () => Effect.void,
+              unref: Effect.succeed(Effect.void),
+              stdin: Sink.forEach(onStdin),
+              stdout: Stream.fromQueue(stdout),
+              stderr: Stream.empty,
+              all: Stream.empty,
+              getInputFd: () => Sink.drain,
+              getOutputFd: () => Stream.empty,
+            }),
       ),
     );
     return { spawner, received };
@@ -86,5 +103,31 @@ it.effect("names the model and the disabled extensions when Pi cannot load it", 
     assert.include(error.detail, "Model not found: demo/demo-model");
     assert.include(error.detail, "--no-extensions");
     assert.isUndefined(pi.received.find((record) => record["type"] === "prompt"));
+  }),
+);
+
+it.effect("generates with an OhMyPi preset's main model", () =>
+  Effect.gen(function* () {
+    const pi = yield* makeFakePi("Update README", undefined, {
+      Cheap: { modelRoles: { default: "loem/z-ai/glm-5.2:high", task: "loem/kimi-k3" } },
+    });
+    const textGeneration = yield* makePiTextGeneration(
+      { enabled: true, binaryPath: "omp", launchArgs: "", customModels: [] },
+      {},
+    ).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, pi.spawner));
+
+    yield* textGeneration
+      .generateCommitMessage({
+        cwd: process.cwd(),
+        branch: "main",
+        stagedSummary: "M README.md",
+        stagedPatch: "diff --git a/README.md b/README.md",
+        modelSelection: createModelSelection(ProviderInstanceId.make("pi"), "preset:Cheap"),
+      })
+      .pipe(Effect.ignore);
+
+    const setModel = pi.received.find((record) => record["type"] === "set_model");
+    assert.equal(setModel?.["provider"], "loem");
+    assert.equal(setModel?.["modelId"], "z-ai/glm-5.2");
   }),
 );

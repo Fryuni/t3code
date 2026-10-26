@@ -52,7 +52,10 @@ function piProbeSpawner(version: string) {
   });
 }
 
-const piDiscoverySpawner = (inventory: unknown) =>
+const piDiscoverySpawner = (
+  inventory: unknown,
+  omp?: { readonly modelPresets: unknown; readonly configCalls: Array<string> },
+) =>
   Effect.gen(function* () {
     const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
     let stdinBuffer = "";
@@ -83,9 +86,15 @@ const piDiscoverySpawner = (inventory: unknown) =>
     );
     return ChildProcessSpawner.make((command) => {
       const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+      if (args[0] === "config") {
+        omp?.configCalls.push(args.join(" "));
+        return Effect.succeed(
+          processHandle({ stdout: encodeJsonLine({ value: omp?.modelPresets }) }),
+        );
+      }
       return Effect.succeed(
         args.includes("--version")
-          ? processHandle({ stdout: "pi 0.84.3\n" })
+          ? processHandle({ stdout: omp === undefined ? "pi 0.84.3\n" : "omp/18.5.1\n" })
           : ChildProcessSpawner.makeHandle({
               ...processHandle({}),
               exitCode: Effect.never,
@@ -142,6 +151,50 @@ describe("PiProvider", () => {
       assert.deepEqual(
         snapshot.models.map((model) => model.slug),
         ["default"],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("lists OhMyPi presets as models that start at the preset's thinking level", () =>
+    Effect.gen(function* () {
+      const configCalls: Array<string> = [];
+      const spawner = yield* piDiscoverySpawner(
+        {
+          models: [
+            { provider: "anthropic", id: "claude-opus", reasoning: true },
+            { provider: "openai", id: "gpt" },
+          ],
+        },
+        {
+          configCalls,
+          modelPresets: {
+            OpenAI: { modelRoles: { default: "openai/gpt" } },
+            Anthropic: { modelRoles: { default: "anthropic/claude-opus:low" } },
+            Broken: { modelRoles: { default: "" } },
+          },
+        },
+      );
+      const snapshot = yield* checkPiProviderStatus({ ...settings, binaryPath: "omp" }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
+      assert.deepEqual(configCalls, ["config get modelPresets --json"]);
+      assert.deepEqual(
+        snapshot.models.map((model) => [model.slug, model.subProvider]),
+        [
+          ["default", undefined],
+          ["preset:Anthropic", "Preset"],
+          ["preset:OpenAI", "Preset"],
+          ["anthropic/claude-opus", "anthropic"],
+          ["openai/gpt", "openai"],
+        ],
+      );
+      const thinking = snapshot.models[1]?.capabilities?.optionDescriptors?.[0];
+      assert.equal(thinking?.id, "thinking");
+      assert.deepEqual(
+        thinking?.type === "select"
+          ? thinking.options.filter((option) => option.isDefault).map((option) => option.id)
+          : [],
+        ["low"],
       );
     }).pipe(Effect.provide(NodeServices.layer)),
   );

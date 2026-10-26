@@ -9,6 +9,7 @@ import type { PiSettings } from "../settings.ts";
 
 import { makePiRpcConnection, parsePiModelSlug } from "./rpc.ts";
 import { buildPiRpcLaunch, resolvePiLaunchArgs } from "./mcpInjection.ts";
+import { parseOmpModelSelector, piPresetNameFromSlug, readOmpModelPresets } from "./presets.ts";
 import * as TextGenerationOperations from "@t3tools/provider-core/server/textGenerationOperations";
 
 const PI_TIMEOUT_MS = 180_000;
@@ -20,6 +21,40 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
   environment: NodeJS.ProcessEnv = process.env,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
+
+  const resolvePresetMainModel = Effect.fnUntraced(function* (
+    operation: TextGenerationError["operation"],
+    cwd: string,
+    presetName: string,
+  ) {
+    const presets = yield* readOmpModelPresets({
+      binaryPath: piSettings.binaryPath || "pi",
+      environment,
+      cwd,
+    }).pipe(
+      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      Effect.mapError(
+        (cause) => new TextGenerationError({ operation, detail: cause.message, cause }),
+      ),
+    );
+    const preset = presets.find((candidate) => candidate.name === presetName);
+    if (preset === undefined) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: `OhMyPi model preset '${presetName}' was not found or is malformed.`,
+      });
+    }
+    const selector = preset.modelRoles.default;
+    if (selector === undefined) return "default";
+    const parsed = parseOmpModelSelector(selector);
+    if (parsed === null) {
+      return yield* new TextGenerationError({
+        operation,
+        detail: `OhMyPi preset '${presetName}' main model '${selector}' must use provider/model format.`,
+      });
+    }
+    return `${parsed.provider}/${parsed.modelId}`;
+  });
 
   const runPiJson: TextGenerationOperations.Runner = Effect.fn("PiTextGeneration.runPiJson")(
     function* (request) {
@@ -49,13 +84,19 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         env: launch.env,
       }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
 
-      if (modelSelection.model !== "default") {
+      // Text generation runs one prompt with no subagents, so a preset only contributes its main model.
+      const presetName = piPresetNameFromSlug(modelSelection.model);
+      const model =
+        presetName === undefined
+          ? modelSelection.model
+          : yield* resolvePresetMainModel(operation, cwd, presetName);
+      if (model !== "default") {
         // Reject unusable custom slugs; silently using Pi's default would misreport the requested model.
-        const parsed = parsePiModelSlug(modelSelection.model);
+        const parsed = parsePiModelSlug(model);
         if (parsed === null) {
           return yield* new TextGenerationError({
             operation,
-            detail: `Pi model '${modelSelection.model}' must use provider/model format.`,
+            detail: `Pi model '${model}' must use provider/model format.`,
           });
         }
         yield* connection
@@ -67,7 +108,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
                 ? new TextGenerationError({
                     operation,
                     detail:
-                      `Pi rejected model '${modelSelection.model}': ${error.detail ?? "unknown error"}. ` +
+                      `Pi rejected model '${model}': ${error.detail ?? "unknown error"}. ` +
                       "If the model comes from a Pi extension or package, text generation cannot use it " +
                       "because it runs Pi with --no-extensions. Pick a built-in Pi model or one defined " +
                       "in Pi's models.json.",

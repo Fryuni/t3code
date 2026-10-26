@@ -71,6 +71,14 @@ import {
   resolvePiLaunchArgs,
 } from "./mcpInjection.ts";
 import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
+import {
+  ompPresetThinkingLevel,
+  parseOmpModelSelector,
+  encodeOmpConfigOverlay,
+  piPresetNameFromSlug,
+  resolveOmpPreset,
+  type OmpModelPreset,
+} from "./presets.ts";
 
 export const PI_PROVIDER = ProviderDriverKind.make("pi");
 const PI_DRIVER_KIND = PI_PROVIDER;
@@ -432,8 +440,15 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
     getCapabilities: Effect.fn("PiAdapter.getCapabilities")(function () {
       return Effect.succeed(PiProviderCapabilitiesV2);
     }),
-    planSelectionTransition: Effect.fn("PiAdapter.planSelectionTransition")(function () {
-      return Effect.succeed(turnScopedSelectionTransition());
+    planSelectionTransition: Effect.fn("PiAdapter.planSelectionTransition")(function (input) {
+      // A preset's role models live in the launch-time `--config` overlay.
+      const currentPreset = piPresetNameFromSlug(input.current.model);
+      const targetPreset = piPresetNameFromSlug(input.target.model);
+      return Effect.succeed(
+        currentPreset !== targetPreset
+          ? ({ type: "restart_session" } as const)
+          : turnScopedSelectionTransition(),
+      );
     }),
     openSession: Effect.fn("PiAdapterV2.openSession")(function* (
       input: ProviderAdapter.ProviderAdapterV2OpenSessionInput,
@@ -461,11 +476,41 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       if (!resolvedLaunchArgs.ok) {
         return yield* protocolError(resolvedLaunchArgs.message);
       }
+      const presetName = piPresetNameFromSlug(input.modelSelection.model);
+      let sessionPreset: OmpModelPreset | null = null;
+      let configOverlayPath: string | undefined;
+      if (presetName !== undefined) {
+        const resolved = yield* resolveOmpPreset({
+          binaryPath: options.settings.binaryPath || "pi",
+          environment: options.environment,
+          cwd,
+          name: presetName,
+        }).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          Effect.mapError((cause) => protocolError(cause.message)),
+        );
+        sessionPreset = resolved.preset;
+        const overlayDir = `${host.paths.providerStatusCacheDir.replace(/\\/g, "/")}/pi-presets`;
+        const overlayPath = `${overlayDir}/${input.providerSessionId.replace(/[^\w-]/g, "_")}.json`;
+        // JSON is valid YAML, which is what omp reads `--config` overlays as.
+        yield* provideCacheFs(
+          Effect.gen(function* () {
+            yield* fileSystem.makeDirectory(overlayDir, { recursive: true });
+            yield* fileSystem.writeFileString(
+              overlayPath,
+              encodeOmpConfigOverlay(resolved.overlay),
+            );
+          }),
+        );
+        yield* Effect.addFinalizer(() => fileSystem.remove(overlayPath).pipe(Effect.ignore));
+        configOverlayPath = overlayPath;
+      }
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
         environment: options.environment,
         mcpSession,
         extensionPath,
+        configOverlayPath,
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
       const scopedLaunch = yield* agentScope.wrap({
@@ -2242,7 +2287,59 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         return providerThread;
       });
 
+      const applyPresetSelection = Effect.fnUntraced(function* (
+        modelSelection: ModelSelection,
+        presetName: string,
+      ) {
+        if (sessionPreset?.name !== presetName) {
+          return yield* protocolError(
+            `OhMyPi preset '${presetName}' needs a session restart to apply`,
+          );
+        }
+        const thinking =
+          getModelSelectionStringOptionValue(modelSelection, "thinking") ??
+          ompPresetThinkingLevel(sessionPreset);
+        const defaultSelector = sessionPreset.modelRoles.default;
+        if (modelSelection.model !== appliedModel) {
+          // Without a `default` role, omp picks the main model itself, as `/modelpreset switch` does.
+          if (defaultSelector !== undefined) {
+            const parsed = parseOmpModelSelector(defaultSelector);
+            if (parsed === null) {
+              return yield* protocolError(
+                `OhMyPi preset '${presetName}' main model '${defaultSelector}' must use provider/model format`,
+              );
+            }
+            const selectedModel = yield* request({
+              type: "set_model",
+              provider: parsed.provider,
+              modelId: parsed.modelId,
+            });
+            contextWindow = rememberModelContextWindow(selectedModel);
+          }
+          appliedModel = modelSelection.model;
+          const updatedAt = yield* DateTime.now;
+          sessionEntity = { ...sessionEntity, model: modelSelection.model, updatedAt };
+          yield* emit({
+            type: "provider_session.updated",
+            driver: PI_PROVIDER,
+            providerSession: sessionEntity,
+          });
+        }
+        if (
+          thinking !== undefined &&
+          thinking !== appliedThinking &&
+          PI_THINKING_LEVELS.has(thinking)
+        ) {
+          yield* request({ type: "set_thinking_level", level: thinking });
+          appliedThinking = thinking;
+        }
+      });
+
       const applySelection = Effect.fnUntraced(function* (modelSelection: ModelSelection) {
+        const selectedPreset = piPresetNameFromSlug(modelSelection.model);
+        if (selectedPreset !== undefined) {
+          return yield* applyPresetSelection(modelSelection, selectedPreset);
+        }
         const thinking = getModelSelectionStringOptionValue(modelSelection, "thinking");
         if (modelSelection.model === PI_INHERIT_MODEL_SLUG) {
           if (appliedModel !== null && baselineModel !== null) {
@@ -2339,12 +2436,18 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           ),
         getModelContextWindow: (selection) => {
           if (selection.instanceId !== options.instanceId) return undefined;
+          const presetDefault =
+            piPresetNameFromSlug(selection.model) === undefined
+              ? null
+              : parseOmpModelSelector(sessionPreset?.modelRoles.default ?? "");
           const slug =
             selection.model === PI_INHERIT_MODEL_SLUG
               ? baselineModel === null
                 ? undefined
                 : `${baselineModel.provider}/${baselineModel.modelId}`
-              : selection.model;
+              : presetDefault !== null
+                ? `${presetDefault.provider}/${presetDefault.modelId}`
+                : selection.model;
           return slug === undefined ? undefined : modelContextWindows.get(slug);
         },
         ensureThread: (threadInput) =>

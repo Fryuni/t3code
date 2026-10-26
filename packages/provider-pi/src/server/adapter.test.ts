@@ -428,6 +428,47 @@ const makeAdapter = Effect.fnUntraced(function* (
   }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
 });
 
+const OMP_CONFIG_VALUES: Record<string, unknown> = {
+  modelPresets: {
+    Anthropic: {
+      modelRoles: { default: "anthropic/claude-opus:high", task: "anthropic/claude-sonnet" },
+      defaultThinkingLevel: "auto",
+    },
+  },
+  modelRoles: { default: "openai/gpt", designer: "openai/gpt-mini" },
+};
+
+/** Answers `omp config get <key> --json` and hands every other spawn to the fake Pi. */
+const makeOmpPresetAdapter = (fake: FakePi) => {
+  const spawner = ChildProcessSpawner.make((command) => {
+    const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+    if (args[0] !== "config") return fake.spawner.spawn(command);
+    const stdout = new TextEncoder().encode(
+      encodeJsonLine({ key: args[2], value: OMP_CONFIG_VALUES[args[2] ?? ""] }),
+    );
+    return Effect.succeed(
+      ChildProcessSpawner.makeHandle({
+        pid: ChildProcessSpawner.ProcessId(FAKE_PID),
+        exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+        isRunning: Effect.succeed(false),
+        kill: () => Effect.void,
+        unref: Effect.succeed(Effect.void),
+        stdin: Sink.drain,
+        stdout: Stream.succeed(stdout),
+        stderr: Stream.empty,
+        all: Stream.empty,
+        getInputFd: () => Sink.drain,
+        getOutputFd: () => Stream.empty,
+      }),
+    );
+  });
+  return makePiAdapterV2({
+    instanceId: PI_INSTANCE_ID,
+    settings: { enabled: true, binaryPath: "omp", launchArgs: "", customModels: [] },
+    environment: {},
+  }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+};
+
 const openRuntime = Effect.fnUntraced(function* (
   fake: FakePi,
   model = "default",
@@ -1815,6 +1856,97 @@ describe("PiAdapterV2", () => {
       assert.equal(replayModel["modelId"], "grok-4.6");
       const resetLevel = yield* fake.takeRequest("set_thinking_level");
       assert.equal(resetLevel["level"], "medium");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("launches an OhMyPi preset with its own role overlay and main model", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const adapter = yield* makeOmpPresetAdapter(fake);
+      const runtime = yield* adapter.openSession({
+        threadId: THREAD_ID,
+        providerSessionId: SESSION_ID,
+        modelSelection: modelSelection("preset:Anthropic"),
+        runtimePolicy,
+      });
+      const args = fake.lastSpawn().args;
+      const overlayPath = args[args.indexOf("--config") + 1];
+      assert.isDefined(overlayPath);
+      const overlay = decodeJsonLine(
+        yield* (yield* FileSystem.FileSystem).readFileString(overlayPath!),
+      );
+      // Roles the preset leaves out are tombstoned so global roles cannot leak in.
+      assert.deepEqual(overlay, {
+        modelRoles: {
+          default: "anthropic/claude-opus:high",
+          designer: null,
+          task: "anthropic/claude-sonnet",
+        },
+        defaultThinkingLevel: "auto",
+      });
+
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Anthropic"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread, "preset:Anthropic");
+      const modelRequest = yield* fake.takeRequest("set_model");
+      assert.equal(modelRequest["provider"], "anthropic");
+      assert.equal(modelRequest["modelId"], "claude-opus");
+      const levelRequest = yield* fake.takeRequest("set_thinking_level");
+      assert.equal(levelRequest["level"], "high");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("fails a preset session that names a missing preset", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const adapter = yield* makeOmpPresetAdapter(fake);
+      const error = yield* adapter
+        .openSession({
+          threadId: THREAD_ID,
+          providerSessionId: SESSION_ID,
+          modelSelection: modelSelection("preset:Gone"),
+          runtimePolicy,
+        })
+        .pipe(Effect.flip);
+      assert.include(error.message, "preset 'Gone' was not found");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("restarts the session only when the selected preset changes", () =>
+    Effect.gen(function* () {
+      const adapter = yield* makeAdapter(yield* makeFakePi);
+      const sessionCapabilities = yield* adapter.getCapabilities();
+      const plan = (current: ModelSelection, target: ModelSelection) =>
+        adapter
+          .planSelectionTransition({
+            current,
+            target,
+            sessionCapabilities,
+          })
+          .pipe(Effect.map((result) => result.type));
+      const thinking = (model: string, value: string): ModelSelection => ({
+        ...modelSelection(model),
+        options: [{ id: "thinking", value }],
+      });
+      assert.equal(
+        yield* plan(modelSelection("preset:Anthropic"), modelSelection("preset:OpenAI")),
+        "restart_session",
+      );
+      assert.equal(
+        yield* plan(modelSelection("xai/grok-4.6"), modelSelection("preset:OpenAI")),
+        "restart_session",
+      );
+      assert.equal(
+        yield* plan(modelSelection("preset:OpenAI"), thinking("preset:OpenAI", "low")),
+        "apply_on_next_turn",
+      );
+      assert.equal(
+        yield* plan(modelSelection("xai/grok-4.6"), modelSelection("default")),
+        "apply_on_next_turn",
+      );
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
