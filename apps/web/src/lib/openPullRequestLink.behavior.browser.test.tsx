@@ -6,6 +6,7 @@ import {
   DEFAULT_SERVER_SETTINGS,
   EnvironmentId,
   ProjectId,
+  SourceControlProviderKind,
   ThreadId,
   type ServerConfig,
 } from "@t3tools/contracts";
@@ -124,7 +125,7 @@ function project(id: string, environmentId = remote, source = github): Environme
     createdAt: date,
     updatedAt: date,
     repositoryIdentity: {
-      provider: source.provider,
+      provider: SourceControlProviderKind.make(source.provider),
       canonicalKey: `${new URL(source.origin).host}/${source.repository}`,
       displayName: source.repository,
       webUrl: `${source.origin}/${source.repository}`,

@@ -289,11 +289,9 @@ function applyChangedFields(
 }
 
 /**
- * Carries one instance edit to other environments. Only the fields the edit
- * changed are copied onto each environment's own copy, so its paths and saved
- * secrets survive unless this edit touched them. An environment without the
- * instance, or with another driver under its id, is skipped; a driver's
- * default slot exists everywhere.
+ * Copies only the fields an instance edit changed onto each environment's own copy, so its paths
+ * and saved secrets survive. Environments without the instance, or with another driver under its
+ * id, are skipped; a driver's default slot exists everywhere.
  */
 export function planProviderInstanceSync(input: {
   readonly instanceId: ProviderInstanceId;

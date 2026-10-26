@@ -184,11 +184,9 @@ export function parseForgejoRemote(value: string) {
 }
 
 /**
- * The web URL a remote is configured with. git rewrites it through `url.<base>.insteadOf`
- * before `git remote` reports it, but fj resolves its host from the configured URL, so a web URL
- * that git pushes over an SSH alias still names the instance its login was added for, while the
- * alias names no login. Null unless the configured URL is HTTP: a shorthand only means
- * something after git rewrites it.
+ * The remote's configured web URL. `git remote` reports it after `insteadOf` rewriting, but fj
+ * resolves its host from the configured URL, which names the login's instance where an SSH alias
+ * names none. Null unless it is HTTP: a shorthand only means something once git rewrites it.
  */
 export const readConfiguredRemoteUrl = (
   process: SourceControlHost.SourceControlHost["Service"]["process"],

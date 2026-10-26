@@ -11,16 +11,9 @@ import * as Result from "effect/Result";
 
 const SESSION_COOKIE_NAME = "t3_session";
 
-/**
- * Cookies are scoped by host but *not* by port, so any two servers that can be
- * live on one hostname at once need separate names — otherwise the second
- * clobbers the first's session and both sides see "Invalid session token
- * signature" until someone clears cookies by hand.
- *
- * A loopback listener advertised through `--public-url` counts as remote: the
- * proxy origin is the only host browsers see, and the internal port behind it
- * can move on any restart.
- */
+/** Cookies span ports; use separate names for servers sharing a hostname.
+ * A loopback listener behind `--public-url` counts as remote: browsers see only the
+ * proxy origin, and the port behind it can move on restart. */
 export function resolveSessionCookieName(input: {
   readonly mode: "web" | "desktop";
   readonly port: number;
@@ -32,11 +25,9 @@ export function resolveSessionCookieName(input: {
 }): string {
   const remoteReachable = !input.development && isRemoteReachableServer(input);
 
-  // Desktop keys on the port because two local instances share 127.0.0.1, but a
-  // proxied desktop backend has the web server's problem instead: the proxy
-  // origin outlives the port that DesktopApp's upward scan happened to pick.
-  // Its environment identity separates local instances just as well, so only
-  // this new combination leaves the port scheme.
+  // Desktop keys on the port because local instances share 127.0.0.1, but a proxied desktop's
+  // proxy origin outlives the port DesktopApp's upward scan picked. Its environment identity
+  // separates local instances too, so only this combination leaves the port scheme.
   const proxiedDesktop =
     input.mode === "desktop" &&
     remoteReachable &&

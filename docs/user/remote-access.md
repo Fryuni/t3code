@@ -80,7 +80,8 @@ machine's current LAN and Tailscale addresses and adds them as routes, so
 pairing once through T3 Connect is enough to use the LAN at home. When the
 machine's LAN address changes, for example after it joins another Wi-Fi network,
 the learned route follows it. The machine must allow network access for its LAN
-address to be learned. You can reorder a learned route, but not remove it; it
+address to be learned. The [background service](./background-service.md#local-network-access)
+allows it on private networks by default. You can reorder a learned route, but not remove it; it
 goes away with the route it was learned through, or when the machine stops
 reporting that address.
 
@@ -168,7 +169,10 @@ Connections** use this address. `t3 pair --tailscale` still uses the Tailscale
 address. [app.t3.codes](https://app.t3.codes) needs an `https://` address.
 
 You can set `T3CODE_PUBLIC_URL` in the server's environment instead; the flag
-takes precedence. This is how the desktop app picks it up. A desktop app opened
+takes precedence. This is how the desktop app picks it up. For the
+[background service](./background-service.md), put `T3CODE_PUBLIC_URL` and
+`T3CODE_HOST=127.0.0.1` in `service.env`, since the service otherwise listens on
+your local network. A desktop app opened
 from the dock, Start menu, or an app launcher does not read variables exported in
 a shell profile, so set it at the operating-system level or start the app from a
 terminal.

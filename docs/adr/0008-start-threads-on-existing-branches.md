@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -63,6 +63,16 @@ holds the chosen branch in local mode
 Upstream then moved the mobile branch rows onto a shared `SelectionRow`
 ([pingdotgg/t3code#23924](https://github.com/pingdotgg/t3code/pull/23924)), which
 receives that disabled rule.
+
+Upstream cut T3's agent instructions and tool copy
+([pingdotgg/t3code#24850](https://github.com/pingdotgg/t3code/pull/24850)), dropping
+the instructions' `t3_thread_launch` examples, including the fork's existing-branch
+one. Agents now learn about `createBranch: false` only from the tool's
+`workspaceStrategy` description. Upstream also capped React effects per file
+([pingdotgg/t3code#24964](https://github.com/pingdotgg/t3code/pull/24964)). The branch
+selector keeps the effect that clears a branch another worktree holds while
+**Create new branch** is off, with a lint exception, because that is known only once
+the paginated refs load.
 
 ## Continue on the current branch from the command palette
 

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -59,6 +59,11 @@ prompt props; the dialog passes the task prompt through the new ones. Upstream's
 [#22557](https://github.com/pingdotgg/t3code/pull/22557) deleted the toolkit integration
 test that held the fork's schedule-target assertions; the fork's unit tests in
 `OrchestratorMcpService.test.ts` keep that coverage.
+
+Upstream cut its tool copy by more than half
+([pingdotgg/t3code#24850](https://github.com/pingdotgg/t3code/pull/24850)). The schedule
+tools take upstream's short descriptions with one clause each about `target`, and
+`list_scheduled_tasks` no longer enumerates the fields a summary reports.
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target

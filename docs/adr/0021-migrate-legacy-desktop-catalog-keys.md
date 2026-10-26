@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24); the rename landed in `81493efb7`
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26); the rename landed in `81493efb7`
 
 On Linux, Electron selects its libsecret encryption key using the application's
 name. Changing the packaged name from `T3 Code (Alpha)` to `T3 Code (Beta)` leaves
@@ -34,7 +34,7 @@ and Linux ([pingdotgg/t3code#20907](https://github.com/pingdotgg/t3code/pull/209
 which also pinned the safeStorage name at startup, then reverted it
 ([pingdotgg/t3code#22219](https://github.com/pingdotgg/t3code/pull/22219)) because
 existing installs could no longer decrypt catalogs written under the current identity.
-Upstream at `27e0c684c` has neither, so the fork keeps this migration.
+Upstream at `6ffde5ba3` has neither, so the fork keeps this migration.
 
 Keep it when syncing upstream until upstream supports equivalent key migration
 or uses an encryption identity stable across product renames. Do not replace

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `27e0c684c` (2026-10-24)
+- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -35,6 +35,18 @@ layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
 code needs, such as Chromium for the web browser tests, but not Blacksmith runners
 or upstream's per-change job gating, so its `ci-changes` action is dropped as well.
+Upstream's shared task cache
+([pingdotgg/t3code#24693](https://github.com/pingdotgg/t3code/pull/24693)) needs its
+organization's token. `setup-ci-deps` keeps upstream's step, which only runs in
+`pingdotgg/t3code`, and the fork's server shards keep `vp run --filter t3 test` rather
+than upstream's cached `test:cached` runner
+([pingdotgg/t3code#24966](https://github.com/pingdotgg/t3code/pull/24966)). Upstream's
+file preview browser tests ([pingdotgg/t3code#21466](https://github.com/pingdotgg/t3code/pull/21466)
+and its follow-ups) render about five times slower on GitHub's runners than on upstream's
+8-core ones and time out, so `Test Web` runs one test file at a time with a 60-second test
+timeout. Their one-second `vi.waitFor` waits failed with two files sharing the browser.
+[AGENTS.md](../../AGENTS.md) notes the raised CI ceiling next to its timeout rule, which
+otherwise stays upstream's.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
 ([pingdotgg/t3code#22767](https://github.com/pingdotgg/t3code/pull/22767)) reads the same
 mapping locally. Knip found some kept scripts only through the deleted workflows, so
@@ -119,7 +131,7 @@ own downgrade check and `--allow-downgrade`.
 ## Known caveats
 
 - **Version scheme.** The core comes from `apps/server/package.json`, `0.1.2` at
-  upstream `27e0c684c`, so builds are `0.1.2-fork.*`. A `-fork.` suffix is a semver
+  upstream `6ffde5ba3`, so builds are `0.1.2-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
   upstream's stable `0.1.2`, while upstream labels newer code `0.1.3-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
