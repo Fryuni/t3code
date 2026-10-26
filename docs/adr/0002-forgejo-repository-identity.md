@@ -87,9 +87,11 @@ Modules that import the shared one directly only count or filter links.
 
 Upstream now records the web's shared PR summary observations where list,
 detail, and check reads land, keyed by project, repository, and number without
-the host. The fork's host dimension, recovered from the summary URL, went with the
-old hook. The key folds the repository with `normalizeSourceControlRepository`, so
-case-distinct mounts stay apart.
+the host. A project can read change requests on another host through another
+checkout or a public host, so the fork keeps the reference's host in that key.
+Legacy thread links recover theirs from the URL, which keeps the web port. The
+repository folds with `normalizeSourceControlRepository`, so case-distinct mounts
+stay apart.
 
 Drop this when upstream's Forgejo identity keeps the web port and the mount's
 case.

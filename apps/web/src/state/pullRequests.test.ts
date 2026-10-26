@@ -1,5 +1,5 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
-import { ProjectId, type PullRequestSummary } from "@t3tools/contracts";
+import { EnvironmentId, ProjectId, type PullRequestSummary } from "@t3tools/contracts";
 import { describe, expect, it } from "vite-plus/test";
 
 import {
@@ -8,6 +8,7 @@ import {
   observePullRequestChecks,
   observePullRequestMetadata,
   newestPullRequestSummary,
+  pullRequestSummaryKey,
   threadPullRequestLinkToSummary,
 } from "./pullRequests";
 
@@ -186,4 +187,27 @@ describe("pull request observations", () => {
     );
     expect(observedPullRequestSummary(state)).toBeNull();
   });
+});
+
+describe("pullRequestSummaryKey", () => {
+  const environmentId = EnvironmentId.make("local");
+  const reference = {
+    projectId: ProjectId.make("checkout"),
+    host: "forge.test:3000",
+    repository: "Forge/acme/repo",
+    number: 7,
+  };
+  const key = (overrides: Partial<typeof reference>) =>
+    pullRequestSummaryKey(environmentId, { ...reference, ...overrides });
+
+  it("shares a pull request however its host and owner/name are cased", () => {
+    expect(key({ host: "FORGE.TEST:3000", repository: "Forge/Acme/Repo" })).toBe(key({}));
+  });
+
+  it.each([{ host: "forge.test:4000" }, { host: "github.com" }, { repository: "forge/acme/repo" }])(
+    "keeps another host or mount apart: %j",
+    (difference) => {
+      expect(key(difference)).not.toBe(key({}));
+    },
+  );
 });

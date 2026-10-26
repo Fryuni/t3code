@@ -84,12 +84,16 @@ export function pullRequestListEntryToSummary(entry: PullRequestListEntry): Pull
   };
 }
 
-// Project ids pin the remote host; omit host so legacy, URL, and list references share entries.
-// The fold keeps case-distinct Forgejo mounts apart.
-function pullRequestSummaryKey(environmentId: EnvironmentId, reference: PullRequestRef): string {
+// A project can read change requests on other hosts, so the host stays in the key; legacy links
+// recover theirs from the URL. The fold keeps case-distinct Forgejo mounts apart.
+export function pullRequestSummaryKey(
+  environmentId: EnvironmentId,
+  reference: PullRequestRef,
+): string {
   return JSON.stringify([
     environmentId,
     reference.projectId,
+    reference.host?.trim().toLowerCase() ?? null,
     normalizeSourceControlRepository(reference.repository),
     reference.number,
   ]);
