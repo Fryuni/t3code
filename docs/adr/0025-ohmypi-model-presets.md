@@ -32,7 +32,10 @@ selection-transition plan, so switching has to work inside the live session.
 Presets without a `default` role are not listed, because T3 sets the main model
 from it, and one written as an alias rather than `provider/model` fails with a
 clear error. omp's `--smol`, `--slow`, and `--plan` flags and their
-`PI_*_MODEL` variables are runtime overrides that outrank any overlay. Text
+`PI_*_MODEL` variables are runtime overrides that outrank any overlay. `omp
+config get` cannot read `--config` overlays from the instance's launch
+arguments and returns same-name presets merged across config layers, where omp
+takes the highest layer's entry whole; both are accepted gaps. Text
 generation has no per-model filter, so a preset chosen there uses only its
 main model.
 

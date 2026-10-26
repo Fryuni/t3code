@@ -19,6 +19,11 @@ describe("parseOmpModelSelector", () => {
     });
   });
 
+  it("expands an unambiguous thinking abbreviation, as omp does", () => {
+    assert.equal(parseOmpModelSelector("openai/gpt:hi", new Set())?.thinking, "high");
+    assert.equal(parseOmpModelSelector("openai/gpt:m", new Set())?.modelId, "gpt:m");
+  });
+
   it("rejects aliases and bare model names it cannot hand to set_model", () => {
     assert.isNull(parseOmpModelSelector("@slow", new Set()));
     assert.isNull(parseOmpModelSelector("claude-opus:high", new Set()));

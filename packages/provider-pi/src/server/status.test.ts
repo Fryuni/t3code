@@ -186,11 +186,12 @@ describe("PiProvider", () => {
         {
           configCalls,
           modelPresets: {
-            OpenAI: { modelRoles: { default: "openai/gpt" } },
+            OpenAI: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "min" },
             Anthropic: { modelRoles: { default: "anthropic/claude-opus:low" } },
             Broken: { modelRoles: { default: "" } },
             NumericThinking: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: 42 },
             UnknownThinking: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "x" },
+            NoMainModel: { modelRoles: { task: "openai/gpt" } },
           },
         },
       );

@@ -16,27 +16,22 @@ import {
 const PI_PRESET_SLUG_PREFIX = "preset:";
 const PRESET_NAME_PATTERN = /^[a-zA-Z][\w-]*$/;
 const OMP_CONFIG_TIMEOUT_MS = 10_000;
-// omp accepts these for a preset's `defaultThinkingLevel`; `off` is only a selector suffix.
-const OMP_DEFAULT_THINKING_LEVELS = new Set([
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "auto",
-]);
-const OMP_THINKING_SUFFIXES = new Set([
-  "off",
-  "minimal",
-  "low",
-  "medium",
-  "high",
-  "xhigh",
-  "max",
-  "auto",
-  "inherit",
-]);
+const OMP_THINKING_LEVELS = ["inherit", "off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/** omp's thinking selector parsing: exact, or an unambiguous prefix of two or more characters. */
+function parseOmpThinkingLevel(value: string): string | undefined {
+  if (OMP_THINKING_LEVELS.includes(value)) return value;
+  if (value.length < 2) return undefined;
+  const matches = OMP_THINKING_LEVELS.filter((level) => level.startsWith(value));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+/** omp's rule for a preset's `defaultThinkingLevel`: `auto` or an effort, never `off`/`inherit`. */
+function parseOmpDefaultThinkingLevel(value: string): string | undefined {
+  if (value === "auto") return value;
+  const level = parseOmpThinkingLevel(value);
+  return level === "off" || level === "inherit" ? undefined : level;
+}
 
 const decodeOmpConfigOutput = Schema.decodeUnknownEffect(
   Schema.fromJsonString(Schema.Struct({ value: Schema.optional(Schema.Unknown) })),
@@ -105,14 +100,10 @@ function parseOmpModelPresets(value: unknown): ReadonlyArray<OmpModelPreset> {
       }
       modelRoles[role] = selector;
     }
-    const level = raw.defaultThinkingLevel;
+    const rawLevel = raw.defaultThinkingLevel;
+    const level = typeof rawLevel === "string" ? parseOmpDefaultThinkingLevel(rawLevel) : undefined;
     // T3 sets the main model from `default`; without one omp would pick a model T3 cannot see.
-    if (
-      !valid ||
-      modelRoles.default === undefined ||
-      (level !== undefined &&
-        (typeof level !== "string" || !OMP_DEFAULT_THINKING_LEVELS.has(level)))
-    ) {
+    if (!valid || modelRoles.default === undefined || (rawLevel !== undefined && !level)) {
       continue;
     }
     presets.push({ name, modelRoles, defaultThinkingLevel: level });
@@ -150,9 +141,7 @@ export function parseOmpModelSelector(
   const colon = selector.lastIndexOf(":");
   const suffix = colon === -1 ? undefined : selector.slice(colon + 1);
   const thinking =
-    suffix !== undefined && OMP_THINKING_SUFFIXES.has(suffix) && !knownModels.has(selector)
-      ? suffix
-      : undefined;
+    suffix !== undefined && !knownModels.has(selector) ? parseOmpThinkingLevel(suffix) : undefined;
   const model = thinking === undefined ? selector : selector.slice(0, colon);
   const separator = model.indexOf("/");
   if (model.startsWith("@") || separator <= 0 || separator === model.length - 1) return null;
