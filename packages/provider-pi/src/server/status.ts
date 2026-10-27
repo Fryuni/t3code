@@ -74,6 +74,7 @@ const PI_DEFAULT_MODEL: ServerProviderModel = {
 
 interface PiDiscovery extends PiDiscoveredCommands {
   readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly modelInventory: unknown;
   readonly authenticated: boolean;
 }
 
@@ -162,7 +163,6 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
   environment: NodeJS.ProcessEnv,
   launchArgs: ReadonlyArray<string>,
   cwd: string | undefined,
-  isOmp: boolean,
 ) {
   const connection = yield* makePiDiscoveryConnection(piSettings, environment, launchArgs, cwd);
   const stateData = yield* connection.request({ type: "get_state" });
@@ -172,22 +172,9 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
     .pipe(Effect.orElseSucceed(() => undefined));
   const discoveredModels = yield* Effect.fromResult(parseDiscoveredModels(modelsData, stateData));
   const { slashCommands, skills } = parsePiDiscoveredCommands(commandsData);
-  // Plain Pi has no `config` subcommand, so only ask binaries that identify as omp.
-  const presets = isOmp
-    ? yield* readOmpModelPresets({
-        binaryPath: piSettings.binaryPath || "pi",
-        environment,
-        cwd,
-        launchArgs,
-      }).pipe(
-        Effect.tapError((error) =>
-          Effect.logWarning("OhMyPi model preset discovery failed.", { errorTag: error._tag }),
-        ),
-        Effect.orElseSucceed(() => []),
-      )
-    : [];
   return {
-    models: [...ompPresetModels(presets, modelsData), ...discoveredModels],
+    models: discoveredModels,
+    modelInventory: modelsData,
     slashCommands: withPiBuiltinSlashCommands(slashCommands),
     skills,
     authenticated: discoveredModels.length > 0,
@@ -410,7 +397,6 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
     environment,
     resolvedLaunchArgs.args,
     cwd,
-    isOmpVersionOutput(versionOutput.stdout),
   ).pipe(Effect.timeoutOption(PI_RPC_DISCOVERY_TIMEOUT_MS), Effect.exit);
   if (Exit.isFailure(discoveryExit)) {
     yield* Effect.logWarning("Pi RPC discovery failed.", {
@@ -449,7 +435,25 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   }
 
   const discovery = discoveryExit.value.value;
-  const models = piModelsFromSettings(piSettings.customModels, discovery.models);
+  // Outside the RPC deadline so a slow read only loses the presets. Plain Pi has no `config`
+  // subcommand, so only binaries that identify as omp are asked.
+  const presets = isOmpVersionOutput(versionOutput.stdout)
+    ? yield* readOmpModelPresets({
+        binaryPath: piSettings.binaryPath || "pi",
+        environment,
+        cwd,
+        launchArgs: resolvedLaunchArgs.args,
+      }).pipe(
+        Effect.tapError((error) =>
+          Effect.logWarning("OhMyPi model preset discovery failed.", { errorTag: error._tag }),
+        ),
+        Effect.orElseSucceed(() => []),
+      )
+    : [];
+  const models = piModelsFromSettings(piSettings.customModels, [
+    ...ompPresetModels(presets, discovery.modelInventory),
+    ...discovery.models,
+  ]);
   return buildServerProvider({
     presentation: PI_PRESENTATION,
     enabled: piSettings.enabled,

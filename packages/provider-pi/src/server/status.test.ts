@@ -61,6 +61,8 @@ const piDiscoverySpawner = (
     readonly modelPresets: unknown;
     readonly configCalls: Array<string>;
     readonly stall?: Deferred.Deferred<void>;
+    /** Completed when models are requested; the reply then waits 25 test-clock seconds. */
+    readonly slowModels?: Deferred.Deferred<void>;
   },
 ) =>
   Effect.gen(function* () {
@@ -76,6 +78,10 @@ const piDiscoverySpawner = (
           stdinBuffer = stdinBuffer.slice(newline + 1);
           if (line.length === 0) continue;
           const request = decodeRpcRequest(line);
+          if (request.type === "get_available_models" && omp?.slowModels !== undefined) {
+            yield* Deferred.succeed(omp.slowModels, undefined);
+            yield* Effect.sleep("25 seconds");
+          }
           const data =
             request.type === "get_available_models"
               ? inventory
@@ -222,17 +228,21 @@ describe("PiProvider", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  it.effect("keeps discovered models when OhMyPi preset discovery stalls", () =>
+  it.effect("keeps discovered models when OhMyPi preset discovery stalls after slow RPC", () =>
     Effect.gen(function* () {
       const stall = yield* Deferred.make<void>();
+      const slowModels = yield* Deferred.make<void>();
       const spawner = yield* piDiscoverySpawner(
         { models: [{ provider: "openai", id: "gpt" }] },
-        { configCalls: [], modelPresets: {}, stall },
+        { configCalls: [], modelPresets: {}, stall, slowModels },
       );
       const fiber = yield* checkPiProviderStatus({ ...settings, binaryPath: "omp" }).pipe(
         Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.forkChild,
       );
+      // RPC discovery uses 25 of its 30 seconds before the preset read starts.
+      yield* Deferred.await(slowModels);
+      yield* TestClock.adjust("25 seconds");
       yield* Deferred.await(stall);
       yield* TestClock.adjust("10 seconds");
       const snapshot = yield* Fiber.join(fiber);
