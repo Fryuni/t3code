@@ -42,6 +42,7 @@ import {
   EMPTY_PI_MODEL_CAPABILITIES,
   thinkingCapabilitiesForPiModel,
 } from "./thinkingCapabilities.ts";
+import { isOmpVersionOutput, ompPresetModels, readOmpModelPresets } from "./presets.ts";
 import {
   parsePiDiscoveredCommands,
   withPiBuiltinSlashCommands,
@@ -73,6 +74,7 @@ const PI_DEFAULT_MODEL: ServerProviderModel = {
 
 interface PiDiscovery extends PiDiscoveredCommands {
   readonly models: ReadonlyArray<ServerProviderModel>;
+  readonly modelInventory: unknown;
   readonly authenticated: boolean;
 }
 
@@ -160,7 +162,7 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
   piSettings: PiSettings,
   environment: NodeJS.ProcessEnv,
   launchArgs: ReadonlyArray<string>,
-  cwd?: string,
+  cwd: string | undefined,
 ) {
   const connection = yield* makePiDiscoveryConnection(piSettings, environment, launchArgs, cwd);
   const stateData = yield* connection.request({ type: "get_state" });
@@ -172,6 +174,7 @@ const discoverPiViaRpc = Effect.fn("PiProviderStatus.discoverPiViaRpc")(function
   const { slashCommands, skills } = parsePiDiscoveredCommands(commandsData);
   return {
     models: discoveredModels,
+    modelInventory: modelsData,
     slashCommands: withPiBuiltinSlashCommands(slashCommands),
     skills,
     authenticated: discoveredModels.length > 0,
@@ -432,7 +435,25 @@ export const checkPiProviderStatus = Effect.fn("checkPiProviderStatus")(function
   }
 
   const discovery = discoveryExit.value.value;
-  const models = piModelsFromSettings(piSettings.customModels, discovery.models);
+  // Outside the RPC deadline so a slow read only loses the presets. Plain Pi has no `config`
+  // subcommand, so only binaries that identify as omp are asked.
+  const presets = isOmpVersionOutput(versionOutput.stdout)
+    ? yield* readOmpModelPresets({
+        binaryPath: piSettings.binaryPath || "pi",
+        environment,
+        cwd,
+        launchArgs: resolvedLaunchArgs.args,
+      }).pipe(
+        Effect.tapError((error) =>
+          Effect.logWarning("OhMyPi model preset discovery failed.", { errorTag: error._tag }),
+        ),
+        Effect.orElseSucceed(() => []),
+      )
+    : [];
+  const models = piModelsFromSettings(piSettings.customModels, [
+    ...ompPresetModels(presets, discovery.modelInventory),
+    ...discovery.models,
+  ]);
   return buildServerProvider({
     presentation: PI_PRESENTATION,
     enabled: piSettings.enabled,

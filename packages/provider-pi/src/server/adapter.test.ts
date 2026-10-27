@@ -165,6 +165,7 @@ interface FakePi {
   readonly failNextState: () => void;
   readonly deferNextLifecycle: (type: "switch_session" | "new_session" | "fork") => void;
   readonly deferNextModelSelection: () => void;
+  readonly failNextModelSelection: () => void;
   readonly queueModels: (models: ReadonlyArray<unknown>) => void;
   readonly vetoNextNewSession: () => void;
   readonly allRequests: () => ReadonlyArray<PiRpcRecord>;
@@ -190,6 +191,21 @@ const recordedIdleState = (sessionFile: string) => ({
   pendingMessageCount: 0,
 });
 
+const exitedHandle = (stdout: string) =>
+  ChildProcessSpawner.makeHandle({
+    pid: ChildProcessSpawner.ProcessId(FAKE_PID),
+    exitCode: Effect.succeed(ChildProcessSpawner.ExitCode(0)),
+    isRunning: Effect.succeed(false),
+    kill: () => Effect.void,
+    unref: Effect.succeed(Effect.void),
+    stdin: Sink.drain,
+    stdout: Stream.succeed(new TextEncoder().encode(stdout)),
+    stderr: Stream.empty,
+    all: Stream.empty,
+    getInputFd: () => Sink.drain,
+    getOutputFd: () => Stream.empty,
+  });
+
 const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
   const stdout = yield* Queue.unbounded<Uint8Array, Cause.Done>();
   const requests = yield* Queue.unbounded<PiRpcRecord>();
@@ -201,6 +217,7 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
   let deferState = false;
   let deferredStateRequest: PiRpcRecord | undefined;
   let failState = false;
+  let failModelSelection = false;
   let vetoSwitch = false;
   let vetoNewSession = false;
   let deferredLifecycle: string | undefined;
@@ -254,6 +271,10 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
         return base;
       case "get_available_models":
         return { ...base, data: { models } };
+      case "set_model":
+        if (!failModelSelection) return base;
+        failModelSelection = false;
+        return { ...base, success: false, error: "No API key for anthropic" };
       case "new_session": {
         const cancelled = vetoNewSession;
         vetoNewSession = false;
@@ -371,6 +392,9 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
     deferNextModelSelection: () => {
       deferredLifecycle = "set_model";
     },
+    failNextModelSelection: () => {
+      failModelSelection = true;
+    },
     queueModels: (value) => {
       models = value;
     },
@@ -426,6 +450,64 @@ const makeAdapter = Effect.fnUntraced(function* (
     settings: { enabled: true, binaryPath: "pi", launchArgs, customModels: [] },
     environment: {},
   }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+});
+
+const OMP_CONFIG_VALUES: Record<string, unknown> = {
+  modelPresets: {
+    Anthropic: {
+      modelRoles: { default: "anthropic/claude-opus:high", task: "anthropic/claude-sonnet" },
+      defaultThinkingLevel: "auto",
+    },
+    Auto: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "auto" },
+    Unleveled: { modelRoles: { default: "openai/gpt" } },
+  },
+  modelRoles: { default: "openai/gpt", designer: "openai/gpt-mini" },
+  defaultThinkingLevel: "low",
+};
+
+/** Answers `omp config get <key> --json` and hands every other spawn to the fake Pi. */
+const makeOmpPresetAdapter = (fake: FakePi) => {
+  const spawner = ChildProcessSpawner.make((command) => {
+    const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+    if (!args.includes("config")) return fake.spawner.spawn(command);
+    return Effect.succeed(
+      exitedHandle(
+        encodeJsonLine({ value: OMP_CONFIG_VALUES[args[args.indexOf("config") + 2] ?? ""] }),
+      ),
+    );
+  });
+  return makePiAdapterV2({
+    instanceId: PI_INSTANCE_ID,
+    settings: { enabled: true, binaryPath: "omp", launchArgs: "", customModels: [] },
+    environment: {},
+  }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+};
+
+const openOmpRuntime = Effect.fnUntraced(function* (
+  fake: FakePi,
+  model: string,
+  providerSessionId = SESSION_ID,
+) {
+  const adapter = yield* makeOmpPresetAdapter(fake);
+  const runtime = yield* adapter.openSession({
+    threadId: THREAD_ID,
+    providerSessionId,
+    modelSelection: modelSelection(model),
+    runtimePolicy,
+  });
+  const emitted = yield* Queue.unbounded<ProviderAdapter.ProviderAdapterV2Event>();
+  yield* runtime.events.pipe(
+    Stream.runForEach((event) => Queue.offer(emitted, event)),
+    Effect.forkScoped,
+  );
+  const takeEvent = (predicate: (event: ProviderAdapter.ProviderAdapterV2Event) => boolean) =>
+    Effect.gen(function* () {
+      while (true) {
+        const event = yield* Queue.take(emitted);
+        if (predicate(event)) return event;
+      }
+    });
+  return { runtime, takeEvent };
 });
 
 const openRuntime = Effect.fnUntraced(function* (
@@ -1465,13 +1547,14 @@ describe("PiAdapterV2", () => {
           ...fake,
           spawner: ChildProcessSpawner.make((command) =>
             Effect.acquireRelease(
-              fake.spawner
-                .spawn(command)
-                .pipe(
-                  Effect.map((child) =>
-                    ChildProcessSpawner.makeHandle({ ...child, exitCode: Deferred.await(exited) }),
-                  ),
+              fake.spawner.spawn(command).pipe(
+                Effect.map((child) =>
+                  ChildProcessSpawner.makeHandle({
+                    ...child,
+                    exitCode: Deferred.await(exited),
+                  }),
                 ),
+              ),
               () =>
                 Effect.sync(() => {
                   processReleased = true;
@@ -1815,6 +1898,157 @@ describe("PiAdapterV2", () => {
       assert.equal(replayModel["modelId"], "grok-4.6");
       const resetLevel = yield* fake.takeRequest("set_thinking_level");
       assert.equal(resetLevel["level"], "medium");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("switches an OhMyPi thread between presets and models through its own overlay", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime, takeEvent } = yield* openOmpRuntime(fake, "default");
+      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      const readOverlay = Effect.gen(function* () {
+        return decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath));
+      });
+      assert.deepEqual(yield* readOverlay, {});
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("default"),
+        runtimePolicy,
+      });
+      const settle = Effect.gen(function* () {
+        yield* fake.emit({ type: "agent_start" });
+        yield* fake.emit({ type: "agent_end", messages: [], willRetry: false });
+        yield* fake.emit({ type: "agent_settled" });
+        yield* takeEvent((event) => event.type === "turn.terminal");
+      });
+
+      yield* startTurn(runtime, providerThread, "preset:Anthropic");
+      const anthropicModel = yield* fake.takeRequest("set_model");
+      assert.deepEqual(
+        [anthropicModel["provider"], anthropicModel["modelId"]],
+        ["anthropic", "claude-opus"],
+      );
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "high");
+      // Roles the preset leaves out are tombstoned so global roles cannot leak in.
+      assert.deepEqual(yield* readOverlay, {
+        modelRoles: {
+          default: "anthropic/claude-opus:high",
+          designer: null,
+          task: "anthropic/claude-sonnet",
+        },
+        defaultThinkingLevel: "auto",
+      });
+      yield* settle;
+
+      yield* startTurn(runtime, providerThread, "preset:Auto", [], "Hello pi", undefined, 2);
+      const autoModel = yield* fake.takeRequest("set_model");
+      assert.deepEqual([autoModel["provider"], autoModel["modelId"]], ["openai", "gpt"]);
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "auto");
+      assert.deepEqual(yield* readOverlay, {
+        modelRoles: { default: "openai/gpt", designer: null },
+        defaultThinkingLevel: "auto",
+      });
+      yield* settle;
+
+      yield* startTurn(runtime, providerThread, "xai/grok-4.6", [], "Hello pi", undefined, 3);
+      const plainModel = yield* fake.takeRequest("set_model");
+      assert.deepEqual([plainModel["provider"], plainModel["modelId"]], ["xai", "grok-4.6"]);
+      assert.deepEqual(yield* readOverlay, {});
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("returns a preset without a thinking level to omp's configured level", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      // A resumed transcript's level must not stand in for omp's configured default.
+      fake.queueState({ thinkingLevel: "high" });
+      const { runtime, takeEvent } = yield* openOmpRuntime(fake, "preset:Anthropic");
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Anthropic"),
+        runtimePolicy,
+      });
+      yield* startTurn(runtime, providerThread, "preset:Anthropic");
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "high");
+      yield* fake.emit({ type: "agent_start" });
+      yield* fake.emit({ type: "agent_end", messages: [], willRetry: false });
+      yield* fake.emit({ type: "agent_settled" });
+      yield* takeEvent((event) => event.type === "turn.terminal");
+
+      yield* startTurn(runtime, providerThread, "preset:Unleveled", [], "Hello pi", undefined, 2);
+      assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "low");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("keeps the overlay file name short for long session ids", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      // Delegated-task thread ids embed request keys of up to 256 characters.
+      yield* openOmpRuntime(
+        fake,
+        "default",
+        ProviderSessionId.make(`provider-session:${"k".repeat(300)}`),
+      );
+      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      assert.isBelow(overlayPath.slice(overlayPath.lastIndexOf("/") + 1).length, 100);
+      assert.deepEqual(
+        decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath)),
+        {},
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("knows a preset's context window before its first turn", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.queueModels([
+        { provider: "anthropic", id: "claude-opus", contextWindow: 1_000_000 },
+        { provider: "openai", id: "gpt", contextWindow: 200_000 },
+      ]);
+      const { runtime } = yield* openOmpRuntime(fake, "preset:Anthropic");
+      yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Anthropic"),
+        runtimePolicy,
+      });
+      assert.equal(runtime.getModelContextWindow?.(modelSelection("preset:Auto")), 200_000);
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("clears a preset overlay whose switch failed when the thread switches back", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime } = yield* openOmpRuntime(fake, "xai/grok-4.6");
+      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("xai/grok-4.6"),
+        runtimePolicy,
+      });
+      fake.failNextModelSelection();
+      yield* startTurn(runtime, providerThread, "preset:Anthropic").pipe(Effect.flip);
+
+      yield* startTurn(runtime, providerThread, "xai/grok-4.6", [], "Hello pi", undefined, 2);
+      yield* fake.takeRequest("prompt");
+      assert.deepEqual(
+        decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath)),
+        {},
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("fails a turn on a missing preset without changing the model", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      const { runtime } = yield* openOmpRuntime(fake, "preset:Gone");
+      const providerThread = yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Gone"),
+        runtimePolicy,
+      });
+      const error = yield* startTurn(runtime, providerThread, "preset:Gone").pipe(Effect.flip);
+      assert.include(String(error.cause), "preset 'Gone' was not found");
+      assert.isUndefined(fake.allRequests().find((record) => record["type"] === "set_model"));
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
