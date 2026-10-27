@@ -78,6 +78,8 @@ import {
   OMP_AUTO_THINKING,
   piModelInventorySlugs,
   piPresetNameFromSlug,
+  piPresetSlug,
+  readOmpModelPresets,
   resolveOmpPreset,
 } from "./presets.ts";
 
@@ -578,6 +580,8 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       let appliedModel: string | null = null;
       // Tracked apart from the applied model: a failed set_model leaves the overlay already rewritten.
       let overlayPreset: string | null = null;
+      // Preset slug -> main model slug, so context lookups work before a preset's first turn.
+      let presetMainModels: Map<string, string> | null = null;
       let appliedPreset: {
         readonly slug: string;
         readonly mainModel: string;
@@ -2211,6 +2215,30 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
           }
         }
         contextWindow = rememberModelContextWindow(recordField(stateData, "model"));
+        // Plain Pi has no `config` subcommand; a preset selection means the binary is omp.
+        if (
+          presetMainModels === null &&
+          piPresetNameFromSlug(threadInput.modelSelection.model) !== undefined
+        ) {
+          const presets = yield* readOmpModelPresets({
+            binaryPath: options.settings.binaryPath || "pi",
+            environment: options.environment,
+            cwd,
+            launchArgs: resolvedLaunchArgs.args,
+          }).pipe(
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+            Effect.orElseSucceed(() => []),
+          );
+          const knownModels = new Set(modelContextWindows.keys());
+          presetMainModels = new Map(
+            presets.flatMap((preset) => {
+              const parsed = parseOmpModelSelector(preset.modelRoles.default ?? "", knownModels);
+              return parsed === null
+                ? []
+                : [[piPresetSlug(preset.name), `${parsed.provider}/${parsed.modelId}`] as const];
+            }),
+          );
+        }
         // Capture each baseline before applying selections so our own choices cannot become Pi defaults.
         if (baselineModel === null && appliedModel === null) {
           const stateModel = recordField(stateData, "model");
@@ -2317,6 +2345,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
             modelId: parsed.modelId,
           });
           contextWindow = rememberModelContextWindow(selectedModel);
+          presetMainModels?.set(modelSelection.model, `${parsed.provider}/${parsed.modelId}`);
           appliedPreset = {
             slug: modelSelection.model,
             mainModel: `${parsed.provider}/${parsed.modelId}`,
@@ -2463,7 +2492,7 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
               : piPresetNameFromSlug(selection.model) !== undefined
                 ? appliedPreset?.slug === selection.model
                   ? appliedPreset.mainModel
-                  : undefined
+                  : presetMainModels?.get(selection.model)
                 : selection.model;
           return slug === undefined ? undefined : modelContextWindows.get(slug);
         },

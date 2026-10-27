@@ -46,7 +46,7 @@ export interface OmpModelPreset {
   readonly defaultThinkingLevel: string | undefined;
 }
 
-function piPresetSlug(name: string): string {
+export function piPresetSlug(name: string): string {
   return `${PI_PRESET_SLUG_PREFIX}${name}`;
 }
 

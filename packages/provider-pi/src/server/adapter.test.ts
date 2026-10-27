@@ -483,11 +483,15 @@ const makeOmpPresetAdapter = (fake: FakePi) => {
   }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
 };
 
-const openOmpRuntime = Effect.fnUntraced(function* (fake: FakePi, model: string) {
+const openOmpRuntime = Effect.fnUntraced(function* (
+  fake: FakePi,
+  model: string,
+  providerSessionId = SESSION_ID,
+) {
   const adapter = yield* makeOmpPresetAdapter(fake);
   const runtime = yield* adapter.openSession({
     threadId: THREAD_ID,
-    providerSessionId: SESSION_ID,
+    providerSessionId,
     modelSelection: modelSelection(model),
     runtimePolicy,
   });
@@ -1973,6 +1977,41 @@ describe("PiAdapterV2", () => {
 
       yield* startTurn(runtime, providerThread, "preset:Unleveled", [], "Hello pi", undefined, 2);
       assert.equal((yield* fake.takeRequest("set_thinking_level"))["level"], "low");
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("keeps the overlay file name short for long session ids", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      // Delegated-task thread ids embed request keys of up to 256 characters.
+      yield* openOmpRuntime(
+        fake,
+        "default",
+        ProviderSessionId.make(`provider-session:${"k".repeat(300)}`),
+      );
+      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      assert.isBelow(overlayPath.slice(overlayPath.lastIndexOf("/") + 1).length, 100);
+      assert.deepEqual(
+        decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath)),
+        {},
+      );
+    }).pipe(Effect.scoped, Effect.provide(layerTest)),
+  );
+
+  it.effect("knows a preset's context window before its first turn", () =>
+    Effect.gen(function* () {
+      const fake = yield* makeFakePi;
+      fake.queueModels([
+        { provider: "anthropic", id: "claude-opus", contextWindow: 1_000_000 },
+        { provider: "openai", id: "gpt", contextWindow: 200_000 },
+      ]);
+      const { runtime } = yield* openOmpRuntime(fake, "preset:Anthropic");
+      yield* runtime.ensureThread({
+        threadId: THREAD_ID,
+        modelSelection: modelSelection("preset:Anthropic"),
+        runtimePolicy,
+      });
+      assert.equal(runtime.getModelContextWindow?.(modelSelection("preset:Auto")), 200_000);
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 
