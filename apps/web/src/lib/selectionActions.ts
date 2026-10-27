@@ -77,7 +77,7 @@ export function observeSelectionActions({
   };
   const cancel = () => {
     cancelPending();
-    pointerDown = gestureActive = false;
+    pointerDown = gestureActive = touch = false;
     pointer = null;
     dismissed = true;
     restorable = false;
