@@ -331,9 +331,6 @@ const makeFakePi: Effect.Effect<FakePi> = Effect.gen(function* () {
   };
   const spawner = ChildProcessSpawner.make((command) =>
     Effect.sync(() => {
-      if (ChildProcess.isStandardCommand(command) && command.args.includes("--version")) {
-        return exitedHandle("pi 0.84.3\n");
-      }
       if (ChildProcess.isStandardCommand(command)) {
         lastSpawn = {
           args: command.args,
@@ -472,7 +469,6 @@ const OMP_CONFIG_VALUES: Record<string, unknown> = {
 const makeOmpPresetAdapter = (fake: FakePi) => {
   const spawner = ChildProcessSpawner.make((command) => {
     const args = ChildProcess.isStandardCommand(command) ? command.args : [];
-    if (args.includes("--version")) return Effect.succeed(exitedHandle("omp/18.5.1\n"));
     if (!args.includes("config")) return fake.spawner.spawn(command);
     return Effect.succeed(
       exitedHandle(
@@ -1546,22 +1542,20 @@ describe("PiAdapterV2", () => {
         yield* openRuntime({
           ...fake,
           spawner: ChildProcessSpawner.make((command) =>
-            ChildProcess.isStandardCommand(command) && command.args.includes("--version")
-              ? fake.spawner.spawn(command)
-              : Effect.acquireRelease(
-                  fake.spawner.spawn(command).pipe(
-                    Effect.map((child) =>
-                      ChildProcessSpawner.makeHandle({
-                        ...child,
-                        exitCode: Deferred.await(exited),
-                      }),
-                    ),
-                  ),
-                  () =>
-                    Effect.sync(() => {
-                      processReleased = true;
-                    }),
+            Effect.acquireRelease(
+              fake.spawner.spawn(command).pipe(
+                Effect.map((child) =>
+                  ChildProcessSpawner.makeHandle({
+                    ...child,
+                    exitCode: Deferred.await(exited),
+                  }),
                 ),
+              ),
+              () =>
+                Effect.sync(() => {
+                  processReleased = true;
+                }),
+            ),
           ),
         });
         assert.deepStrictEqual(stopped, []);
@@ -1907,8 +1901,7 @@ describe("PiAdapterV2", () => {
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime, takeEvent } = yield* openOmpRuntime(fake, "default");
-      const args = fake.lastSpawn().args;
-      const overlayPath = args[args.indexOf("--config") + 1]!;
+      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
       const readOverlay = Effect.gen(function* () {
         return decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath));
       });
@@ -1987,8 +1980,7 @@ describe("PiAdapterV2", () => {
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime } = yield* openOmpRuntime(fake, "xai/grok-4.6");
-      const args = fake.lastSpawn().args;
-      const overlayPath = args[args.indexOf("--config") + 1]!;
+      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
       const providerThread = yield* runtime.ensureThread({
         threadId: THREAD_ID,
         modelSelection: modelSelection("xai/grok-4.6"),
@@ -2018,21 +2010,6 @@ describe("PiAdapterV2", () => {
       const error = yield* startTurn(runtime, providerThread, "preset:Gone").pipe(Effect.flip);
       assert.include(String(error.cause), "preset 'Gone' was not found");
       assert.isUndefined(fake.allRequests().find((record) => record["type"] === "set_model"));
-    }).pipe(Effect.scoped, Effect.provide(layerTest)),
-  );
-
-  it.effect("rejects a preset on plain Pi, which gets no config overlay", () =>
-    Effect.gen(function* () {
-      const fake = yield* makeFakePi;
-      const { runtime } = yield* openRuntime(fake);
-      assert.isFalse(fake.lastSpawn().args.includes("--config"));
-      const providerThread = yield* runtime.ensureThread({
-        threadId: THREAD_ID,
-        modelSelection: modelSelection("default"),
-        runtimePolicy,
-      });
-      const error = yield* startTurn(runtime, providerThread, "preset:Anthropic").pipe(Effect.flip);
-      assert.include(String(error.cause), "point to OhMyPi");
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

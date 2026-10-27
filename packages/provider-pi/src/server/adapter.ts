@@ -30,6 +30,7 @@ import * as Option from "effect/Option";
 import * as Duration from "effect/Duration";
 import * as Effect from "effect/Effect";
 import * as FileSystem from "effect/FileSystem";
+import * as Hash from "effect/Hash";
 import * as Fiber from "effect/Fiber";
 import * as Queue from "effect/Queue";
 import * as Schema from "effect/Schema";
@@ -74,7 +75,6 @@ import { PI_FILE_CHANGE_TOOLS } from "./mcpExtensionSource.ts";
 import {
   parseOmpModelSelector,
   encodeOmpConfigOverlay,
-  isOmpBinary,
   OMP_AUTO_THINKING,
   piModelInventorySlugs,
   piPresetNameFromSlug,
@@ -422,11 +422,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
   options: PiAdapterV2Options,
 ) {
   const spawner = yield* ChildProcessSpawner.ChildProcessSpawner;
-  const detectOmpBinary = yield* Effect.cached(
-    isOmpBinary(options.settings.binaryPath || "pi", options.environment).pipe(
-      Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
-    ),
-  );
   const agentScope = yield* AgentScope;
   const fileSystem = yield* FileSystem.FileSystem;
   const idAllocator = yield* IdAllocator.IdAllocatorV2;
@@ -476,32 +471,30 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
       if (!resolvedLaunchArgs.ok) {
         return yield* protocolError(resolvedLaunchArgs.message);
       }
-      // Every omp session gets its own `--config` overlay so a preset never touches omp's global config.
-      const overlayPath = (yield* detectOmpBinary)
-        ? `${host.paths.providerStatusCacheDir.replace(/\\/g, "/")}/pi-presets/${input.providerSessionId.replace(/[^\w-]/g, "_")}.json`
-        : undefined;
-      const writeOverlay = (overlay: Record<string, unknown>) =>
-        overlayPath === undefined
-          ? Effect.void
-          : Effect.gen(function* () {
-              const temporaryPath = `${overlayPath}.tmp`;
-              yield* fileSystem.makeDirectory(overlayPath.slice(0, overlayPath.lastIndexOf("/")), {
-                recursive: true,
-              });
-              // JSON is valid YAML; the rename keeps omp's file watcher from reading a partial write.
-              yield* fileSystem.writeFileString(temporaryPath, encodeOmpConfigOverlay(overlay));
-              yield* fileSystem.rename(temporaryPath, overlayPath);
-            });
-      if (overlayPath !== undefined) {
-        yield* provideCacheFs(writeOverlay({}));
-        yield* Effect.addFinalizer(() => fileSystem.remove(overlayPath).pipe(Effect.ignore));
-      }
+      // Each session gets its own OhMyPi config overlay so a preset never touches omp's global config.
+      const overlayDir = `${host.paths.providerStatusCacheDir.replace(/\\/g, "/")}/pi-presets`;
+      // Session ids embed thread and project ids; keep the file name well under NAME_MAX.
+      const overlayName = `${input.providerSessionId.replace(/[^\w-]/g, "_").slice(-64)}-${(Hash.string(input.providerSessionId) >>> 0).toString(36)}`;
+      const overlayPath = `${overlayDir}/${overlayName}.json`;
+      const writeOverlay = Effect.fnUntraced(function* (overlay: Record<string, unknown>) {
+        const temporaryPath = `${overlayPath}.tmp`;
+        // JSON is valid YAML; the rename keeps omp's file watcher from reading a partial write.
+        yield* fileSystem.writeFileString(temporaryPath, encodeOmpConfigOverlay(overlay));
+        yield* fileSystem.rename(temporaryPath, overlayPath);
+      });
+      // omp refuses to start when an overlay file is missing.
+      yield* provideCacheFs(
+        fileSystem
+          .makeDirectory(overlayDir, { recursive: true })
+          .pipe(Effect.andThen(writeOverlay({}))),
+      );
+      yield* Effect.addFinalizer(() => fileSystem.remove(overlayPath).pipe(Effect.ignore));
       const launch = buildPiRpcLaunch({
         launchArgs: resolvedLaunchArgs.args,
         environment: options.environment,
         mcpSession,
         extensionPath,
-        configOverlayPath: overlayPath,
+        configOverlay: { path: overlayPath, platform: yield* HostProcess.Platform },
         runtimeMode: input.runtimePolicy.runtimeMode,
       });
       const scopedLaunch = yield* agentScope.wrap({
@@ -2292,11 +2285,6 @@ export const makePiAdapterV2 = Effect.fn("makePiAdapterV2")(function* (
         modelSelection: ModelSelection,
         presetName: string,
       ) {
-        if (overlayPath === undefined) {
-          return yield* protocolError(
-            `Model preset '${presetName}' needs Pi's binary path to point to OhMyPi (omp)`,
-          );
-        }
         if (overlayPreset !== presetName || modelSelection.model !== appliedModel) {
           const resolved = yield* resolveOmpPreset({
             binaryPath: options.settings.binaryPath || "pi",

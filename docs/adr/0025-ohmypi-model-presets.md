@@ -19,8 +19,9 @@ the presets, not the discovered models.
 Applying a preset with omp's own `/modelpreset switch` writes roles to the
 user's global config, and every running omp process reloads it, so one thread
 would change all the others and the user's terminal. T3 instead starts every
-omp session with its own `--config` overlay file in T3's cache, empty until a
-turn selects a preset. Selecting one rewrites the overlay with the preset's
+Pi session with its own overlay file in T3's cache, listed last in
+`PI_CONFIG_FILES` (omp reads it like `--config`; plain Pi ignores it), empty
+until a turn selects a preset. Selecting one rewrites the overlay with the preset's
 roles, `null` tombstones for roles the preset leaves out (as `/modelpreset
 switch` clears them), and its thinking level, read fresh from omp; then the
 turn sets the main model and thinking over RPC. Selecting a plain model empties

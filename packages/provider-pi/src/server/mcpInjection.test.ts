@@ -22,6 +22,20 @@ const mcpSession = {
 };
 
 describe("pi T3 MCP injection", () => {
+  it("lists T3's OhMyPi overlay after inherited ones so it wins", () => {
+    const launch = buildPiRpcLaunch({
+      launchArgs: [],
+      environment: { PI_CONFIG_FILES: "/home/user/work.yml" },
+      mcpSession: undefined,
+      extensionPath: undefined,
+      configOverlay: { path: "/tmp/cache/pi-presets/session.json", platform: "linux" },
+    });
+    assert.equal(
+      launch.env.PI_CONFIG_FILES,
+      "/home/user/work.yml:/tmp/cache/pi-presets/session.json",
+    );
+  });
+
   it("always adds the permission bridge and configures MCP when available", () => {
     const resolvedArgs = resolvePiLaunchArgs(
       "--extension=/home/user/.pi/agent/extensions/demo.ts --session-dir=/tmp/pi-sessions --provider=anthropic --model=claude-sonnet --tools='' --name=-review --extension-flag=kept",

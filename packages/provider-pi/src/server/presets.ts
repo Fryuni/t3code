@@ -60,25 +60,6 @@ export function isOmpVersionOutput(output: string): boolean {
   return /^omp\/\d/m.test(output);
 }
 
-/** Whether the configured Pi binary is OhMyPi; any failure reads as plain Pi. */
-export const isOmpBinary = Effect.fn("PiPresets.isOmpBinary")(
-  function* (binaryPath: string, environment: NodeJS.ProcessEnv) {
-    const spawnCommand = yield* resolveSpawnCommand(binaryPath, ["--version"], {
-      env: environment,
-    });
-    const result = yield* spawnAndCollect(
-      binaryPath,
-      ChildProcess.make(spawnCommand.command, spawnCommand.args, {
-        env: environment,
-        shell: spawnCommand.shell,
-      }),
-    );
-    return result.code === 0 && isOmpVersionOutput(result.stdout);
-  },
-  Effect.timeoutOrElse({ duration: OMP_CONFIG_TIMEOUT_MS, orElse: () => Effect.succeed(false) }),
-  Effect.orElseSucceed(() => false),
-);
-
 function isStringRecord(input: unknown): input is Record<string, unknown> {
   return Predicate.isObject(input) && !Array.isArray(input);
 }
