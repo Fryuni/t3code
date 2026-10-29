@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vite-plus/test";
 
 import {
+  fillNewTaskWorkspaceBranch,
   resolveNewTaskBranchLabel,
   resolveNewTaskBranchWorktreePath,
   resolveNewTaskLocalWorkspaceSelection,
@@ -153,5 +154,87 @@ describe("resolveNewTaskWorktreeBranch", () => {
         branches,
       }),
     ).toBe("main");
+  });
+});
+
+describe("fillNewTaskWorkspaceBranch", () => {
+  const branches = [
+    { name: "origin/main", current: false, isDefault: true, isRemote: true },
+    { name: "feature", current: true, isDefault: false, worktreePath: "/repo-feature" },
+  ];
+  const base = {
+    branches,
+    projectCwd: "/repo",
+    worktreeDefaultSettled: true,
+  };
+
+  it("bases a new worktree on the default branch, even when only the remote has it", () => {
+    expect(
+      fillNewTaskWorkspaceBranch({
+        ...base,
+        selection: { mode: "worktree", branch: null, worktreePath: null },
+      }),
+    ).toEqual({ mode: "worktree", branch: "origin/main", worktreePath: null });
+  });
+
+  it("waits for the workspace default to settle before picking a base", () => {
+    const selection = { mode: "worktree", branch: null, worktreePath: null } as const;
+    expect(fillNewTaskWorkspaceBranch({ ...base, selection, worktreeDefaultSettled: false })).toBe(
+      selection,
+    );
+  });
+
+  it("follows the current checkout only for a local selection the user just chose", () => {
+    const selection = { mode: "local", branch: null, worktreePath: null } as const;
+    expect(fillNewTaskWorkspaceBranch({ ...base, selection })).toBe(selection);
+    expect(
+      fillNewTaskWorkspaceBranch({
+        ...base,
+        selection: { ...selection, followsCurrentCheckout: true },
+      }),
+    ).toEqual({
+      mode: "local",
+      branch: "feature",
+      worktreePath: "/repo-feature",
+      followsCurrentCheckout: true,
+    });
+  });
+
+  it("fills the current branch once refs arrive after local mode was chosen", () => {
+    const selection = {
+      mode: "local",
+      branch: null,
+      worktreePath: null,
+      followsCurrentCheckout: true,
+    } as const;
+    expect(fillNewTaskWorkspaceBranch({ ...base, branches: [], selection })).toBe(selection);
+    expect(fillNewTaskWorkspaceBranch({ ...base, selection })).toMatchObject({
+      branch: "feature",
+      worktreePath: "/repo-feature",
+    });
+  });
+
+  it("keeps an explicit branch", () => {
+    const selection = { mode: "worktree", branch: "release", worktreePath: null } as const;
+    expect(fillNewTaskWorkspaceBranch({ ...base, selection })).toBe(selection);
+  });
+
+  it("prefers the project's default base branch, even before refs list it", () => {
+    const selection = { mode: "worktree", branch: null, worktreePath: null } as const;
+    expect(
+      fillNewTaskWorkspaceBranch({ ...base, selection, defaultBaseBranch: "release/next" }),
+    ).toEqual({ ...selection, branch: "release/next" });
+  });
+
+  it("picks no base for a worktree that checks out an existing branch", () => {
+    const selection = { mode: "worktree", branch: null, worktreePath: null } as const;
+    expect(
+      fillNewTaskWorkspaceBranch({
+        ...base,
+        selection,
+        defaultBaseBranch: "dev",
+        createsBranch: false,
+      }),
+    ).toBe(selection);
   });
 });

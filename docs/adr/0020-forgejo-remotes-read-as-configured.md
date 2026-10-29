@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-17
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 A checkout can set its remote to the Forgejo web URL and let git push over SSH
 through `url.<base>.insteadOf`, for example `https://forge.example/` rewritten to

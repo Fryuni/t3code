@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity

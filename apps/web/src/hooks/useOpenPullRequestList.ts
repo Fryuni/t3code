@@ -4,7 +4,10 @@ import {
   pullRequestListPreferences,
   readPullRequestListPreferences,
 } from "../components/pullRequest/pullRequestListPreferences";
-import { buildProjectGroups, selectProjectGroupingSettings } from "../logicalProject";
+import {
+  buildProjectGroups,
+  selectProjectGroupingSettings,
+} from "@t3tools/client-runtime/state/project-grouping";
 import {
   readEnvironmentSupportsPullRequests,
   readProject,
@@ -14,7 +17,10 @@ import {
 } from "../state/entities";
 import { readEnvironmentConnected, usePrimaryEnvironmentId } from "../state/environments";
 import { useUiStateStore } from "../uiStateStore";
-import { useClientSettings, useLegacySidebarEnabled } from "./useSettings";
+import { useClientSettings } from "./useSettings";
+
+// The PR page filters by one project, so a sidebar filter of several opens it unscoped.
+const singleScopeKey = (keys: readonly string[]) => (keys.length === 1 ? keys[0]! : null);
 
 export function useOpenProjectPullRequestList() {
   const navigate = useNavigate();
@@ -45,8 +51,7 @@ export function useOpenPullRequestList() {
   const serverConfigs = useServerConfigs();
   const primaryEnvironmentId = usePrimaryEnvironmentId();
   const groupingSettings = useClientSettings(selectProjectGroupingSettings);
-  const legacySidebarEnabled = useLegacySidebarEnabled();
-  const sidebarScopeKey = useUiStateStore((store) => store.sidebarProjectScopeKey);
+  const sidebarScopeKeys = useUiStateStore((store) => store.sidebarProjectScopeKeys);
   const allProjectSnapshotsReady = useAllEnvironmentProjectSnapshotsReady();
   const groups = buildProjectGroups({
     projects,
@@ -71,13 +76,12 @@ export function useOpenPullRequestList() {
           : null;
     return { project, disabledReason };
   };
-  const { disabledReason } = resolveScope(legacySidebarEnabled ? null : sidebarScopeKey);
+  const { disabledReason } = resolveScope(singleScopeKey(sidebarScopeKeys));
 
   const openPullRequestList = () => {
-    const scopeKey = legacySidebarEnabled
-      ? null
-      : useUiStateStore.getState().sidebarProjectScopeKey;
-    const { project, disabledReason } = resolveScope(scopeKey);
+    const { project, disabledReason } = resolveScope(
+      singleScopeKey(useUiStateStore.getState().sidebarProjectScopeKeys),
+    );
     if (disabledReason !== null) {
       return;
     }
