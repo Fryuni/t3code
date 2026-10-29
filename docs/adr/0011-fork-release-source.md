@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -29,12 +29,14 @@ Upstream has no reason to support other release sources, and its release pipelin
 `server-linux-release.yml` is the fork's only release path. The fork keeps only
 `ci.yml` and `server-linux-release.yml` in `.github/workflows`; upstream's other
 workflows need its organization's runners, secrets, and stores, so syncs drop any
-upstream adds, such as `mobile-android-apk.yml`, along with scripts only they use,
-such as `.github/scripts/mirror-play-apk.cjs`. `ci.yml` itself keeps the fork's
+upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`, and
+`mobile-fingerprint-label.yml`, along with scripts only they use, such as
+`.github/scripts/mirror-play-apk.cjs`. `ci.yml` itself keeps the fork's
 layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
 code needs, such as Chromium for the web browser tests, but not Blacksmith runners
-or upstream's per-change job gating, so its `ci-changes` action is dropped as well.
+or upstream's per-change job gating, so its `ci-changes` action is dropped as well, nor
+its Blacksmith apt mirror setup (`setup-apt-mirrors`).
 Upstream's shared task cache
 ([pingdotgg/t3code#24693](https://github.com/pingdotgg/t3code/pull/24693)) needs its
 organization's token. `setup-ci-deps` keeps upstream's step, which only runs in
@@ -94,7 +96,9 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   fork reads `https://github.com/<repo>/releases/latest` the same way. Upstream's mobile
   update offer for outdated servers
   ([pingdotgg/t3code#21402](https://github.com/pingdotgg/t3code/pull/21402)) passes the
-  descriptor's `releaseRepository` to that check too.
+  descriptor's `releaseRepository` to that check too. Upstream moved both checks into one
+  `environmentReleaseCheckAtom` ([pingdotgg/t3code#25895](https://github.com/pingdotgg/t3code/pull/25895));
+  its reader returns the server's version and `releaseRepository` together.
 - When a new release needs a newer service launcher, upstream's preflight tells the user
   to reinstall that exact version
   ([pingdotgg/t3code#23541](https://github.com/pingdotgg/t3code/pull/23541)). The command
@@ -130,10 +134,10 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.2` at
-  upstream `6ffde5ba3`, so builds are `0.1.2-fork.*`. A `-fork.` suffix is a semver
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.4` at
+  upstream `58e60bf5e`, so builds are `0.1.4-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
-  upstream's stable `0.1.2`, while upstream labels newer code `0.1.3-nightly.*`. `cliReleaseChannelOf`
+  upstream's stable `0.1.4`, while upstream labels newer code `0.1.5-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an

@@ -731,7 +731,10 @@ const makeHarness = Effect.fn("makeThreadSettlementHarness")(function* (options:
     updateSettings,
     publishMerge: publishMergeOf("owner/repository"),
     publishMergeOf,
-    layer: ThreadSettlementService.layer.pipe(Layer.provide(layerDependencies)),
+    layer: Layer.effect(
+      ThreadSettlementService.ThreadSettlementServiceV2,
+      ThreadSettlementService.make,
+    ).pipe(Layer.provide(layerDependencies)),
   };
 });
 

@@ -40,6 +40,7 @@ import {
 import { renderTerminalQrCode } from "../startupAccess.ts";
 
 import packageJson from "../../package.json" with { type: "json" };
+import { buildPairingAppLink } from "@t3tools/shared/remote";
 
 const layerCliRuntime = Layer.mergeAll(NodeServices.layer, NetService.layer);
 
@@ -259,6 +260,7 @@ describe("t3 pair", () => {
 
         const token = /#token=([A-Z2-9]+)/.exec(output)?.[1];
         assert.isString(token);
+        assert.include(output, `App link: ${buildPairingAppLink(`${origin}/pair#token=${token}`)}`);
 
         const listed = yield* captureStdout(
           runCli(["auth", "pairing", "list", "--base-dir", baseDir, "--json"]),

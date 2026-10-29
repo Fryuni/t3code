@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -12,12 +12,21 @@ thread.
 
 The fork adds a project-only `defaultThreadBaseBranch` to
 [`ProjectSettingsOverrides`](../../packages/contracts/src/settings.ts), edited as
-**Default base branch** in a project's Source Control settings on web, desktop, and
+**Default base branch** in a project's Worktrees settings on web, desktop, and
 mobile. When a new branch will be created, the automatic base is the user's
 explicit choice, then this branch, then the repository default, then the checked-out
 branch. The web branch toolbar, the web new-thread handler, and the mobile new task
 flow apply it; nothing on the server changes, because clients already send the
 chosen `baseRef` on the launch strategy.
+
+Upstream gave worktrees their own settings page on web
+([pingdotgg/t3code#25651](https://github.com/pingdotgg/t3code/pull/25651)) and mobile
+([pingdotgg/t3code#25686](https://github.com/pingdotgg/t3code/pull/25686)), so the field
+moved there from Source Control, beside **Start from remote**. Upstream's mobile new task
+flow now derives a draft's base in `fillNewTaskWorkspaceBranch` instead of writing it from
+an effect ([pingdotgg/t3code#25706](https://github.com/pingdotgg/t3code/pull/25706)). The
+fork passes this branch to it, which replaced its own `resolveAutomaticWorktreeBaseBranch`,
+so the new task flow, its send path, and the pending drafts list agree.
 
 It is a project override, not a server-wide setting. A branch name only means
 something in one repository, so an environment default would send other projects'

@@ -30,15 +30,20 @@ const state = vi.hoisted(() => ({
   registry: undefined as AtomRegistry.AtomRegistry | undefined,
   projects: [] as ReadonlyArray<EnvironmentProject>,
 }));
-vi.mock(import("../rpc/atomRegistry"), async (original) => ({
-  ...(await original()),
-  appAtomRegistry: new Proxy({} as AtomRegistry.AtomRegistry, {
-    get: (_, key) => {
-      const value = Reflect.get(state.registry!, key);
-      return typeof value === "function" ? value.bind(state.registry) : value;
-    },
-  }),
-}));
+vi.mock(import("../rpc/atomRegistry"), async (original) => {
+  const actual = await original();
+  return {
+    ...actual,
+    appAtomRegistry: new Proxy({} as AtomRegistry.AtomRegistry, {
+      get: (_, key) => {
+        // Theme setup reads the registry on import, before a test supplies one.
+        const registry = state.registry ?? actual.appAtomRegistry;
+        const value = Reflect.get(registry, key);
+        return typeof value === "function" ? value.bind(registry) : value;
+      },
+    }),
+  };
+});
 // The primary environment, server configs, and project list derive from the connection
 // catalog, whose load can land mid-test and replace a seeded value. The tests seed plain atoms
 // instead, and stub the opener's click-time project read.
@@ -147,14 +152,14 @@ function thread(checkout: EnvironmentProject): Thread {
   });
 }
 
-function config(environmentId: EnvironmentId, pullRequests = true): ServerConfig {
+function config(environmentId: EnvironmentId): ServerConfig {
   return {
     environment: {
       environmentId,
       label: environmentId,
       platform: { os: "linux", arch: "x64" },
       serverVersion: "test",
-      capabilities: { repositoryIdentity: true, pullRequests, threadPullRequests: true },
+      capabilities: { repositoryIdentity: true, pullRequests: true, threadPullRequests: true },
     },
     auth: {
       policy: "loopback-browser",
@@ -321,31 +326,23 @@ describe("thread checkout preference", () => {
     expect(activePanel()).not.toHaveProperty("environmentId");
   });
 
-  it.each(["missing checkout", "unsupported server"])(
-    "keeps a thread link external with a %s instead of borrowing another environment",
-    async (reason) => {
-      using _setup = setup();
-      const own = project(
-        "own",
-        remote,
-        reason === "missing checkout" ? { ...github, origin: "https://elsewhere.test" } : github,
-      );
-      await using mounted = await mount({
-        projects: [project("foreign", local), own],
-        currentThread: thread(own),
-        configs: [config(local), config(remote, reason !== "unsupported server")],
-      });
-      const external = vi.fn();
-      using _open = vi.spyOn(window, "open").mockImplementation(external);
-      await act(async () => {
-        expect(mounted.openPr(click(), `${github.origin}/${github.path}`)).toBe(false);
-      });
-      expect(activePanel()).toBeNull();
-      expect(external).toHaveBeenCalledWith(
-        `${github.origin}/${github.path}`,
-        "_blank",
-        "noopener,noreferrer",
-      );
-    },
-  );
+  it("keeps a thread link external with a missing checkout instead of borrowing another environment", async () => {
+    using _setup = setup();
+    const own = project("own", remote, { ...github, origin: "https://elsewhere.test" });
+    await using mounted = await mount({
+      projects: [project("foreign", local), own],
+      currentThread: thread(own),
+    });
+    const external = vi.fn();
+    using _open = vi.spyOn(window, "open").mockImplementation(external);
+    await act(async () => {
+      expect(mounted.openPr(click(), `${github.origin}/${github.path}`)).toBe(false);
+    });
+    expect(activePanel()).toBeNull();
+    expect(external).toHaveBeenCalledWith(
+      `${github.origin}/${github.path}`,
+      "_blank",
+      "noopener,noreferrer",
+    );
+  });
 });

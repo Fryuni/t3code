@@ -32,7 +32,6 @@ function environment(
     connected?: boolean;
     loaded?: boolean;
     settings?: Partial<ServerSettings>;
-    projectOverrides?: boolean;
   } = {},
 ) {
   return {
@@ -46,9 +45,6 @@ function environment(
         ? null
         : {
             settings: { ...DEFAULT_SERVER_SETTINGS, ...options.settings },
-            environment: {
-              capabilities: { projectSettingsOverrides: options.projectOverrides !== false },
-            },
           },
   };
 }
@@ -429,8 +425,8 @@ describe("scoped settings writes", () => {
   });
 
   it("explains why the default base branch cannot be saved", () => {
-    const legacy = environment("Server", { projectOverrides: false });
-    expect(planProjectDefaultThreadBaseBranchPatch(checkout, [legacy], "dev")).toMatchObject({
+    const offline = environment("Server", { connected: false });
+    expect(planProjectDefaultThreadBaseBranchPatch(checkout, [offline], "dev")).toMatchObject({
       serverWrites: [],
       unavailableReason:
         "Connect the selected checkouts, or update their environments, to save this project setting.",
@@ -538,17 +534,13 @@ describe("scoped settings writes", () => {
     }
   });
 
-  it("refuses environment-wide keys and older servers at project scope", () => {
+  it("refuses environment-wide keys at project scope", () => {
     expect(
       planScopedSettingsPatch(project, environments, { enableProviderUpdateChecks: false }),
     ).toMatchObject({
       serverWrites: [],
       unavailableReason: "This setting is environment-wide and cannot be overridden by a project.",
     });
-    const legacy = environment("Server", { projectOverrides: false });
-    expect(
-      planScopedSettingsPatch(checkout, [laptop, legacy], { defaultAutoPull: true }),
-    ).toMatchObject({ serverWrites: [], unavailableReason: expect.stringContaining("update") });
   });
 
   it("clears overrides per member and removes an emptied entry", () => {
@@ -775,7 +767,6 @@ describe("partial object patches at project scope", () => {
           connection: { phase: "connected" },
           serverConfig: {
             settings,
-            environment: { capabilities: { projectSettingsOverrides: true } },
           },
         },
       ],

@@ -10,6 +10,8 @@ import {
   type OrchestrationV2Actor,
   type OrchestrationV2Command,
   type OrchestrationV2CreationSource,
+  type OrchestrationV2DelegatedFrom,
+  type OrchestrationV2LinkOrigin,
   type OrchestrationV2ProviderThreadNativeMetadata,
   type OrchestrationV2ThreadProjection,
   type ProviderDriverKind,
@@ -51,6 +53,7 @@ import * as IdAllocator from "@t3tools/provider-core/server/IdAllocator";
 import type * as Orchestrator from "./Orchestrator.ts";
 import { makeProviderFailure } from "@t3tools/provider-core/server/failure";
 import { randomUuidV4 } from "@t3tools/provider-core/server/randomUuid";
+import { DispatchModeLimit } from "./DispatchModeLimit.ts";
 import * as ThreadManagement from "./ThreadManagementService.ts";
 
 export type ThreadLaunchWorkspaceStrategy =
@@ -101,6 +104,10 @@ export interface ThreadLaunchInput {
   };
   readonly createdBy: OrchestrationV2Actor;
   readonly creationSource: OrchestrationV2CreationSource;
+  /** The linked environment this launch is for, if one asked for it. */
+  readonly linkOrigin?: OrchestrationV2LinkOrigin;
+  /** The parent there, when that environment's agent delegated this as a task. */
+  readonly delegatedFrom?: OrchestrationV2DelegatedFrom;
 }
 
 type PreparationInput = Pick<
@@ -121,6 +128,7 @@ export interface ThreadLaunchResult {
   readonly projection: OrchestrationV2ThreadProjection;
   /** The launch's last write (the initial message, else the thread claim) was accepted before this call. */
   readonly resumed: boolean;
+  readonly sequence?: number;
 }
 
 export class ThreadLaunchError extends Schema.TaggedError<ThreadLaunchError>()(
@@ -1016,6 +1024,10 @@ const make = Effect.gen(function* () {
                 ...(input.importedNativeThread === undefined
                   ? {}
                   : { importedNativeThread: input.importedNativeThread }),
+                ...(input.linkOrigin === undefined ? {} : { linkOrigin: input.linkOrigin }),
+                ...(input.delegatedFrom === undefined
+                  ? {}
+                  : { delegatedFrom: input.delegatedFrom }),
                 createdBy: input.createdBy,
                 creationSource: input.creationSource,
               });
@@ -1034,8 +1046,8 @@ const make = Effect.gen(function* () {
         if (project.id !== input.projectId) {
           return yield* mapError(input, "resolve-project", threadId)("Project identity changed.");
         }
-
         let runId: RunId | null = null;
+        let messageSequence: number | undefined;
         let messageWasAlreadyAccepted = false;
         const setupMessages = input.setupMessages ?? [];
         const launchMessages: Array<{
@@ -1110,6 +1122,16 @@ const make = Effect.gen(function* () {
               creationSource: input.creationSource,
             })
             .pipe(
+              // An agent's launch can land on a thread that a replay, or a concurrent
+              // launch with the same key, created with broader modes. The orchestrator
+              // refuses the message under the thread's lock; the user's own clients
+              // launch into their own drafts, whatever modes those hold.
+              input.createdBy === "agent"
+                ? Effect.provideService(DispatchModeLimit, {
+                    runtimeMode: input.runtimeMode,
+                    interactionMode: input.interactionMode,
+                  })
+                : (effect) => effect,
               Effect.mapError(mapError(input, "dispatch-message", threadId)),
               // Preparation is not scheduled once a later message fails, so the first run
               // fails visibly instead of waiting in preparing forever.
@@ -1120,6 +1142,7 @@ const make = Effect.gen(function* () {
           if (index > 0) continue;
           // A concurrent retry can read no receipt and still replay the dispatch.
           messageWasAlreadyAccepted ||= dispatched.replayed === true;
+          messageSequence = dispatched.sequence;
           const runCreated = dispatched.storedEvents.find(
             (stored) => stored.event.type === "run.created",
           );
@@ -1186,6 +1209,7 @@ const make = Effect.gen(function* () {
             input.initialMessage === undefined
               ? Option.isSome(launchReceipt) || claimed.replayed === true
               : messageWasAlreadyAccepted,
+          ...(messageSequence === undefined ? {} : { sequence: messageSequence }),
         };
       });
     },

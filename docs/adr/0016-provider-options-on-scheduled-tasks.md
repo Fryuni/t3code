@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -64,6 +64,18 @@ Upstream cut its tool copy by more than half
 ([pingdotgg/t3code#24850](https://github.com/pingdotgg/t3code/pull/24850)). The schedule
 tools take upstream's short descriptions with one clause each about `target`, and
 `list_scheduled_tasks` no longer enumerates the fields a summary reports.
+
+Upstream then folded `update_scheduled_task` into `schedule_task`, which updates a task
+when given its `scheduledTaskId`
+([pingdotgg/t3code#25423](https://github.com/pingdotgg/t3code/pull/25423)). The combined
+input keeps the fork's `target`, whose description says an update without one keeps the
+task's selection, and the handler's update branch passes it on, which upstream's leaves
+out. The service still takes separate create and update inputs. Upstream's
+[`agentContextBudget.json`](../../apps/server/src/provider/agentContextBudget.json) must equal
+the measured agent context, so it records the fork's MCP tool list, about 1 KB larger than
+upstream's with this `target` and [ADR 0008](0008-start-threads-on-existing-branches.md)'s
+`createBranch`. The fork drops the workflow that blocks growth, per
+[ADR 0011](0011-fork-release-source.md).
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target

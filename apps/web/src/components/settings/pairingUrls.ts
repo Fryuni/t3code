@@ -6,7 +6,7 @@ import {
   normalizeHostname,
 } from "@t3tools/shared/hostClassification";
 import { buildHostedPairingUrl } from "../../hostedPairing";
-import { setPairingTokenOnUrl } from "../../pairingUrl";
+import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
 
 // Tailscale assigns 100.64.0.0/10, which only resolves inside the tailnet.
 const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;

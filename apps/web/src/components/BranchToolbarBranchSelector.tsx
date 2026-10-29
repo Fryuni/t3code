@@ -19,7 +19,7 @@ import {
   type VcsRef,
 } from "@t3tools/contracts";
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
-import { ChevronDownIcon, GitBranchIcon } from "lucide-react";
+import { GitBranchIcon } from "lucide-react";
 import {
   useDeferredValue,
   useEffect,
@@ -513,7 +513,7 @@ export function BranchToolbarBranchSelector({
     currentGitBranch,
   });
 
-  // oxlint-disable-next-line t3code/react-effect-budget -- Whether another worktree holds the selected branch is known only once the paginated refs load, which no handler sees.
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- clears a selected branch another worktree holds, known only once the paginated refs load
   useEffect(() => {
     if (
       isSelectingWorktreeBase &&
@@ -527,6 +527,7 @@ export function BranchToolbarBranchSelector({
 
   // The server sets started threads' branches; defaulting here would detach the agent from its worktree.
   const threadStarted = serverSession !== null;
+  // oxlint-disable-next-line t3code/no-unreasoned-state-sync -- writes a default base branch to the server thread or draft once branches load for a new worktree thread
   useEffect(() => {
     if (
       threadStarted ||
@@ -699,7 +700,6 @@ export function BranchToolbarBranchSelector({
       onSelectItem={selectPickerItem}
       value={resolvedActiveBranch}
       query={branchQuery}
-      resultsQuery={deferredTrimmedBranchQuery}
       onQueryChange={setBranchQuery}
       hasNextPage={hasNextPage}
       isFetchingNextPage={isFetchingNextPage}
@@ -791,7 +791,6 @@ export function BranchToolbarBranchSelector({
                 className="w-full"
               />
             </ComposerContextLabel>
-            {displayMode !== "panel" ? <ChevronDownIcon className="size-3 shrink-0" /> : null}
           </ComboboxTrigger>
         </span>
         {displayMode === "panel" && prNumber !== undefined && prUrl !== undefined ? (

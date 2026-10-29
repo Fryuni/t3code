@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its
@@ -28,7 +28,10 @@ Upstream later set `subProvider` for OpenCode Zen and Go models and added
 `getProviderRowLabel`, which shows a sub-provider that already starts with the
 provider's name, such as "OpenCode Zen", without repeating the provider
 ([pingdotgg/t3code#17424](https://github.com/pingdotgg/t3code/pull/17424)). The web
-row passes this helper's label through `getProviderRowLabel`, so both apply.
+row passes this helper's label through `getProviderRowLabel`, so both apply. Upstream's
+spoken short names ([pingdotgg/t3code#24205](https://github.com/pingdotgg/t3code/pull/24205))
+shorten the display name but leave the secondary label alone, so mobile options carry
+both.
 
 Drop this divergence when upstream's pickers distinguish `bar` from `foo/bar`
 without it.

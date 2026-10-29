@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-26
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 OhMyPi (`omp`) is a Pi fork that T3 runs through the Pi provider. Its model
 presets assign models to every role (`default`, `task`, `plan`, `smol`, ...)

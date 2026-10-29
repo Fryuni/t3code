@@ -24,7 +24,7 @@ import { lazy, Suspense, useRef, useState, type ReactNode } from "react";
 
 import { useAddProjectTargets } from "../../hooks/useAddProjectTargets";
 import { useClientSettings } from "../../hooks/useSettings";
-import { resolveProjectGroupingMode } from "../../logicalProject";
+import { resolveProjectGroupingMode } from "@t3tools/client-runtime/state/project-grouping";
 import { useComposerDraftStore } from "../../composerDraftStore";
 import { releaseProjectDraftUploads } from "../../lib/composerDraftUploads";
 import { readLocalApi } from "../../localApi";

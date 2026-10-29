@@ -2,13 +2,15 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `6ffde5ba3` (2026-10-26)
+- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
 
 Opening the PR page without a project filter can load PRs across hundreds of
 projects, and finding the project in the filter can itself be cumbersome. The
 fork adds **Show project's PRs** beside **Project settings** in the thread and
-new-thread context menus, including sidebar thread and draft rows and the legacy
-sidebar. This gives users a direct path to find a PR and start a thread on it.
+new-thread context menus, including sidebar thread and draft rows. This gives users a
+direct path to find a PR and start a thread on it. Upstream deleted the legacy sidebar
+([pingdotgg/t3code#21039](https://github.com/pingdotgg/t3code/pull/21039)), and the fork's
+entry there went with it.
 
 The [shared navigation hook](../../apps/web/src/hooks/useOpenPullRequestList.ts)
 opens the existing PR page with the source thread or draft's exact project and
@@ -26,6 +28,16 @@ connected and supports PRs, since a menu can outlive its target and the PR page
 treats unavailable scopes as a request for a broader list. Connection state must
 be checked separately: project and capability data remain cached after disconnect.
 
+The same hook backs the sidebar's **Pull requests** button and the command palette's
+**Open pull requests**, which open the page scoped to the project the sidebar is
+filtered by. They resolve the filter's logical group to a member whose environment
+supports PRs, and are disabled with a reason while no member can, or while project
+snapshots are still loading and cannot yet show a saved filter is gone. Upstream lets
+the sidebar filter several projects at once
+([pingdotgg/t3code#25284](https://github.com/pingdotgg/t3code/pull/25284)), but the PR
+page filters by one, so a filter of several opens the page unscoped, as upstream does.
+
 When updating from upstream, preserve navigation to the exact project and
 environment before any list request. Retire this fork addition when upstream
-provides equivalent shortcuts in both the thread and new-thread menus.
+provides equivalent shortcuts in both the thread and new-thread menus, and the sidebar
+scoping when upstream's PR entry points follow the sidebar filter.
