@@ -258,12 +258,15 @@ describe("opening pull requests from the sidebar", () => {
     });
   });
 
-  it.each([null, "missing-project"])(
+  it.each([null, "missing-project", `${local}:/work/archived-project`])(
     "clears the saved scope when the sidebar scope is %s",
     async (scopeKey) => {
       using _setup = setup();
       useUiStateStore.getState().setSidebarProjectScopeKeys(scopeKey === null ? [] : [scopeKey]);
-      await using mounted = await mount([project("current-project")]);
+      await using mounted = await mount([
+        project("current-project"),
+        { ...project("archived-project"), archivedAt: "2026-10-02T00:00:00.000Z" },
+      ]);
 
       await mounted.openPullRequests();
 
