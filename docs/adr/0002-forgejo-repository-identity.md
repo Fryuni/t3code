@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -44,6 +44,12 @@ recognize its own remotes, and name the host its change requests are keyed under
 - `isChangeRequestInRepository` and `canReadChangeRequestOnHost` compare the mount
   above owner/name exactly. Upstream's version compares it as a case-insensitive
   prefix, which lets `/git` lend credentials to `/git/other`.
+- `parseCommitUrl` reads the repository and authority as `parseChangeRequestUrl`
+  does. Upstream added commit links, which open in the thread's Diff pane when
+  `isChangeRequestInRepository` accepts them
+  ([pingdotgg/t3code#19941](https://github.com/pingdotgg/t3code/pull/19941)). Its
+  `parseCommitPath` lower-cases the whole path, so the exact mount check above would
+  otherwise reject a commit on `/Forge` and accept it on `/forge`.
 
 Two helpers stay in [`shared/sourceControl.ts`](../../packages/shared/src/sourceControl.ts),
 next to upstream's `isSshRemoteUrl`. `normalizeSourceControlRepository` folds a
@@ -52,7 +58,11 @@ only owner/name. `foldRepositoryKey` applies the same fold to a `host/path` key.
 Server comparisons that upstream lower-cases use them. The fork's own
 `canonicalRepositoryKey(key, kind)` is gone. Callers use upstream's registry
 `canonicalRepositoryKey`, which rewrites Azure's spellings, and the PR page's
-project matching and grouping use `foldRepositoryKey`.
+project matching and grouping use `foldRepositoryKey`. Upstream moved the PR
+page's project filter into client-runtime's `pullRequestProjectFilter.ts` and
+shares it with mobile
+([pingdotgg/t3code#25219](https://github.com/pingdotgg/t3code/pull/25219)); the
+fold moved with it.
 
 GitManager's PR repository key reads the registry's parsed link. For a link with
 an authority it returns `authority/repository`, keeping the Forgejo port and mount,

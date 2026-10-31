@@ -73,6 +73,19 @@ function isOnProjectInstance(
   );
 }
 
+/** A server's identity includes its port, and a mount keeps its case, since either can tell two
+ * instances on one host apart. */
+function onInstance<Link extends object>(url: URL, route: RegExp, link: Link | null) {
+  const path = route.exec(url.pathname)?.[1];
+  return link === null || path === undefined
+    ? null
+    : {
+        ...link,
+        repository: normalizeSourceControlRepository(path, KIND),
+        authority: url.host.toLowerCase(),
+      };
+}
+
 export const definition = defineSourceControl({
   kind: KIND,
   label: "Forgejo",
@@ -98,22 +111,11 @@ export const definition = defineSourceControl({
     webUrl
       ? changeRequestUrlBelow(webUrl, `pulls/${number}`)
       : `${remoteWebOrigin(host, remoteUrl)}/${repository}/pulls/${number}`,
-  // A server's identity includes its port, so the link carries it.
-  parseChangeRequestUrl: (url) => {
-    const link = parseChangeRequestPath(url, CHANGE_REQUEST_PATH);
-    const path = CHANGE_REQUEST_PATH.exec(url.pathname)?.[1];
-    return link === null || path === undefined
-      ? null
-      : {
-          ...link,
-          // A mount keeps its case, since it can tell two instances on one host apart.
-          repository: normalizeSourceControlRepository(path, KIND),
-          authority: url.host.toLowerCase(),
-        };
-  },
+  parseChangeRequestUrl: (url) =>
+    onInstance(url, CHANGE_REQUEST_PATH, parseChangeRequestPath(url, CHANGE_REQUEST_PATH)),
   changeRequestUrlFromReferenceAutolink: () => null,
   commitUrl: (input) => buildCommitUrl(input, "commit"),
-  parseCommitUrl: (url) => parseCommitPath(url, COMMIT_PATH),
+  parseCommitUrl: (url) => onInstance(url, COMMIT_PATH, parseCommitPath(url, COMMIT_PATH)),
   changeRequestActions: new Set(["merge", "close", "reopen", "update-branch"] as const),
   // Neither `fj` nor `tea` checks out by number.
   checkoutCommand: ({ number, repositoryUrl }) =>
