@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-26
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 OhMyPi (`omp`) is a Pi fork that T3 runs through the Pi provider. Its model
 presets assign models to every role (`default`, `task`, `plan`, `smol`, ...)
@@ -39,6 +39,11 @@ arguments and returns same-name presets merged across config layers, where omp
 takes the highest layer's entry whole; both are accepted gaps. Text
 generation has no per-model filter, so a preset chosen there uses only its
 main model.
+
+Upstream's message for an unusable default model
+([pingdotgg/t3code#27513](https://github.com/pingdotgg/t3code/pull/27513)) gates
+`pi auth check` on Pi's version, which omp's numbering always passes; when omp
+cannot answer, the generic message shows.
 
 When updating from upstream, keep presets inside the Pi provider and keep the
 per-process overlay; do not switch presets by writing omp's global config.

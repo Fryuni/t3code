@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -29,9 +29,13 @@ Upstream has no reason to support other release sources, and its release pipelin
 `server-linux-release.yml` is the fork's only release path. The fork keeps only
 `ci.yml` and `server-linux-release.yml` in `.github/workflows`; upstream's other
 workflows need its organization's runners, secrets, and stores, so syncs drop any
-upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`, and
-`mobile-fingerprint-label.yml`, along with scripts only they use, such as
-`.github/scripts/mirror-play-apk.cjs`. `ci.yml` itself keeps the fork's
+upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`,
+`mobile-fingerprint-label.yml`, and `mobile-eas-preview-fork.yml`, along with scripts
+only they use, such as `.github/scripts/mirror-play-apk.cjs`. The exception is
+`scripts/generate-release-notes.ts`
+([pingdotgg/t3code#26893](https://github.com/pingdotgg/t3code/pull/26893)), which only
+upstream's `release.yml` runs: it stays, because
+[release.md](../operations/release.md) describes it and knip reaches it through its test. `ci.yml` itself keeps the fork's
 layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
 code needs, such as Chromium for the web browser tests, but not Blacksmith runners
@@ -63,7 +67,12 @@ tests for those links fail in the fork's CI. Upstream now builds single executab
 the exact `engines.node` from `package.json` and fails a native build on any other Node
 ([pingdotgg/t3code#23165](https://github.com/pingdotgg/t3code/pull/23165)), so the
 release workflow no longer pins its own `VP_NODE_VERSION`; Setup Vite+ installs that
-version.
+version. Linux CLI archives now carry `libatomic.so.1` and point the executable's
+RUNPATH at it with `patchelf`
+([pingdotgg/t3code#26912](https://github.com/pingdotgg/t3code/pull/26912),
+[pingdotgg/t3code#26932](https://github.com/pingdotgg/t3code/pull/26932)). GitHub's
+`ubuntu-24.04` image ships `libatomic1` and `patchelf`, so the release workflow needs no
+install step; upstream's `release-desktop.yml` adds one for its own runners.
 
 ## Decision
 
@@ -81,14 +90,17 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   moves to it and rejects `--channel`. An explicit `t3 update <version>` is still
   honored, but only fork versions can be downloaded.
 - Remote self-updates ([`selfUpdate.ts`](../../apps/server/src/cloud/selfUpdate.ts))
-  ignore the client's requested version and move to the fork's latest release.
+  ignore the client's requested version and move to the fork's latest release. They
+  skip upstream's Stable/Nightly crossing check
+  ([pingdotgg/t3code#26288](https://github.com/pingdotgg/t3code/pull/26288)), because
+  that release is always on the fork's own track.
 - The server advertises the source as the optional descriptor field
   `releaseRepository` ([`environment.ts`](../../packages/contracts/src/environment.ts)).
   Fork-aware clients stop offering upstream versions: the web's
   `resolveServerConfigVersionMismatch` ([`versionSkew.ts`](../../apps/web/src/versionSkew.ts))
-  reports no mismatch, upstream's sidebar "update everything" run
-  ([`updateEverything.logic.ts`](../../apps/web/src/components/sidebar/updateEverything.logic.ts))
-  never targets such servers and lists them in its confirmation as skipped because
+  reports no mismatch, upstream's sidebar "update everything" run and its fleet track
+  switch ([`updateEverything.logic.ts`](../../apps/web/src/components/sidebar/updateEverything.logic.ts))
+  never target such servers and list them in their confirmation as skipped because
   they update from their own releases, and mobile's **Check for updates** reads the
   fork's latest release. Upstream moved that check to the public release pages to stay
   clear of the anonymous API quota
@@ -125,7 +137,11 @@ Rejected alternatives:
 Re-targeting `server.updateServer` is a deliberate reinterpretation of the contract.
 Clients already adopt the result's `targetVersion` and correlate the launcher's update
 ID ([client acknowledgement](../internals/server-updates.md#client-acknowledgement)),
-so the result and the reconnect check are right. Progress labels show no version. The
+so the result and the reconnect check are right. The exception is a socket that drops
+after progress but before the result: clients then assume their requested version
+([pingdotgg/t3code#23532](https://github.com/pingdotgg/t3code/pull/23532)), so the
+update lands but the client reports that it could not confirm the resume. Progress
+labels show no version. The
 client's "server is behind" check no longer bounds the
 target, so the server refuses a release that is not newer than the one it runs, with
 "This server already runs the latest release, _version_." That is also what a user
@@ -134,14 +150,17 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.4` at
-  upstream `58e60bf5e`, so builds are `0.1.4-fork.*`. A `-fork.` suffix is a semver
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.5` at
+  upstream `a24ec905c`, so builds are `0.1.5-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
-  upstream's stable `0.1.4`, while upstream labels newer code `0.1.5-nightly.*`. `cliReleaseChannelOf`
+  upstream's stable `0.1.5`, while upstream labels newer code `0.1.6-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an
-  upstream stable release that can be older than the fork's code.
+  upstream stable release that can be older than the fork's code. Since upstream's
+  track switch, upstream clients on Nightly also show fork servers a "switch tracks"
+  note instead of an update button and count them as still on Stable; a switch
+  request reaches the re-target like any update.
 - **Protocol.** Upstream's stable `0.1.0` speaks orchestration protocol 2, so its
   clients and the store apps connect to fork servers and reach the re-target. Older
   protocol 1 clients still cannot connect: the server answers their `/ws` upgrade

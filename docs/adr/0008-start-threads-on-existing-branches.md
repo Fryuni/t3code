@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -29,8 +29,9 @@ a branch another worktree or the project checkout already has. The guard runs th
 before the thread exists, rather than in the git driver, which `ProviderTurnStartService`
 also calls to recreate a deleted worktree. Upstream's recovery
 ([pingdotgg/t3code#18359](https://github.com/pingdotgg/t3code/pull/18359)) checks out the
-branch when it still exists locally and otherwise creates it from the project's current
-branch.
+branch when it still exists locally, then recreates it from its pushed `origin` tip
+([pingdotgg/t3code#26758](https://github.com/pingdotgg/t3code/pull/26758)), and only then
+starts it from the project's current branch, the remote default, or a detached HEAD.
 
 Servers advertise the `existingBranchWorktree` environment capability. Older
 servers strip unknown keys from the launch strategy and would silently create a

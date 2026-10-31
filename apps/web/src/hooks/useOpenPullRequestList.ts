@@ -59,7 +59,11 @@ export function useOpenPullRequestList() {
     preferredEnvironmentId: primaryEnvironmentId,
   });
   const resolveScope = (scopeKey: string | null) => {
-    const group = scopeKey === null ? undefined : groups.find((group) => group.key === scopeKey);
+    // The sidebar reads an archived project's scope as all projects.
+    const group =
+      scopeKey === null
+        ? undefined
+        : groups.find((group) => group.key === scopeKey && !group.archived);
     const project = group
       ? [group.representative, ...group.members.map((member) => member.project)].find(
           (candidate) =>

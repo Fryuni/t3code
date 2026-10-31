@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-21
 - Tracking: [Fryuni/t3code#29](https://github.com/Fryuni/t3code/issues/29)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream opens PR links through a URL-based
 [shared opener](../../apps/web/src/lib/openPullRequestLink.ts), which selects the
@@ -28,7 +28,10 @@ whose `projectId` is tried first, and mobile passes the project a link came from
 this preference, so the fork dropped its own reordering when it synced onto upstream
 `6ffde5ba3` and keeps upstream's. The web opener does not pass `projectId` upstream,
 so the fork's remaining change is one line: beside a thread, the web passes that
-thread's project. Mobile, which now opens PR links in the app too, follows
+thread's project. Upstream later wrapped that resolution in an `openPullRequest`
+closure that commit links fall back to
+([pingdotgg/t3code#19941](https://github.com/pingdotgg/t3code/pull/19941)); the
+line lives in that closure. Mobile, which now opens PR links in the app too, follows
 upstream unchanged. Forgejo instance matching uses the shared rules from
 [ADR 0002](0002-forgejo-repository-identity.md), so checkout preference cannot
 collapse distinct ports or case-sensitive mounts.

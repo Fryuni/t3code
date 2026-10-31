@@ -152,6 +152,10 @@ describe("Forgejo instances mounted below a path", () => {
     ).toBe(true);
     const lowerMount = parse("https://forge.example/forge/team/repo/pulls/1");
     expect(onHost(project, lowerMount)).toBe(false);
+    const commit = (path: string) =>
+      definition.parseCommitUrl(new URL(`https://forge.example/${path}/commit/${"a".repeat(40)}`))!;
+    expect(definition.isChangeRequestInRepository(project, commit("Forge/Team/Repo"))).toBe(true);
+    expect(definition.isChangeRequestInRepository(project, commit("forge/team/repo"))).toBe(false);
   });
 
   it("lends a login only from the exact mount, not a parent one", () => {

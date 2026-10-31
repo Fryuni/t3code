@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -58,15 +58,17 @@ by staying out of it: with **Create new branch** off, nothing is auto-selected, 
 a new draft that asks for an existing branch is not seeded with the default, because
 the default names a base, not a branch to check out.
 
-A server without this key drops it from the override entry when it decodes the
+A server without this key drops it from the override entry when it applies the
 write, so the setting does not save for projects on such a server. Upstream's
 dropped-setting check ([pingdotgg/t3code#18334](https://github.com/pingdotgg/t3code/pull/18334))
 covers this write too, so web Settings reports that environment as not supporting
 the setting instead of leaving it silently unsaved. Override entries
-are replaced whole, so a client without the key, including upstream's published
-mobile app and app.t3.codes, also erases it whenever it saves another override for
-the same project. Keeping unknown keys on the server would break the
-clear-by-omission writes that remove overrides.
+are replaced whole, but since
+[pingdotgg/t3code#24472](https://github.com/pingdotgg/t3code/pull/24472) clients send back
+override keys they do not know and servers keep stored keys they do not know, while still
+dropping new ones. Upstream clients built with that change keep the branch when they save
+another override for the same project; older clients, such as upstream mobile builds from
+before it, still erase it.
 
 Mobile's server settings screen queues a setting saved while another write is pending
 and resends it over the same targets afterwards

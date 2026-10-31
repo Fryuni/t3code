@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#7](https://github.com/Fryuni/t3code/pull/7)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream works out whether a server is reachable from other machines by looking
 only at the address it binds. Its remote routes are binding a LAN or tailnet
@@ -11,8 +11,8 @@ interface, Tailscale Serve (which the server configures itself), desktop network
 access, and the T3 Connect relay. A user who runs their own proxy or tunnel
 (nginx, Caddy, Traefik, Cloudflare Tunnel, an ingress) to handle TLS and routing,
 while the server stays on `127.0.0.1`, gets loopback URLs in every startup link,
-QR code, and `t3 pair` output, plus a hint to restart with a reachable `--host`,
-which pushes them to expose the raw port. On desktop with network access off,
+QR code, and `t3 pair` output, plus hints to run `t3 up` or restart with a
+non-loopback host, which push them to expose the raw port. On desktop with network access off,
 Settings shows no pairing links at all. `T3CODE_DESKTOP_HTTPS_ENDPOINTS` is the
 closest upstream setting, but it only adds desktop endpoints: it does not change
 auth policy, cookie names, headless output, or `t3 pair`, it labels every endpoint
@@ -83,12 +83,17 @@ OS level or the app started from a terminal.
 
 Upstream then made a background service with no `T3CODE_HOST` listen on every
 interface but serve only private-network connections
-([pingdotgg/t3code#24588](https://github.com/pingdotgg/t3code/pull/24588)). A public URL
-still wins as the advertised address, and `t3 pair` drops the "local network only"
-note when one is recorded. Such a service's proxy must reach it over loopback or a
-private network; a proxy connecting from a public address needs `T3CODE_HOST` set.
+([pingdotgg/t3code#24588](https://github.com/pingdotgg/t3code/pull/24588)), and later
+made that opt-in ([pingdotgg/t3code#27996](https://github.com/pingdotgg/t3code/pull/27996)):
+`t3 service install` writes `T3CODE_LAN=false` for a new service, which stays on
+loopback until `t3 up --lan`, while a service installed before `T3CODE_LAN` keeps
+listening; `t3 serve --lan` opts a terminal server in. A public URL still wins as the
+advertised address, and `t3 pair` drops the "local network only" note when one is
+recorded. With local network access on, the proxy must reach the server over loopback
+or a private network; a proxy connecting from a public address needs `T3CODE_HOST` set.
 [Remote access](../user/remote-access.md#external-reverse-proxy) tells service users to
-set `T3CODE_HOST=127.0.0.1` beside the public URL.
+set `T3CODE_HOST=127.0.0.1` beside the public URL, which holds under either default;
+`t3 up` then reports that `T3CODE_HOST` overrides its network choice.
 
 There is no settings UI or desktop IPC for it. The public URL is a fact about the
 deployment, owned by whoever runs the proxy, so it is configured where the server

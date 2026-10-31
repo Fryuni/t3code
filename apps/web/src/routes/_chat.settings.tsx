@@ -152,7 +152,10 @@ function SettingsRouteLayout() {
       search={rawSearch}
       // Project provider overrides are stored per environment, so a project
       // keeps one; without one, "All environments" fans out provider edits.
-      singleEnvironment={pathname === "/settings/providers" && rawSearch.project !== undefined}
+      singleEnvironment={
+        (pathname === "/settings/providers" && rawSearch.project !== undefined) ||
+        pathname === "/settings/secrets"
+      }
       onChange={(next) => {
         // Send every axis so retain middleware recognizes "all" as an explicit target.
         void navigate({
