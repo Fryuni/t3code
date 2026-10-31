@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-29
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Before removing a worktree, storage cleanup re-reads its checked-out branch and keeps
 the worktree when the repository is gone or the branch moved. It recognizes a missing

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-11
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream binds `terminal.split` to `mod+d` and `terminal.splitVertical` to
 `mod+shift+d` while a terminal is focused. Outside macOS `mod` is Ctrl, and
@@ -21,7 +21,9 @@ so existing configs would keep `mod+d`. The late-default list in
 entry next to `alongside`: on one startup, an untouched old default is swapped in
 place for the new rule when its shortcut is free, and the migration id is
 recorded so a user who chooses `mod+d` again keeps it. Customized split
-shortcuts are left alone.
+shortcuts are left alone. The untouched-default check uses upstream's rule comparison,
+which matches equivalent spellings of a shortcut or `when` expression since
+[pingdotgg/t3code#25556](https://github.com/pingdotgg/t3code/pull/25556).
 
 When updating from upstream, keep the `mod+s` defaults, the two
 `terminal.split*` migration entries, and the `replaces` handling in startup sync.

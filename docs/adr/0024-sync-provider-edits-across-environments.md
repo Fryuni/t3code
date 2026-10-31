@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Most server settings can be edited once for **All environments**, but
 **Settings → Providers** always showed one environment. Users who run the same
@@ -20,6 +20,14 @@ copy. An omitted `config` clears only the fields the source had. Copying the who
 machine-specific binary paths and send redaction markers for secrets the target
 never saved. Disabling the instance a target uses for text generation resets
 that target's text generation model, as the source write does.
+
+Upstream later let an environment variable name a secret provider instead of
+holding a value
+([pingdotgg/t3code#27115](https://github.com/pingdotgg/t3code/pull/27115)). A
+changed variable is copied as that reference, which only resolves on a target
+with a secret provider of the same id; elsewhere the instance reports that it
+cannot read the variable, and a server without reference support stores it
+empty.
 
 This stays a bulk edit, as the rest of All environments is: offline
 environments keep their values and nothing is stored to replay later. Adding,

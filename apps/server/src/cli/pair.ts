@@ -513,7 +513,7 @@ export const pairCommand = Command.make("pair", {
         pairingBaseUrl = resolveDirectPairingBaseUrl(target.state);
         if (isLoopbackHost(new URL(pairingBaseUrl).hostname)) {
           notes.push(
-            "This URL is only reachable from this machine. Re-run with --tailscale, or restart the server with a reachable --host or --public-url for an external proxy.",
+            "This URL is only reachable from this machine. To reach it from your other devices, run `t3 up`, re-run with --tailscale, or restart the server with --public-url for an external proxy.",
           );
         } else if (target.state.privateNetworkOnly && target.state.publicUrl === undefined) {
           notes.push(

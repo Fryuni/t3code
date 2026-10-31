@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 The **Checkouts** section in a project's settings appeared only when the project
 already had more than one checkout. A project checked out on one machine gave no

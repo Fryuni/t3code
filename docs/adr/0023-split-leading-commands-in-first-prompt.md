@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -57,7 +57,10 @@ from the prompt.
 Upstream later reports a launch as resumed when a concurrent retry replays its
 first message ([pingdotgg/t3code#24601](https://github.com/pingdotgg/t3code/pull/24601)).
 The fork checks that on the first launch message only; later messages still fail the
-first run when they are rejected.
+first run when they are rejected. Upstream's `/side` and `/btw`
+([pingdotgg/t3code#26901](https://github.com/pingdotgg/t3code/pull/26901)) are handled by
+the client before the split and are refused on a new thread, so they never become setup
+messages.
 
 When updating from upstream, preserve the launch-time dispatch order, the
 preparation-failure queue hold, and the capability gate. Remove this if upstream adds an equivalent way to run setup

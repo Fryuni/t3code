@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `58e60bf5e` (2026-10-29)
+- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its
@@ -24,11 +24,11 @@ as `gpt-5.6` therefore never read as a provider. The web picker row, web picker 
 and mobile model options all use the helper, so a qualifier the user can see is
 also one they can search for.
 
-Upstream later set `subProvider` for OpenCode Zen and Go models and added
-`getProviderRowLabel`, which shows a sub-provider that already starts with the
-provider's name, such as "OpenCode Zen", without repeating the provider
-([pingdotgg/t3code#17424](https://github.com/pingdotgg/t3code/pull/17424)). The web
-row passes this helper's label through `getProviderRowLabel`, so both apply. Upstream's
+Upstream later set `subProvider` for OpenCode Zen and Go models
+([pingdotgg/t3code#17424](https://github.com/pingdotgg/t3code/pull/17424)). Its combined
+model and effort control ([pingdotgg/t3code#28057](https://github.com/pingdotgg/t3code/pull/28057))
+names the provider with the row's logo, shows only `subProvider` as the secondary text, and
+removed `getProviderRowLabel`. The web row shows this helper's label there instead. Upstream's
 spoken short names ([pingdotgg/t3code#24205](https://github.com/pingdotgg/t3code/pull/24205))
 shorten the display name but leave the secondary label alone, so mobile options carry
 both.
