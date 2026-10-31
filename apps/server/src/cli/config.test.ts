@@ -341,6 +341,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
           logWebSocketEvents: Option.none(),
           tailscaleServeEnabled: Option.none(),
           tailscaleServePort: Option.none(),
+          lan: Option.none(),
         },
         Option.none(),
       ).pipe(
@@ -377,6 +378,7 @@ it.layer(NodeServices.layer)("cli config resolution", (it) => {
         logWebSocketEvents: Option.none(),
         tailscaleServeEnabled: Option.none(),
         tailscaleServePort: Option.none(),
+        lan: Option.none<boolean>(),
       };
       const layer = Layer.mergeAll(
         ConfigProvider.layer(
