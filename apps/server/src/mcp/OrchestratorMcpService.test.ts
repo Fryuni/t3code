@@ -2408,6 +2408,19 @@ describe("OrchestratorMcpService provider resolution", () => {
             ),
         }),
       );
+    // Unbound tasks resolve a base branch, which these tests do not read.
+    const layerService = (upserts: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>) =>
+      OrchestratorMcpService.layer.pipe(
+        Layer.provide(Layer.mock(ThreadLaunchService.ThreadLaunchService)({})),
+        Layer.provide(
+          Layer.mock(GitVcsDriver.GitVcsDriver)({
+            resolvePrimaryRemoteName: () => Effect.succeed("origin"),
+            resolveDefaultBranchName: () => Effect.succeed(null),
+            resolveCommit: () => Effect.succeed({ commitSha: "abc123" }),
+          }),
+        ),
+        Layer.provide(layerDependencies(upserts)),
+      );
 
     it.effect("schedules a task with the options the agent passes on the thread's model", () =>
       Effect.gen(function* () {
@@ -2426,9 +2439,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             model: "gpt-5.4",
             options: [{ id: "reasoningEffort", value: "low" }],
           });
-        }).pipe(
-          Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies(upserts)))),
-        );
+        }).pipe(Effect.provide(layerService(upserts)));
       }),
     );
 
@@ -2456,11 +2467,7 @@ describe("OrchestratorMcpService provider resolution", () => {
               model: "gpt-5.4",
               options: [{ id: "reasoningEffort", value: "low" }],
             });
-          }).pipe(
-            Effect.provide(
-              layerOrchestratorService.pipe(Layer.provide(layerDependencies(upserts))),
-            ),
-          );
+          }).pipe(Effect.provide(layerService(upserts)));
         }),
     );
 
@@ -2484,9 +2491,7 @@ describe("OrchestratorMcpService provider resolution", () => {
               },
             ],
           );
-        }).pipe(
-          Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies(upserts)))),
-        );
+        }).pipe(Effect.provide(layerService(upserts)));
       }),
     );
 
@@ -2505,9 +2510,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             model: "gpt-5.4-mini",
             options: [{ id: "reasoningEffort", value: "high" }],
           });
-        }).pipe(
-          Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies(upserts)))),
-        );
+        }).pipe(Effect.provide(layerService(upserts)));
       }),
     );
 
@@ -2526,9 +2529,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             model: "gpt-5.4-mini",
             options: [{ id: "reasoningEffort", value: "low" }],
           });
-        }).pipe(
-          Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies(upserts)))),
-        );
+        }).pipe(Effect.provide(layerService(upserts)));
       }),
     );
 
@@ -2546,9 +2547,7 @@ describe("OrchestratorMcpService provider resolution", () => {
             instanceId: codexInstanceId,
             model: "gpt-5.4",
           });
-        }).pipe(
-          Effect.provide(layerOrchestratorService.pipe(Layer.provide(layerDependencies(upserts)))),
-        );
+        }).pipe(Effect.provide(layerService(upserts)));
       }),
     );
   });
