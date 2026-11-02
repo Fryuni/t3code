@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#7](https://github.com/Fryuni/t3code/pull/7)
-- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
+- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
 
 Upstream works out whether a server is reachable from other machines by looking
 only at the address it binds. Its remote routes are binding a LAN or tailnet
@@ -59,10 +59,9 @@ signed out by moving to loopback plus `--public-url`.
 [`withPublicUrlEndpoint`](../../apps/web/src/components/settings/pairingUrls.ts)
 builds the Settings endpoint with the shared `createAdvertisedEndpoint`. Its
 reachability label is a guess from the host name, using the shared
-`hostClassification` helpers: loopback (including any `127.` name, the same rule
-the server's auth check uses), tailnet (`100.64.0.0/10`, `*.ts.net`) as
-private-network, private addresses, `.local`, `.home.arpa`, and single-label names
-as LAN, and anything else as public. A split-horizon name that only resolves inside
+`hostClassification` helpers: loopback (including any `127.` name), tailnet
+(`100.64.0.0/10`, `*.ts.net`) as private-network, private addresses, `.local`,
+`.home.arpa`, and single-label names as LAN, and anything else as public. A split-horizon name that only resolves inside
 a network is labelled public; the label only changes the share hint. app.t3.codes
 can use the endpoint only when the URL is `https`. On desktop it also enables the
 pairing-link section and endpoint description while network access is off. In web
@@ -94,6 +93,16 @@ or a private network; a proxy connecting from a public address needs `T3CODE_HOS
 [Remote access](../user/remote-access.md#external-reverse-proxy) tells service users to
 set `T3CODE_HOST=127.0.0.1` beside the public URL, which holds under either default;
 `t3 up` then reports that `T3CODE_HOST` overrides its network choice.
+
+Upstream now decides the auth policy with `resolveServerAuthPolicy` and treats only
+`localhost` and loopback literals as loopback
+([pingdotgg/t3code#27197](https://github.com/pingdotgg/t3code/pull/27197)), so a public URL
+named `127.0.0.1.nip.io` now counts as remote-reachable. The Settings label still calls
+such a name loopback, since it resolves to the server's own machine. The fork's
+`isRemoteReachableServer` wraps that rule, and `resolveServerAuthPolicy` reads it, so the
+server's managed-policy check sees a public-URL server as remote-reachable too. A policy
+that refuses remote clients therefore refuses to start such a server, with upstream's
+"cannot listen on" message naming the loopback host.
 
 There is no settings UI or desktop IPC for it. The public URL is a fact about the
 deployment, owned by whoever runs the proxy, so it is configured where the server

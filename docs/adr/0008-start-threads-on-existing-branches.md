@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14)
-- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
+- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed

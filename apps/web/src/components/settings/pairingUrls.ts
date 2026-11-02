@@ -19,8 +19,8 @@ const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
  */
 function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["reachability"] {
   const host = normalizeHostname(hostname);
-  // The `127.` prefix mirrors the server's isRemoteReachableHost, so a URL the
-  // server treats as loopback for auth is never advertised as reachable here.
+  // A `127.` name such as `127.0.0.1.nip.io` resolves to this machine, so it is
+  // never advertised as reachable, even though the server's auth counts it as remote.
   if (isLocalLoopbackHost(host) || host.startsWith("127.")) {
     return "loopback";
   }

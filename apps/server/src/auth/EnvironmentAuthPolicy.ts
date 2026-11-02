@@ -1,4 +1,8 @@
-import { AuthEnvironmentMaintainScope, type ServerAuthDescriptor } from "@t3tools/contracts";
+import {
+  AuthEnvironmentMaintainScope,
+  type ServerAuthDescriptor,
+  type ServerAuthPolicy,
+} from "@t3tools/contracts";
 import * as Context from "effect/Context";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -14,23 +18,19 @@ export class EnvironmentAuthPolicy extends Context.Service<
   }
 >()("t3/auth/EnvironmentAuthPolicy") {}
 
+/** The auth policy a server started with `config` runs under. */
+export function resolveServerAuthPolicy(
+  config: Pick<ServerConfig.ServerConfig["Service"], "mode" | "host" | "publicUrl">,
+): ServerAuthPolicy {
+  if (isRemoteReachableServer(config)) return "remote-reachable";
+  return config.mode === "desktop" ? "desktop-managed-local" : "loopback-browser";
+}
+
 /** @public */
 export const make = Effect.gen(function* () {
   const config = yield* ServerConfig.ServerConfig;
   const serverEnvironment = yield* ServerEnvironment.ServerEnvironmentIdentity;
-  const isRemoteReachable = isRemoteReachableServer({
-    host: config.host,
-    publicUrl: config.publicUrl,
-  });
-
-  const policy =
-    config.mode === "desktop"
-      ? isRemoteReachable
-        ? "remote-reachable"
-        : "desktop-managed-local"
-      : isRemoteReachable
-        ? "remote-reachable"
-        : "loopback-browser";
+  const policy = resolveServerAuthPolicy(config);
 
   const bootstrapMethods: ServerAuthDescriptor["bootstrapMethods"] =
     policy === "desktop-managed-local"

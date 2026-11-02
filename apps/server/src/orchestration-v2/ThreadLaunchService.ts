@@ -475,7 +475,7 @@ const make = Effect.gen(function* () {
         }
         let startRef = input.workspaceStrategy.baseRef;
         let baseRefName = input.workspaceStrategy.baseRef;
-        const baseRemote =
+        const remote =
           existingBranch === null && input.workspaceStrategy.startFromOrigin === true
             ? yield* git
                 .resolveWorktreeBaseRemote({
@@ -484,12 +484,13 @@ const make = Effect.gen(function* () {
                 })
                 .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
             : null;
-        yield* setupTracker.stageStatus(threadId, "fetch", baseRemote ? "running" : "skipped");
-        if (baseRemote) {
+        yield* setupTracker.stageStatus(threadId, "fetch", remote !== null ? "running" : "skipped");
+        if (remote !== null) {
           const remoteBase = yield* git
             .fetchWorktreeBaseCommit({
               cwd: project.workspaceRoot,
               refName: input.workspaceStrategy.baseRef,
+              remote,
             })
             .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)));
           if (remoteBase !== null) {
@@ -506,7 +507,7 @@ const make = Effect.gen(function* () {
               threadId,
               "fetch",
               "warning",
-              `${baseRemote.remoteName}/${baseRemote.branchName} not found, using local branch`,
+              `${remote.remoteName}/${remote.branchName} not found, using local branch`,
             );
           }
         }
