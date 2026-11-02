@@ -556,6 +556,12 @@ describe("pull request toolkit handlers", () => {
         host: "forge.tailnet.test",
         url: "https://forge.tailnet.test/Owner/Other/pulls/7",
       });
+      const several = yield* harness.call("link_pull_requests", {
+        urls: ["https://forge.tailnet.test/Owner/Repo/pulls/127"],
+      });
+      expect(several.linked).toEqual([
+        { host: "forge.example.test", repository: "owner/repo", numbers: [127] },
+      ]);
     }),
   );
 

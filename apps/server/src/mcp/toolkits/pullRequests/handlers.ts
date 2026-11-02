@@ -442,10 +442,11 @@ const make = Effect.gen(function* () {
     link_pull_requests: writesThread((input) =>
       Effect.gen(function* () {
         const thread = yield* requireThread(PullRequestLinkFailedError, input.threadId);
+        const project = yield* projectOf(thread, PullRequestLinkFailedError);
         const targets: Array<ResolvedTarget> = [];
         const invalidUrls: Array<string> = [];
         for (const url of input.urls) {
-          const target = yield* resolveTarget({ url }, undefined).pipe(Effect.option);
+          const target = yield* resolveTarget({ url }, project).pipe(Effect.option);
           if (Option.isNone(target)) invalidUrls.push(url);
           else if (!targets.some((seen) => threadPullRequestKeysEqual(seen, target.value)))
             targets.push(target.value);
