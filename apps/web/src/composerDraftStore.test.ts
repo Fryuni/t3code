@@ -1451,6 +1451,7 @@ function modelReconciliationHarness(
   const shells = createEnvironmentThreadShellAtoms({
     catalogValueAtom,
     snapshotAtom: () => snapshotAtom,
+    hiddenThreadTagsAtom: () => Atom.make(null),
   });
   const selectedShell = shells.threadShellAtom({ environmentId, threadId: selectedThreadId });
   onTestFinished(registry.mount(selectedShell));

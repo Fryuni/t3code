@@ -23,6 +23,7 @@ import { HttpClient } from "effect/http";
 import {
   CLI_RELEASE_BASE_URL_ENV,
   CLI_RELEASE_LATEST_URL,
+  cliReleaseChannelOf,
   crossesReleaseTrack,
 } from "@t3tools/shared/cliRelease";
 import { compareSemverVersions } from "@t3tools/shared/semver";
@@ -31,6 +32,8 @@ import packageJson from "../../package.json" with { type: "json" };
 import * as ServerConfig from "../config.ts";
 import * as DesktopAppUpdate from "../desktopUpdate/DesktopAppUpdate.ts";
 import { databaseMigrationHead } from "../persistence/databaseMigrationHead.ts";
+import * as ManagedPolicy from "../policy/ManagedPolicy.ts";
+import { managedUpdateRefusal } from "../policy/managedUpdates.ts";
 import * as ProcessRunner from "../processRunner.ts";
 import { resolveLatestReleaseVersion } from "./latestRelease.ts";
 import {
@@ -45,7 +48,8 @@ import { decodeServicePreflightResult } from "./servicePreflight.ts";
 import * as ServiceLauncherClient from "./serviceLauncherClient.ts";
 import { isExactServiceVersion, SERVICE_LAUNCHER_PROTOCOL } from "./serviceProtocol.ts";
 
-const PREFLIGHT_TIMEOUT = Duration.seconds(30);
+// A staged runtime's cold start can take over a minute on a loaded, swapping host.
+const PREFLIGHT_TIMEOUT = Duration.minutes(3);
 
 export function resolveServerSelfUpdateCapability(input: {
   readonly desktopManaged: boolean;
@@ -125,6 +129,7 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* (
 ) {
   const serverConfig = yield* ServerConfig.ServerConfig;
   const desktopAppUpdate = yield* DesktopAppUpdate.DesktopAppUpdate;
+  const policy = yield* ManagedPolicy.ManagedPolicy;
   const launcher = yield* ServiceLauncherClient.ServiceLauncherClient;
   const runner = yield* ProcessRunner.ProcessRunner;
   const fs = yield* FileSystem.FileSystem;
@@ -159,6 +164,16 @@ export const make = Effect.fn("cloud.server_self_update.make")(function* (
   const update: ServerSelfUpdate["Service"]["update"] = Effect.fn(
     "cloud.server_self_update.update",
   )(function* (input, reportProgress = () => Effect.void, onHandoffAccepted = () => Effect.void) {
+    // A fork build ignores the requested version, so its channel says nothing about the install.
+    const policyRefusal = managedUpdateRefusal(
+      policy.document,
+      capability === "boot-service" && latestReleaseUrl === undefined
+        ? cliReleaseChannelOf(input.targetVersion.trim())
+        : undefined,
+    );
+    if (policyRefusal !== undefined) {
+      return yield* failWith(policyRefusal);
+    }
     if (capability === "desktop-managed") {
       const unsafeCrossing = input.channel === undefined ? null : crossesTrackUnsafely(input);
       if (unsafeCrossing !== null) return yield* failWith(unsafeCrossing);

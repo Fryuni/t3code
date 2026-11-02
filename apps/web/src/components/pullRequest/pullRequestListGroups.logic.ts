@@ -8,6 +8,7 @@ import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl"
 import type { PullRequestTabStatusSeed } from "~/components/RightPanelTabs";
 import { pullRequestSurfaceId } from "~/rightPanelStore";
 import {
+  comparePullRequestsByRecency,
   filterPullRequestsByInvolvement,
   groupPullRequestsByInvolvement,
   matchesPullRequestFilters,
@@ -69,9 +70,7 @@ export function pullRequestGroups({
         )
       : involvementEntries;
     if (text.length === 0) {
-      return narrowedEntries.toSorted((left, right) =>
-        right.updatedAt.localeCompare(left.updatedAt),
-      );
+      return narrowedEntries.toSorted(comparePullRequestsByRecency);
     }
     return narrowedEntries.filter(
       (entry) =>
