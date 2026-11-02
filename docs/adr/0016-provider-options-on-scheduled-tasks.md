@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
+- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -60,7 +60,9 @@ instance and model, with `[]` clearing them
 ([pingdotgg/t3code#16595](https://github.com/pingdotgg/t3code/pull/16595)). The shared
 resolver keeps the fork's inherited-selection input, so `update_scheduled_task` merges
 explicit options over the stored task's options, and a different model still starts from
-its defaults. Upstream's
+its defaults. Upstream later drops inherited options the model no longer advertises
+([pingdotgg/t3code#28133](https://github.com/pingdotgg/t3code/pull/28133)), so an update with
+a target also drops the stored task's stale options. Upstream's
 [#23040](https://github.com/pingdotgg/t3code/pull/23040) changed the option picker's
 prompt props; the dialog passes the task prompt through the new ones. Upstream's
 [#22557](https://github.com/pingdotgg/t3code/pull/22557) deleted the toolkit integration

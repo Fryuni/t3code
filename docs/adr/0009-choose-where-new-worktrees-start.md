@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
+- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -50,8 +50,11 @@ setting.
 Agent and scheduled launches do not adopt it. `t3_thread_launch` requires an
 explicit `baseRef`. `t3_worktree_handoff` defaults to the checkout's current branch,
 because it moves work already in progress. Unbound scheduled tasks created over MCP
-start a worktree from `main` with `startFromOrigin`; bound ones run in their thread.
-The web and mobile scheduled task forms prefill `main`. Reading the default on those paths would be new behavior the fork never had.
+start a worktree with `startFromOrigin` from the primary remote's default branch, falling
+back to `main` or `master`
+([pingdotgg/t3code#27983](https://github.com/pingdotgg/t3code/pull/27983)); bound ones run
+in their thread. The web and mobile scheduled task forms prefill `main`. Reading the
+project default on those paths would be new behavior the fork never had.
 
 It composes with [existing-branch mode](0008-start-threads-on-existing-branches.md)
 by staying out of it: with **Create new branch** off, nothing is auto-selected, and

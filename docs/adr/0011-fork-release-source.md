@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `a24ec905c` (2026-10-31)
+- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -93,7 +93,10 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   ignore the client's requested version and move to the fork's latest release. They
   skip upstream's Stable/Nightly crossing check
   ([pingdotgg/t3code#26288](https://github.com/pingdotgg/t3code/pull/26288)), because
-  that release is always on the fork's own track.
+  that release is always on the fork's own track. For the same reason, a managed policy
+  that allows only stable releases
+  ([pingdotgg/t3code#27197](https://github.com/pingdotgg/t3code/pull/27197)) does not
+  judge the requested version's channel; a policy that turns updates off still refuses.
 - The server advertises the source as the optional descriptor field
   `releaseRepository` ([`environment.ts`](../../packages/contracts/src/environment.ts)).
   Fork-aware clients stop offering upstream versions: the web's
@@ -150,10 +153,10 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.5` at
-  upstream `a24ec905c`, so builds are `0.1.5-fork.*`. A `-fork.` suffix is a semver
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.6` at
+  upstream `47f2c8d29`, so builds are `0.1.6-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
-  upstream's stable `0.1.5`, while upstream labels newer code `0.1.6-nightly.*`. `cliReleaseChannelOf`
+  upstream's stable `0.1.6`, while upstream labels newer code `0.1.7-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an
