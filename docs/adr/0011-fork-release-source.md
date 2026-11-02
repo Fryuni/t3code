@@ -49,8 +49,13 @@ than upstream's cached `test:cached` runner
 ([pingdotgg/t3code#24966](https://github.com/pingdotgg/t3code/pull/24966)). Upstream's
 file preview browser tests ([pingdotgg/t3code#21466](https://github.com/pingdotgg/t3code/pull/21466)
 and its follow-ups) render about five times slower on GitHub's runners than on upstream's
-8-core ones and time out, so `Test Web` runs one test file at a time with a 60-second test
-timeout. Their one-second `vi.waitFor` waits failed with two files sharing the browser.
+8-core ones and time out, so `Test Web` runs the browser tests under
+`src/components/files/` in a separate step, one file at a time. Their one-second
+`vi.waitFor` waits failed with two files sharing the browser. The rest of the web suite
+runs in parallel, as upstream's does, because one serial run of every browser file moved
+the heading in upstream's expand-at-bottom timeline test
+([pingdotgg/t3code#29166](https://github.com/pingdotgg/t3code/pull/29166)) 104 px, though
+the test passes alone and in parallel. Both steps use a 60-second test timeout.
 [AGENTS.md](../../AGENTS.md) notes the raised CI ceiling next to its timeout rule, which
 otherwise stays upstream's.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`

@@ -164,9 +164,14 @@ jobs:
           fi
 
       # GitHub-hosted runners render about five times slower than upstream's, so the file
-      # preview browser tests need the browser to themselves and a longer timeout.
+      # preview browser tests need the browser to themselves; the rest run in parallel as
+      # upstream's do. Both get a longer timeout.
       - name: Test
-        run: vp run --filter @t3tools/web test --maxWorkers=1 --testTimeout=60000
+        run: vp run --filter @t3tools/web test --testTimeout=60000 --exclude '**/components/files/**/*.browser.test.*'
+
+      - name: Test file previews
+        working-directory: apps/web
+        run: vp test run --project browser --maxWorkers=1 --testTimeout=60000 src/components/files/
 
       # Browser tests run source modules; this boots the production chunk graph.
       - name: Boot the built web client
