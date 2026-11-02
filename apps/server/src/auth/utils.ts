@@ -87,7 +87,7 @@ const isRemoteReachableHost = (host: string | undefined): boolean =>
  */
 export function isRemoteReachableServer(input: {
   readonly host: string | undefined;
-  readonly publicUrl: URL | undefined;
+  readonly publicUrl?: URL | undefined;
 }): boolean {
   return (
     isRemoteReachableHost(input.host) ||
