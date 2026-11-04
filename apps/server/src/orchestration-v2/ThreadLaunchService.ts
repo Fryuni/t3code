@@ -263,6 +263,8 @@ const make = Effect.gen(function* () {
         cwd,
         query: name,
         refKind,
+        // listRefs hides origin refs that have a same-named local branch by default.
+        includeMatchingRemoteRefs: true,
         refresh: cursor === 0,
         cursor,
       });

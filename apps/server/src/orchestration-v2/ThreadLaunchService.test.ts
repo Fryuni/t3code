@@ -252,7 +252,14 @@ function makeHarness(options: HarnessOptions = {}) {
         ((input) => {
           const matches = [
             ...(input.refKind === "remote" ? [] : localRefs),
-            ...(input.refKind === "local" ? [] : remoteRefs),
+            ...(input.refKind === "local"
+              ? []
+              : // Like the driver, hide origin refs with a same-named local branch unless asked.
+                remoteRefs.filter(
+                  (ref) =>
+                    input.includeMatchingRemoteRefs === true ||
+                    !localRefs.some((local) => `origin/${local.name}` === ref.name),
+                )),
           ].filter((ref) => ref.name.includes(input.query ?? ""));
           const cursor = input.cursor ?? 0;
           return Effect.succeed({
