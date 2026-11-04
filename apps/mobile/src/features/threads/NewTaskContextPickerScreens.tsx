@@ -345,7 +345,6 @@ export function NewTaskBranchPickerRouteScreen() {
               startFromOrigin: flow.startFromOrigin,
               onChangeStartFromOrigin: flow.setStartFromOrigin,
               createNewBranch: flow.createNewBranch,
-              onChangeCreateNewBranch: flow.setCreateNewBranch,
             }
           : undefined
       }
@@ -371,9 +370,8 @@ export function BranchPickerScreen(props: {
   readonly worktree?: {
     readonly startFromOrigin: boolean;
     readonly onChangeStartFromOrigin: (value: boolean) => void;
-    /** Scheduled tasks omit these: a recurring run would find its branch still checked out. */
+    /** Scheduled tasks omit this: a recurring run would find its branch still checked out. */
     readonly createNewBranch?: boolean;
-    readonly onChangeCreateNewBranch?: ((value: boolean) => void) | null;
   };
 }) {
   const searchRef = useRef<import("react-native").TextInputInstance>(null);
@@ -422,16 +420,10 @@ export function BranchPickerScreen(props: {
         Platform.OS === "android" ? "rounded-[28px]" : "rounded-2xl",
       )}
     >
-      {worktree.onChangeCreateNewBranch ? (
-        <ToggleRow
-          onValueChange={worktree.onChangeCreateNewBranch}
-          title="Create new branch"
-          value={!checksOutExistingBranch}
-        />
-      ) : null}
       {checksOutExistingBranch ? (
-        <Text className="bg-grouped-card px-4 pb-3 text-sm text-foreground-muted">
-          Select a local branch that is not already checked out.
+        <Text className="bg-grouped-card px-4 py-3 text-sm text-foreground-muted">
+          Select a branch that is not already checked out. A remote branch is checked out as a local
+          branch that tracks it.
         </Text>
       ) : (
         <ToggleRow

@@ -148,8 +148,10 @@ type NewTaskFlowContextValue = {
     selection: ComposerDraftWorkspaceSelection | undefined,
   ) => ComposerDraftWorkspaceSelection;
   readonly startFromOrigin: boolean;
-  /** False checks out the selected local branch itself in the new worktree. */
+  /** False checks out the selected branch itself in the new worktree. */
   readonly createNewBranch: boolean;
+  /** Whether the server can check out an existing branch in a new worktree. */
+  readonly canCheckoutWorktree: boolean;
   readonly pullRequestReference: string | undefined;
   readonly draftKey: string | null;
   readonly prompt: string;
@@ -191,11 +193,10 @@ type NewTaskFlowContextValue = {
     key: string | null,
     options?: ReadonlyArray<ProviderOptionSelection>,
   ) => void;
-  readonly setWorkspaceMode: (mode: WorkspaceMode) => void;
+  /** `createNewBranch` false checks out the selected branch in the new worktree. */
+  readonly setWorkspaceMode: (mode: WorkspaceMode, createNewBranch?: boolean) => void;
   readonly selectBranch: (branch: VcsRef) => void;
   readonly setStartFromOrigin: (value: boolean) => void;
-  /** Null when the server cannot check out an existing branch, which hides the toggle. */
-  readonly setCreateNewBranch: ((value: boolean) => void) | null;
   readonly buildPendingTaskMessage: (
     metadata: TurnCommandMetadata,
     options?: {
@@ -648,7 +649,7 @@ export function NewTaskFlowProvider(
     return false;
   };
 
-  const setWorkspaceMode = (mode: WorkspaceMode) => {
+  const setWorkspaceMode = (mode: WorkspaceMode, nextCreateNewBranch?: boolean) => {
     if (!selectedProjectDraftKey) {
       return;
     }
@@ -666,13 +667,15 @@ export function NewTaskFlowProvider(
           mode === "local"
             ? localSelection.branch
             : resolveNewTaskWorktreeBranch({
-                createNewBranch,
+                createNewBranch: nextCreateNewBranch ?? createNewBranch,
                 selectedBranchName,
-                branches: availableBranches,
+                branches: allBranchRefs,
               }),
         worktreePath: mode === "local" ? localSelection.worktreePath : selectedWorktreePath,
         ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
-        ...(draftCreateNewBranch !== undefined ? { createNewBranch: draftCreateNewBranch } : {}),
+        ...((nextCreateNewBranch ?? draftCreateNewBranch) !== undefined
+          ? { createNewBranch: nextCreateNewBranch ?? draftCreateNewBranch }
+          : {}),
         // Refs have not named the current branch yet; the selection follows it.
         ...(mode === "local" && localSelection.awaitsCurrentBranch
           ? { followsCurrentCheckout: true }
@@ -717,26 +720,6 @@ export function NewTaskFlowProvider(
       },
     });
   };
-
-  const updateCreateNewBranch = (value: boolean) => {
-    if (!selectedProjectDraftKey) {
-      return;
-    }
-    updateComposerDraftSettings(selectedProjectDraftKey, {
-      workspaceSelection: {
-        mode: workspaceMode,
-        branch: resolveNewTaskWorktreeBranch({
-          createNewBranch: value,
-          selectedBranchName,
-          branches: availableBranches,
-        }),
-        worktreePath: selectedWorktreePath,
-        ...(draftStartFromOrigin !== undefined ? { startFromOrigin: draftStartFromOrigin } : {}),
-        createNewBranch: value,
-      },
-    });
-  };
-  const setCreateNewBranch = supportsExistingBranchWorktree ? updateCreateNewBranch : null;
 
   const refreshBranches = branchState.refresh;
   const loadBranches = () => {
@@ -915,6 +898,7 @@ export function NewTaskFlowProvider(
     resolveWorkspaceSelection,
     startFromOrigin,
     createNewBranch,
+    canCheckoutWorktree: supportsExistingBranchWorktree,
     draftKey: selectedProjectDraftKey,
     pullRequestReference: selectedProjectDraft.workspaceSelection?.pullRequestReference,
     prompt,
@@ -947,7 +931,6 @@ export function NewTaskFlowProvider(
     setWorkspaceMode,
     selectBranch,
     setStartFromOrigin,
-    setCreateNewBranch,
     buildPendingTaskMessage,
     setPrompt,
     replaceAttachments,

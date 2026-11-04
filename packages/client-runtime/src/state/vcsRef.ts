@@ -8,9 +8,12 @@ export interface VcsRefTarget {
 
 export type VcsRef = ContractVcsRef;
 
-/** Whether an existing local branch can be checked out in a separate worktree. */
+/**
+ * Whether a branch can be checked out in a separate worktree. A remote ref checks out the
+ * local branch the server creates for it.
+ */
 export function canCheckoutBranchInNewWorktree(
-  ref: Pick<VcsRef, "isRemote" | "current" | "worktreePath"> | null | undefined,
+  ref: Pick<VcsRef, "current" | "worktreePath"> | null | undefined,
 ): boolean {
-  return ref != null && !ref.isRemote && !ref.current && !ref.worktreePath;
+  return ref != null && !ref.current && !ref.worktreePath;
 }

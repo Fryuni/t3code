@@ -57,7 +57,7 @@ it.effect("reports a rejected existing-branch launch as an invalid request", () 
       deletedAt: null,
     } as OrchestrationV2ThreadShell;
     const message =
-      'Branch "main" is already checked out at /repo. Select another branch, or enable Create new branch.';
+      'Branch "main" is already checked out at /repo. Select another branch, or choose New worktree.';
     const dependencies = Layer.mergeAll(
       Layer.mock(ProviderRegistry.ProviderRegistry)({ getProviders: Effect.succeed([]) }),
       ServerSettings.layerTest(),

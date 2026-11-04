@@ -104,7 +104,24 @@ const localRefs = [
   { name: "archive/feature/existing", current: false, isDefault: false, worktreePath: null },
   { name: "feature/existing", current: false, isDefault: false, worktreePath: null },
   { name: "t3code/abcd1234", current: false, isDefault: false, worktreePath: null },
+  {
+    name: "tracked",
+    current: false,
+    isDefault: false,
+    worktreePath: null,
+    upstreamRef: "refs/remotes/origin/tracked",
+  },
 ];
+const remoteRefs = ["origin/feature", "origin/tracked", "upstream/feature/existing"].map(
+  (name) => ({
+    name,
+    current: false,
+    isDefault: false,
+    worktreePath: null,
+    isRemote: true,
+    remoteName: name.slice(0, name.indexOf("/")),
+  }),
+);
 
 const adapter = {
   instanceId: modelSelection.instanceId,
@@ -217,7 +234,13 @@ function makeHarness(options: HarnessOptions = {}) {
       renameBranch,
       fetchWorktreeBaseCommit:
         options.fetchWorktreeBaseCommit ??
-        (() => Effect.succeed({ commitSha: "remote-main-sha", remoteRefName: "origin/main" })),
+        ((input) =>
+          Effect.succeed({
+            commitSha: "remote-main-sha",
+            remoteRefName: input.remote
+              ? `${input.remote.remoteName}/${input.remote.branchName}`
+              : "origin/main",
+          })),
       hasCommit: options.hasCommit ?? (() => Effect.succeed(false)),
       resolveWorktreeBaseRemote: () => Effect.succeed({ remoteName: "origin", branchName: "main" }),
       remoteExists: options.remoteExists ?? (() => Effect.succeed(true)),
@@ -227,7 +250,17 @@ function makeHarness(options: HarnessOptions = {}) {
       listRefs:
         options.listRefs ??
         ((input) => {
-          const matches = localRefs.filter((ref) => ref.name.includes(input.query ?? ""));
+          const matches = [
+            ...(input.refKind === "remote" ? [] : localRefs),
+            ...(input.refKind === "local"
+              ? []
+              : // Like the driver, hide origin refs with a same-named local branch unless asked.
+                remoteRefs.filter(
+                  (ref) =>
+                    input.includeMatchingRemoteRefs === true ||
+                    !localRefs.some((local) => `origin/${local.name}` === ref.name),
+                )),
+          ].filter((ref) => ref.name.includes(input.query ?? ""));
           const cursor = input.cursor ?? 0;
           return Effect.succeed({
             refs: matches.slice(cursor, cursor + 1),
@@ -1305,9 +1338,35 @@ it.effect.each(["stable", "upstream/release"])(
     ),
 );
 
-it.effect.each(["feature/existing", "t3code/abcd1234"])(
-  "checks out the existing branch %s without creating or renaming one",
-  (baseRef) =>
+const skippedFetch = { status: "skipped" as const, detail: null };
+it.effect.each([
+  {
+    baseRef: "feature/existing",
+    branch: "feature/existing",
+    worktree: { refName: "feature/existing" },
+    fetch: skippedFetch,
+  },
+  {
+    baseRef: "t3code/abcd1234",
+    branch: "t3code/abcd1234",
+    worktree: { refName: "t3code/abcd1234" },
+    fetch: skippedFetch,
+  },
+  {
+    baseRef: "origin/feature",
+    branch: "feature",
+    worktree: { refName: "refs/remotes/origin/feature", newRefName: "feature" },
+    fetch: { status: "done" as const, detail: "origin/feature at remote-" },
+  },
+  {
+    baseRef: "origin/tracked",
+    branch: "tracked",
+    worktree: { refName: "tracked" },
+    fetch: skippedFetch,
+  },
+])(
+  "checks out the existing branch $baseRef without creating or renaming one",
+  ({ baseRef, branch, worktree, fetch }) =>
     Effect.gen(function* () {
       const harness = makeHarness();
       yield* Effect.gen(function* () {
@@ -1321,19 +1380,16 @@ it.effect.each(["feature/existing", "t3code/abcd1234"])(
             workspace: { type: "worktree", baseRef, createBranch: false },
           }),
         );
-        assert.equal(launched.projection.thread.branch, baseRef);
+        assert.equal(launched.projection.thread.branch, branch);
         // The run starts only after preparation, which is where a rename would be forked.
         yield* awaitRunStatus(launched.threadId, "starting");
         assert.deepEqual(
           harness.createWorktree.mock.calls.map(([input]) => input),
-          [{ cwd: "/repo", refName: baseRef, path: null }],
+          [{ cwd: "/repo", ...worktree, path: null }],
         );
-        assert.deepEqual(yield* fetchStage(launched.threadId), {
-          status: "skipped",
-          detail: null,
-        });
+        assert.deepEqual(yield* fetchStage(launched.threadId), fetch);
         const projection = yield* threads.getThreadProjection(launched.threadId);
-        assert.equal(projection.thread.branch, baseRef);
+        assert.equal(projection.thread.branch, branch);
         assert.equal(projection.thread.worktreePath, "/repo-worktrees/feature");
         assert.equal(harness.generateBranchName.mock.calls.length, 0);
         assert.equal(harness.renameBranch.mock.calls.length, 0);
@@ -1384,14 +1440,19 @@ it.effect("checks out a branch still held by a deleted worktree git has not prun
 
 it.effect.each([
   {
-    reason: "a remote-only ref",
-    workspace: { baseRef: "origin/feature" },
-    message: /"origin\/feature" is not a local branch/u,
+    reason: "a missing ref",
+    workspace: { baseRef: "origin/missing" },
+    message: /"origin\/missing" is not a branch/u,
   },
   {
     reason: "a partial branch name",
     workspace: { baseRef: "feature" },
-    message: /"feature" is not a local branch/u,
+    message: /"feature" is not a branch/u,
+  },
+  {
+    reason: "a remote ref whose local name tracks something else",
+    workspace: { baseRef: "upstream/feature/existing" },
+    message: /local branch "feature\/existing" already exists and does not track/u,
   },
   {
     reason: "a branch checked out elsewhere",
@@ -1578,6 +1639,33 @@ it.effect("fetches the origin base from the remote it already resolved", () => {
       refName: "main",
       remote: { remoteName: "origin", branchName: "main" },
     });
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("fails instead of checking out a remote branch deleted since the last fetch", () => {
+  const harness = makeHarness({ fetchWorktreeBaseCommit: () => Effect.succeed(null) });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:deleted-remote",
+        thread: "thread:launch:deleted-remote",
+        message: "Continue the feature",
+        workspace: { type: "worktree", baseRef: "origin/feature", createBranch: false },
+      }),
+    );
+    yield* awaitRunStatus(launched.threadId, "failed");
+    assert.deepEqual(yield* fetchStage(launched.threadId), {
+      status: "failed",
+      detail: "origin/feature not found",
+    });
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.include(
+      projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+      "Remote branch origin/feature no longer exists.",
+    );
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
   }).pipe(Effect.provide(harness.layer));
 });
 
@@ -2513,7 +2601,7 @@ it.effect("shared intake preserves durable attachment bytes after a lost launch 
     const rejectedWorkspace = yield* ThreadMessageIntake.launchThread({
       ...input,
       commandId: CommandId.make("intake-rejected-workspace"),
-      workspaceStrategy: { type: "worktree", baseRef: "origin/feature", createBranch: false },
+      workspaceStrategy: { type: "worktree", baseRef: "origin/missing", createBranch: false },
     }).pipe(Effect.flip);
     assert.equal(rejectedWorkspace._tag, "ThreadLaunchWorkspaceError");
     assert.equal((yield* claimedFiles).length, 1);
