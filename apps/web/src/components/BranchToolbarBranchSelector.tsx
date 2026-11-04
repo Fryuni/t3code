@@ -90,8 +90,6 @@ interface BranchToolbarBranchSelectorProps {
   activeThreadBranchOverride?: string | null;
   onActiveThreadBranchOverrideChange?: (refName: string | null) => void;
   createNewBranch: boolean;
-  /** Omitted when the server cannot check out an existing branch, which hides the toggle. */
-  onCreateNewBranchChange?: ((createNewBranch: boolean) => void) | undefined;
   startFromOrigin: boolean;
   onStartFromOriginChange: (startFromOrigin: boolean) => void;
   onCheckoutPullRequestRequest?: (reference: string) => void;
@@ -115,7 +113,6 @@ export function BranchToolbarBranchSelector({
   activeThreadBranchOverride,
   onActiveThreadBranchOverrideChange,
   createNewBranch: createNewBranchProp,
-  onCreateNewBranchChange,
   startFromOrigin,
   onStartFromOriginChange,
   onCheckoutPullRequestRequest,
@@ -709,18 +706,6 @@ export function BranchToolbarBranchSelector({
           : item === createBranchItemValue
             ? "create-branch"
             : "branch"
-      }
-      createBranchControl={
-        isSelectingWorktreeBase && onCreateNewBranchChange
-          ? {
-              checked: createNewBranch,
-              disabled: forceNewWorktree,
-              tooltip: forceNewWorktree
-                ? "Each model starts in its own worktree, so each one needs its own new branch."
-                : "Turn off to check out the selected local branch in a new worktree. The branch must not already be checked out.",
-              onCheckedChange: onCreateNewBranchChange,
-            }
-          : undefined
       }
       originControl={
         isSelectingWorktreeBase && createNewBranch

@@ -19,11 +19,28 @@ export function resolveNewTaskWorkspaceSelection(input: {
 export function resolveNewTaskWorkspaceLabel(input: {
   readonly workspaceMode: WorkspaceMode;
   readonly worktreePath: string | null;
-}): "Current checkout" | "Current worktree" | "New worktree" {
+  readonly createNewBranch?: boolean;
+}): "Current checkout" | "Current worktree" | "New worktree" | "Check out in worktree" {
   if (input.workspaceMode === "worktree") {
-    return "New worktree";
+    return input.createNewBranch === false ? "Check out in worktree" : "New worktree";
   }
   return input.worktreePath ? "Current worktree" : "Current checkout";
+}
+
+/** The workspace control cycles Current checkout, New worktree, then Check out in worktree. */
+export function resolveNextNewTaskWorkspace(input: {
+  readonly workspaceMode: WorkspaceMode;
+  readonly createNewBranch: boolean;
+  readonly canCheckoutWorktree: boolean;
+}): { readonly mode: WorkspaceMode; readonly createNewBranch?: boolean } {
+  if (input.workspaceMode === "local") {
+    return input.canCheckoutWorktree
+      ? { mode: "worktree", createNewBranch: true }
+      : { mode: "worktree" };
+  }
+  return input.canCheckoutWorktree && input.createNewBranch
+    ? { mode: "worktree", createNewBranch: false }
+    : { mode: "local" };
 }
 
 export function resolveNewTaskBranchWorktreePath(input: {

@@ -252,16 +252,17 @@ const make = Effect.gen(function* () {
       .getByCommandId(commandId)
       .pipe(Effect.mapError(mapError(input, "read-receipt", input.threadId)));
 
-  const findLocalBranch = Effect.fn("ThreadLaunchService.findLocalBranch")(function* (
+  const findRef = Effect.fn("ThreadLaunchService.findRef")(function* (
     cwd: string,
     name: string,
+    refKind: "local" | "remote",
   ) {
     let cursor: number | null = 0;
     while (cursor !== null) {
       const page: VcsListRefsResult = yield* git.listRefs({
         cwd,
         query: name,
-        refKind: "local",
+        refKind,
         refresh: cursor === 0,
         cursor,
       });
@@ -272,40 +273,70 @@ const make = Effect.gen(function* () {
     return null;
   });
 
-  // Checking out an existing branch skips branch creation, so the branch must
-  // already exist locally and be free: git refuses a branch another worktree
-  // (or the project checkout) has checked out. listRefs ignores worktrees whose
-  // directory is gone, but git still holds their branches until a prune.
-  const validateExistingBranchCheckout = Effect.fn(
-    "ThreadLaunchService.validateExistingBranchCheckout",
-  )(function* (input: ThreadLaunchInput, cwd: string) {
-    const strategy = input.workspaceStrategy;
-    if (strategy.type !== "worktree" || strategy.createBranch !== false) return;
+  // A remote ref such as `origin/feature` checks out the local `feature` that tracks it,
+  // created on first use. A same-named local branch tracking anything else is refused.
+  // Rerunning after the branch was created resolves to it, so retries stay idempotent.
+  const resolveExistingBranchCheckout = Effect.fn(
+    "ThreadLaunchService.resolveExistingBranchCheckout",
+  )(function* (input: PreparationInput, cwd: string, baseRef: string) {
     const reject = (message: string) =>
       new ThreadLaunchWorkspaceError({
         commandId: input.commandId,
         projectId: input.projectId,
         message,
       });
-    if (strategy.branch !== undefined || strategy.startFromOrigin === true) {
+    const local = yield* findRef(cwd, baseRef, "local");
+    if (local !== null) return { branch: baseRef, ref: local, remote: null };
+    const remoteRef = yield* findRef(cwd, baseRef, "remote");
+    if (remoteRef?.remoteName === undefined) {
       return yield* reject(
-        "Checking out an existing branch cannot also name a new branch or start from a remote.",
+        `"${baseRef}" is not a branch. Select an existing branch, or choose New worktree to start a new branch from it.`,
       );
+    }
+    const branch = baseRef.slice(remoteRef.remoteName.length + 1);
+    const remote = { remoteName: remoteRef.remoteName, branchName: branch };
+    const tracking = yield* findRef(cwd, branch, "local");
+    if (tracking === null) return { branch, ref: null, remote };
+    if (tracking.upstreamRef !== `refs/remotes/${baseRef}`) {
+      return yield* reject(
+        `A local branch "${branch}" already exists and does not track ${baseRef}. Select "${branch}" instead.`,
+      );
+    }
+    return { branch, ref: tracking, remote: null };
+  });
+
+  // Checking out an existing branch skips branch creation, so the branch must
+  // be free: git refuses a branch another worktree (or the project checkout)
+  // has checked out. listRefs ignores worktrees whose directory is gone, but git
+  // still holds their branches until a prune. Returns the branch to check out.
+  const validateExistingBranchCheckout = Effect.fn(
+    "ThreadLaunchService.validateExistingBranchCheckout",
+  )(function* (input: ThreadLaunchInput, cwd: string) {
+    const strategy = input.workspaceStrategy;
+    if (strategy.type !== "worktree" || strategy.createBranch !== false) return undefined;
+    if (strategy.branch !== undefined || strategy.startFromOrigin === true) {
+      return yield* new ThreadLaunchWorkspaceError({
+        commandId: input.commandId,
+        projectId: input.projectId,
+        message:
+          "Checking out an existing branch cannot also name a new branch or start from a remote.",
+      });
     }
     yield* git.pruneWorktrees({ cwd }).pipe(Effect.ignore({ log: true }));
-    const ref = yield* findLocalBranch(cwd, strategy.baseRef).pipe(
-      Effect.mapError(mapError(input, "provision-worktree")),
+    const checkout = yield* resolveExistingBranchCheckout(input, cwd, strategy.baseRef).pipe(
+      Effect.catchTags({
+        GitCommandError: (cause) => Effect.fail(mapError(input, "provision-worktree")(cause)),
+      }),
     );
-    if (ref === null) {
-      return yield* reject(
-        `"${strategy.baseRef}" is not a local branch. Select an existing local branch, or enable Create new branch to start from a remote ref.`,
-      );
+    const worktreePath = checkout.ref?.worktreePath ?? null;
+    if (worktreePath !== null) {
+      return yield* new ThreadLaunchWorkspaceError({
+        commandId: input.commandId,
+        projectId: input.projectId,
+        message: `Branch "${checkout.branch}" is already checked out at ${worktreePath}. Select another branch, or choose New worktree.`,
+      });
     }
-    if (ref.worktreePath !== null) {
-      return yield* reject(
-        `Branch "${strategy.baseRef}" is already checked out at ${ref.worktreePath}. Select another branch, or enable Create new branch.`,
-      );
-    }
+    return checkout.branch;
   });
 
   const validateReusableThread = Effect.fn("ThreadLaunchService.validateReusableThread")(function* (
@@ -448,9 +479,15 @@ const make = Effect.gen(function* () {
       );
 
       const requestedBranch = input.workspaceStrategy.branch;
+      const checkout =
+        existingBranch === null
+          ? null
+          : yield* resolveExistingBranchCheckout(input, project.workspaceRoot, existingBranch).pipe(
+              Effect.mapError(mapError(input, "provision-worktree", threadId)),
+            );
       let branch: string | null;
-      if (existingBranch !== null) {
-        branch = existingBranch;
+      if (checkout !== null) {
+        branch = checkout.branch;
       } else if (input.workspaceStrategy.type === "worktree" && requestedBranch === undefined) {
         const uuid = yield* randomUuidV4;
         branch = buildTemporaryWorktreeBranchName(() => uuid.replaceAll("-", ""));
@@ -476,14 +513,16 @@ const make = Effect.gen(function* () {
         let startRef = input.workspaceStrategy.baseRef;
         let baseRefName = input.workspaceStrategy.baseRef;
         const remote =
-          existingBranch === null && input.workspaceStrategy.startFromOrigin === true
-            ? yield* git
-                .resolveWorktreeBaseRemote({
-                  cwd: project.workspaceRoot,
-                  refName: input.workspaceStrategy.baseRef,
-                })
-                .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
-            : null;
+          checkout !== null
+            ? checkout.remote
+            : input.workspaceStrategy.startFromOrigin === true
+              ? yield* git
+                  .resolveWorktreeBaseRemote({
+                    cwd: project.workspaceRoot,
+                    refName: input.workspaceStrategy.baseRef,
+                  })
+                  .pipe(Effect.mapError(mapError(input, "provision-worktree", threadId)))
+              : null;
         yield* setupTracker.stageStatus(threadId, "fetch", remote !== null ? "running" : "skipped");
         if (remote !== null) {
           const remoteBase = yield* git
@@ -507,7 +546,7 @@ const make = Effect.gen(function* () {
               threadId,
               "fetch",
               "warning",
-              `${remote.remoteName}/${remote.branchName} not found, using local branch`,
+              `${remote.remoteName}/${remote.branchName} not found, using ${checkout !== null ? "last fetched commit" : "local branch"}`,
             );
           }
         }
@@ -527,7 +566,7 @@ const make = Effect.gen(function* () {
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
         const worktree = yield* git
           .createWorktree(
-            existingBranch === null
+            checkout === null
               ? {
                   cwd: project.workspaceRoot,
                   refName: startRef,
@@ -535,7 +574,15 @@ const make = Effect.gen(function* () {
                   baseRefName,
                   path: null,
                 }
-              : { cwd: project.workspaceRoot, refName: existingBranch, path: null },
+              : checkout.remote !== null
+                ? // The remote ref name, not the fetched commit, so the new branch tracks it.
+                  {
+                    cwd: project.workspaceRoot,
+                    refName: input.workspaceStrategy.baseRef,
+                    newRefName: checkout.branch,
+                    path: null,
+                  }
+                : { cwd: project.workspaceRoot, refName: checkout.branch, path: null },
             {
               progress: {
                 onWorktreeClaimed: (path) =>
@@ -934,9 +981,9 @@ const make = Effect.gen(function* () {
       const launchReceipt = yield* readReceipt(input, input.commandId);
       // A retry replays a launch this check already passed, and would find
       // the branch occupied by its own first attempt.
-      if (Option.isNone(launchReceipt)) {
-        yield* validateExistingBranchCheckout(input, project.workspaceRoot);
-      }
+      const checkoutBranch = Option.isNone(launchReceipt)
+        ? yield* validateExistingBranchCheckout(input, project.workspaceRoot)
+        : undefined;
       yield* threads.assertProviderInstanceEnabled({
         projectId: input.projectId,
         commandId: input.commandId,
@@ -996,7 +1043,7 @@ const make = Effect.gen(function* () {
             : input.workspaceStrategy;
         const initialBranch =
           workspaceStrategy.type === "worktree" && workspaceStrategy.createBranch === false
-            ? workspaceStrategy.baseRef
+            ? (checkoutBranch ?? workspaceStrategy.baseRef)
             : (workspaceStrategy.branch ?? null);
         const initialWorktreePath =
           workspaceStrategy.type === "existing_worktree" ? workspaceStrategy.worktreePath : null;

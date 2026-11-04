@@ -57,7 +57,7 @@ in their thread. The web and mobile scheduled task forms prefill `main`. Reading
 project default on those paths would be new behavior the fork never had.
 
 It composes with [existing-branch mode](0008-start-threads-on-existing-branches.md)
-by staying out of it: with **Create new branch** off, nothing is auto-selected, and
+by staying out of it: with **Check out in worktree**, nothing is auto-selected, and
 a new draft that asks for an existing branch is not seeded with the default, because
 the default names a base, not a branch to check out.
 

@@ -92,6 +92,18 @@ export function resolveEnvModeLabel(mode: EnvMode): string {
   return mode === "worktree" ? "New worktree" : "Current checkout";
 }
 
+/** Checking out an existing branch is its own Workspace choice beside New worktree. */
+export type WorkspaceChoice = EnvMode | "checkout-worktree";
+export const CHECKOUT_WORKTREE_LABEL = "Check out in worktree";
+
+export function resolveWorkspaceChoice(mode: EnvMode, createNewBranch: boolean): WorkspaceChoice {
+  return mode === "worktree" && !createNewBranch ? "checkout-worktree" : mode;
+}
+
+export function resolveNewWorkspaceLabel(choice: WorkspaceChoice): string {
+  return choice === "checkout-worktree" ? CHECKOUT_WORKTREE_LABEL : resolveEnvModeLabel(choice);
+}
+
 export const WORKTREE_SUBMODULES_LABELS: Record<WorktreeSubmodules, string> = {
   recursive: "Recursive",
   "top-level": "Top level only",
@@ -104,10 +116,10 @@ export function resolveCurrentWorkspaceLabel(activeWorktreePath: string | null):
 
 export function resolveLockedWorkspaceLabel(
   activeWorktreePath: string | null,
-  effectiveEnvMode: EnvMode,
+  choice: WorkspaceChoice,
 ): string {
   if (activeWorktreePath) return "Worktree";
-  return effectiveEnvMode === "worktree" ? resolveEnvModeLabel("worktree") : "Local checkout";
+  return choice === "local" ? "Local checkout" : resolveNewWorkspaceLabel(choice);
 }
 
 export interface PreviousWorktreeSeed {
