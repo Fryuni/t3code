@@ -1348,7 +1348,7 @@ it.effect.each([
   {
     baseRef: "origin/feature",
     branch: "feature",
-    worktree: { refName: "origin/feature", newRefName: "feature" },
+    worktree: { refName: "refs/remotes/origin/feature", newRefName: "feature" },
     fetch: { status: "done" as const, detail: "origin/feature at remote-" },
   },
   {
@@ -1632,6 +1632,33 @@ it.effect("fetches the origin base from the remote it already resolved", () => {
       refName: "main",
       remote: { remoteName: "origin", branchName: "main" },
     });
+  }).pipe(Effect.provide(harness.layer));
+});
+
+it.effect("fails instead of checking out a remote branch deleted since the last fetch", () => {
+  const harness = makeHarness({ fetchWorktreeBaseCommit: () => Effect.succeed(null) });
+  return Effect.gen(function* () {
+    const launches = yield* ThreadLaunch.ThreadLaunchService;
+    const threads = yield* ThreadManagement.ThreadManagementService;
+    const launched = yield* launches.launch(
+      launchInput({
+        command: "command:launch:deleted-remote",
+        thread: "thread:launch:deleted-remote",
+        message: "Continue the feature",
+        workspace: { type: "worktree", baseRef: "origin/feature", createBranch: false },
+      }),
+    );
+    yield* awaitRunStatus(launched.threadId, "failed");
+    assert.deepEqual(yield* fetchStage(launched.threadId), {
+      status: "failed",
+      detail: "origin/feature not found",
+    });
+    const projection = yield* threads.getThreadProjection(launched.threadId);
+    assert.include(
+      projection.turnItems.find((item) => item.type === "error")?.failure.message ?? "",
+      "Remote branch origin/feature no longer exists.",
+    );
+    assert.equal(harness.createWorktree.mock.calls.length, 0);
   }).pipe(Effect.provide(harness.layer));
 });
 

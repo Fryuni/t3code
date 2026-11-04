@@ -541,12 +541,21 @@ const make = Effect.gen(function* () {
               "done",
               `${remoteBase.remoteRefName} at ${remoteBase.commitSha.slice(0, 7)}`,
             );
+          } else if (checkout !== null) {
+            // A stale tracking ref would resurrect a branch deleted on the remote.
+            const missing = `${remote.remoteName}/${remote.branchName}`;
+            yield* setupTracker.stageStatus(threadId, "fetch", "failed", `${missing} not found`);
+            return yield* mapError(
+              input,
+              "provision-worktree",
+              threadId,
+            )(`Remote branch ${missing} no longer exists.`);
           } else {
             yield* setupTracker.stageStatus(
               threadId,
               "fetch",
               "warning",
-              `${remote.remoteName}/${remote.branchName} not found, using ${checkout !== null ? "last fetched commit" : "local branch"}`,
+              `${remote.remoteName}/${remote.branchName} not found, using local branch`,
             );
           }
         }
@@ -578,7 +587,7 @@ const make = Effect.gen(function* () {
                 ? // The remote ref name, not the fetched commit, so the new branch tracks it.
                   {
                     cwd: project.workspaceRoot,
-                    refName: input.workspaceStrategy.baseRef,
+                    refName: `refs/remotes/${input.workspaceStrategy.baseRef}`,
                     newRefName: checkout.branch,
                     path: null,
                   }

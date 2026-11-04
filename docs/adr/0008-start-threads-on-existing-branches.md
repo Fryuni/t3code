@@ -32,7 +32,11 @@ creates a local `feature` that tracks it and checks it out; a local `feature` th
 already tracks it is checked out as is, without a fetch. A local `feature` tracking
 anything else is refused rather than reused, since it may be unrelated work. The thread's
 branch is the local name from the start. Fork servers from before this change reject
-remote refs with a clear error rather than misbehaving, so no new capability was added.
+remote refs before the thread exists, with an error to pick a local branch, so no
+new capability was added: a mixed-version setup fails loudly and recoverably, and a
+second capability would need its own plumbing in every client. The `t3_thread_launch`
+description still names only local branches, since changing it needs an
+`mcp-tool-use` eval run; agents can still pass a remote ref.
 
 [`ThreadLaunchService`](../../apps/server/src/orchestration-v2/ThreadLaunchService.ts)
 rejects requests it cannot honor before the thread exists: `createBranch: false`
@@ -67,8 +71,8 @@ branch and only one worktree can hold an existing one. After a background
 `Cmd+Enter` submission on an existing branch, the next draft clears its branch for
 the same reason. Scheduled tasks do not offer it: a recurring run would find its
 branch still checked out by the previous run. **Start from remote** is hidden for
-**Check out in worktree**, since a remote branch is always fetched and a local one never
-is.
+**Check out in worktree**: a remote branch with no local branch yet is fetched, and a
+local branch, including one that already tracks the chosen remote branch, never is.
 
 Upstream later moved the web composer's send and selection logic out of `ChatView`
 ([pingdotgg/t3code#23062](https://github.com/pingdotgg/t3code/pull/23062),

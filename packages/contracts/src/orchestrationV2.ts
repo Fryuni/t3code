@@ -665,9 +665,10 @@ export const OrchestrationV2ThreadLaunchWorkspaceStrategy = Schema.Union([
     branch: Schema.optional(TrimmedNonEmptyString),
     startFromOrigin: Schema.optional(Schema.Boolean),
     /**
-     * Absent or true creates a new branch from `baseRef`. False checks out `baseRef`, which must
-     * be an existing local branch that no other worktree has checked out, and cannot be combined
-     * with `branch` or `startFromOrigin: true`.
+     * Absent or true creates a new branch from `baseRef`. False checks out `baseRef`, a local
+     * branch no other worktree has checked out, or a remote branch such as `origin/feature`,
+     * checked out as the local branch that tracks it. Cannot be combined with `branch` or
+     * `startFromOrigin: true`.
      */
     createBranch: Schema.optional(Schema.Boolean),
   }),

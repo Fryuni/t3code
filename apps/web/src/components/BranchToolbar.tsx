@@ -648,6 +648,8 @@ export const BranchToolbar = memo(function BranchToolbar({
   const activeProject = useProject(activeProjectRef);
   const activeWorktreePath = forceNewWorktree ? null : worktreePath;
   const effectiveEnvMode = forceNewWorktree ? "worktree" : envMode;
+  // Fan-out starts every model on its own new branch.
+  const effectiveCreateNewBranch = forceNewWorktree || createNewBranch;
   const envModeLocked = envLocked || (isServerThread && activeWorktreePath !== null);
   const canCheckoutWorktree = onCreateNewBranchChange !== undefined && !forceNewWorktree;
   const onWorkspaceChoiceChange = (choice: WorkspaceChoice) => {
@@ -732,7 +734,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             showEnvironmentIndicator={activeEnvironmentOption !== null}
             onEnvironmentChange={onEnvironmentChange}
             effectiveEnvMode={effectiveEnvMode}
-            createNewBranch={createNewBranch}
+            createNewBranch={effectiveCreateNewBranch}
             canCheckoutWorktree={canCheckoutWorktree}
             activeWorktreePath={activeWorktreePath}
             onEnvModeChange={onWorkspaceChoiceChange}
@@ -755,7 +757,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             effectiveEnvModeOverride={effectiveEnvMode}
             {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
             {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-            createNewBranch={createNewBranch}
+            createNewBranch={effectiveCreateNewBranch}
             startFromOrigin={startFromOrigin}
             onStartFromOriginChange={onStartFromOriginChange}
             {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
@@ -786,7 +788,7 @@ export const BranchToolbar = memo(function BranchToolbar({
             showEnvironmentIndicator={showEnvironmentIndicator}
             onEnvironmentChange={onEnvironmentChange}
             effectiveEnvMode={effectiveEnvMode}
-            createNewBranch={createNewBranch}
+            createNewBranch={effectiveCreateNewBranch}
             canCheckoutWorktree={canCheckoutWorktree}
             activeWorktreePath={activeWorktreePath}
             onEnvModeChange={onWorkspaceChoiceChange}
@@ -831,7 +833,7 @@ export const BranchToolbar = memo(function BranchToolbar({
               forceNewWorktree={forceNewWorktree}
               envLocked={envModeLocked}
               effectiveEnvMode={effectiveEnvMode}
-              createNewBranch={createNewBranch}
+              createNewBranch={effectiveCreateNewBranch}
               canCheckoutWorktree={canCheckoutWorktree}
               activeWorktreePath={activeWorktreePath}
               onEnvModeChange={onWorkspaceChoiceChange}
@@ -855,7 +857,7 @@ export const BranchToolbar = memo(function BranchToolbar({
           effectiveEnvModeOverride={effectiveEnvMode}
           {...(activeThreadBranchOverride !== undefined ? { activeThreadBranchOverride } : {})}
           {...(onActiveThreadBranchOverrideChange ? { onActiveThreadBranchOverrideChange } : {})}
-          createNewBranch={createNewBranch}
+          createNewBranch={effectiveCreateNewBranch}
           startFromOrigin={startFromOrigin}
           onStartFromOriginChange={onStartFromOriginChange}
           {...(onCheckoutPullRequestRequest ? { onCheckoutPullRequestRequest } : {})}
