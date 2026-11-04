@@ -15,10 +15,9 @@ its title in the chat header. On mobile, long-press the thread.
 To work on an existing branch in a new directory, choose **Check out in worktree**
 in the workspace selector, then pick the branch. It can be a local branch that is
 not already checked out, or a remote branch such as one pushed from another device:
-T3 Code fetches it and checks it out as a local branch that tracks it. If that local
-branch already exists, the branch list shows only the local one, which is used as is,
-so pull in the worktree to catch up. **Start from remote** applies only to **New
-worktree**, which creates a new branch.
+T3 Code fetches it and checks it out as a local branch that tracks it. A local
+branch is used as is, with no fetch, so pull in the worktree if it is behind.
+**Start from remote** applies only to **New worktree**, which creates a new branch.
 
 **Start from remote** starts a new worktree from the latest commit of the remote
 branch its base tracks. In a fork, pick `upstream/main` as the base to start from
