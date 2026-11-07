@@ -777,11 +777,13 @@ describe("composer and pull request shortcuts", () => {
       }),
       "composer.dictation",
     );
+    // The fork splits on mod+shift+s, leaving Ctrl+Shift+D to the terminal (ADR 0017).
     assert.strictEqual(
-      resolveShortcutCommand(chord, DEFAULT_RESOLVED_KEYBINDINGS, {
-        platform: "Linux",
-        context: { terminalFocus: true },
-      }),
+      resolveShortcutCommand(
+        event({ key: "s", ctrlKey: true, shiftKey: true }),
+        DEFAULT_RESOLVED_KEYBINDINGS,
+        { platform: "Linux", context: { terminalFocus: true } },
+      ),
       "terminal.splitVertical",
     );
   });

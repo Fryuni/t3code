@@ -2541,6 +2541,7 @@ describe("OrchestratorMcpService provider resolution", () => {
     const layerDependencies = (upserts: Ref.Ref<ReadonlyArray<ScheduledTaskUpsertInput>>) =>
       Layer.mergeAll(
         NodeServices.layer,
+        NodeCrypto.layer,
         Layer.mock(ThreadManagementService.ThreadManagementService)({
           getThreadRecords: () => Effect.succeed(parentProjection([], parentModelSelection)),
         }),

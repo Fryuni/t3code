@@ -287,7 +287,7 @@ describe("V2 environment commands", () => {
         baseRef: "feature/existing",
         createBranch: false,
       });
-    }).pipe(Effect.provide(layerTestCrypto)),
+    }).pipe(Effect.provide(layerTestRandom)),
   );
 
   it.effect("uses server-resolved delivery intent without fetching the full projection", () =>
