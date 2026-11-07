@@ -498,7 +498,7 @@ const OMP_CONFIG_VALUES: Record<string, unknown> = {
 /** Answers `omp config get <key> --json` and hands every other spawn to the fake Pi. */
 const makeOmpPresetAdapter = (fake: FakePi) => {
   const spawner = ChildProcessSpawner.make((command) => {
-    const args = ChildProcess.isStandardCommand(command) ? command.args : [];
+    const args = ChildProcess.isStandardCommand(command) ? command.args.map(String) : [];
     if (!args.includes("config")) return fake.spawner.spawn(command);
     return Effect.succeed(
       exitedHandle(
@@ -2352,7 +2352,7 @@ describe("PiAdapterV2", () => {
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime, takeEvent } = yield* openOmpRuntime(fake, "default");
-      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      const overlayPath = String(fake.lastSpawn().env.PI_CONFIG_FILES);
       const readOverlay = Effect.gen(function* () {
         return decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath));
       });
@@ -2436,7 +2436,7 @@ describe("PiAdapterV2", () => {
         "default",
         ProviderSessionId.make(`provider-session:${"k".repeat(300)}`),
       );
-      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      const overlayPath = String(fake.lastSpawn().env.PI_CONFIG_FILES);
       assert.isBelow(overlayPath.slice(overlayPath.lastIndexOf("/") + 1).length, 100);
       assert.deepEqual(
         decodeJsonLine(yield* (yield* FileSystem.FileSystem).readFileString(overlayPath)),
@@ -2466,7 +2466,7 @@ describe("PiAdapterV2", () => {
     Effect.gen(function* () {
       const fake = yield* makeFakePi;
       const { runtime } = yield* openOmpRuntime(fake, "xai/grok-4.6");
-      const overlayPath = fake.lastSpawn().env.PI_CONFIG_FILES!;
+      const overlayPath = String(fake.lastSpawn().env.PI_CONFIG_FILES);
       const providerThread = yield* runtime.ensureThread({
         threadId: THREAD_ID,
         modelSelection: modelSelection("xai/grok-4.6"),
