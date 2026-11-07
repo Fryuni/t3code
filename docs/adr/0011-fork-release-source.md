@@ -102,6 +102,11 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   that allows only stable releases
   ([pingdotgg/t3code#27197](https://github.com/pingdotgg/t3code/pull/27197)) does not
   judge the requested version's channel; a policy that turns updates off still refuses.
+  A policy's update mirror ([pingdotgg/t3code#29911](https://github.com/pingdotgg/t3code/pull/29911))
+  picks the version only in builds without the define. A fork build still targets its own
+  latest release and downloads it from the mirror, which serves upstream's releases, so
+  both update paths fail with "_Org_'s update mirror has no t3@_version_" rather than
+  leave the fork.
 - The server advertises the source as the optional descriptor field
   `releaseRepository` ([`environment.ts`](../../packages/contracts/src/environment.ts)).
   Fork-aware clients stop offering upstream versions: the web's
@@ -158,10 +163,10 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.6` at
-  upstream `47f2c8d29`, so builds are `0.1.6-fork.*`. A `-fork.` suffix is a semver
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.7` at
+  upstream `83a3674ff`, so builds are `0.1.7-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
-  upstream's stable `0.1.6`, while upstream labels newer code `0.1.7-nightly.*`. `cliReleaseChannelOf`
+  upstream's stable `0.1.7`, while upstream labels newer code `0.1.8-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an
@@ -206,9 +211,11 @@ pre-V2 `state.sqlite` and hides every thread from the V2 era.
 Losing the define is silent. A tree without it still builds, passes the archive smoke
 test, and publishes. The reset produced such a tree: it dropped every file of #47
 except the workflow. After building the executable, the workflow therefore requires
-`apps/server/dist-exe/bin.mjs` to contain `"$GITHUB_REPOSITORY"` and fails otherwise.
-That file is the single-chunk bundle inside the shipped binary; `dist/bin.mjs` is only
-a loader stub. Without the define the repository name appears nowhere in the bundle.
+the binary `apps/server/dist-exe/t3` to contain `"$GITHUB_REPOSITORY"` and fails otherwise.
+Upstream split the executable into a small bootstrap, `dist-exe/bin.mjs`, and the CLI
+bundle the binary embeds as a raw asset
+([pingdotgg/t3code#29284](https://github.com/pingdotgg/t3code/pull/29284)), so only the
+binary holds the define. Without the define the repository name appears nowhere in it.
 
 ## Scope
 
