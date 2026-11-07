@@ -7,7 +7,7 @@ import { AuthOrchestrationOperateScope, AuthSourceControlWriteScope } from "@t3t
 import {
   getCloneDirectoryName,
   projectCheckoutCloneUrl,
-  projectCheckoutOptions,
+  projectCheckoutTargets,
   projectCheckoutTitle,
 } from "@t3tools/client-runtime/operations/projects";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
@@ -147,10 +147,9 @@ function ProjectOverviewContent(props: {
   const representative = props.members[0]!;
   const allMembers = props.group.members.map((member) => member.project);
   const groupingMode = useMobileProjectGroupingSettings().sidebarProjectGroupingMode;
-  const checkoutOptions = projectCheckoutOptions({
+  const checkoutTargets = projectCheckoutTargets({
     connectedEnvironments: props.connectedTargets,
     checkoutEnvironmentIds: allMembers.map((member) => member.environmentId),
-    checkoutCount: allMembers.length,
     canCheckOut: !representative.isScratch && groupingMode !== "separate",
   });
   const checkoutCloneUrl =
@@ -425,7 +424,7 @@ function ProjectOverviewContent(props: {
             </View>
           );
         })}
-        {checkoutOptions.targets.map((environment) => (
+        {checkoutTargets.map((environment) => (
           <CheckoutTargetRow
             key={environment.environmentId}
             environment={environment}

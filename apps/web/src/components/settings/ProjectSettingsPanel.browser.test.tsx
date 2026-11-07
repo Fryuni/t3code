@@ -749,7 +749,8 @@ describe("project checkouts", () => {
       remote: { scopes: [AuthOrchestrationOperateScope] },
     });
     await using screen = await mountPanel();
-    expect(checkoutsHeading(screen)).toBeUndefined();
+    expect(checkoutsHeading(screen)).toBeDefined();
+    expect(addCheckout(screen)).toBeUndefined();
   });
 
   it("drops the add button once every connected machine has a checkout", async () => {
@@ -759,10 +760,11 @@ describe("project checkouts", () => {
     expect(addCheckout(screen)).toBeUndefined();
   });
 
-  it("hides checkouts when only one machine is connected", async () => {
+  it("offers no checkout when only one machine is connected", async () => {
     await setupCheckouts({ checkouts: [primaryId], remote: { phase: "disconnected" } });
     await using screen = await mountPanel();
-    expect(checkoutsHeading(screen)).toBeUndefined();
+    expect(checkoutsHeading(screen)).toBeDefined();
+    expect(addCheckout(screen)).toBeUndefined();
   });
 });
 

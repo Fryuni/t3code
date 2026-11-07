@@ -6,7 +6,7 @@ import { mapAtomCommandResult, settlePromise } from "@t3tools/client-runtime/sta
 import { scopeProjectRef, scopeThreadRef } from "@t3tools/client-runtime/environment";
 import {
   canCreateProjectInEnvironment,
-  projectCheckoutOptions,
+  projectCheckoutTargets,
 } from "@t3tools/client-runtime/operations/projects";
 import { planProjectRemoval } from "@t3tools/client-runtime/state/projects";
 import { type EnvironmentId, type SidebarProjectGroupingMode } from "@t3tools/contracts";
@@ -373,10 +373,9 @@ function ProjectDetail({
     allMembers.find(isCheckoutSource) ??
     null;
   const addProjectTargets = useAddProjectTargets(canCheckOut ? checkoutSource : null, allMembers);
-  const checkoutOptions = projectCheckoutOptions({
+  const checkoutTargets = projectCheckoutTargets({
     connectedEnvironments: addProjectTargets,
     checkoutEnvironmentIds: allMembers.map((member) => member.environmentId),
-    checkoutCount: allMembers.length,
     canCheckOut,
   });
   const hasMultipleCheckouts = group.memberProjects.length > 1;
@@ -472,7 +471,7 @@ function ProjectDetail({
     </div>
   );
   const addCheckoutMenu =
-    checkoutOptions.targets.length > 0 ? (
+    checkoutTargets.length > 0 ? (
       <Menu>
         <MenuTrigger render={<Button size="xs" variant="outline" type="button" />}>
           <PlusIcon className="size-3.5" />
@@ -482,7 +481,7 @@ function ProjectDetail({
         <MenuPopup align="end">
           <MenuGroup>
             <MenuGroupLabel>Check out on</MenuGroupLabel>
-            {checkoutOptions.targets.map((target) => {
+            {checkoutTargets.map((target) => {
               const environment = environmentById.get(target.environmentId);
               const labels = environment
                 ? settingsScopeEnvironmentLabels(environment, environments)

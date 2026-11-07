@@ -349,26 +349,22 @@ export function buildProjectCreateCommand(input: {
 }
 
 /**
- * Checkouts are listed while the project has several, or a connected machine lacks one, even
- * when the existing checkout's machine is offline. Scratch and separately grouped projects never
- * gain one, since a copy elsewhere would be a project of its own.
+ * Connected machines that can gain a checkout, even while the existing checkout's machine is
+ * offline. Scratch and separately grouped projects never gain one, since a copy elsewhere would
+ * be a project of its own.
  */
-export function projectCheckoutOptions<
+export function projectCheckoutTargets<
   TEnvironment extends { readonly environmentId: string },
 >(input: {
   readonly connectedEnvironments: ReadonlyArray<TEnvironment>;
   readonly checkoutEnvironmentIds: ReadonlyArray<string>;
-  readonly checkoutCount: number;
   readonly canCheckOut: boolean;
-}): { readonly visible: boolean; readonly targets: ReadonlyArray<TEnvironment> } {
+}): ReadonlyArray<TEnvironment> {
+  if (!input.canCheckOut) return [];
   const checkedOut = new Set(input.checkoutEnvironmentIds);
-  const targets = input.canCheckOut
-    ? input.connectedEnvironments.filter(
-        (environment) => !checkedOut.has(environment.environmentId),
-      )
-    : [];
-  // With two machines connected, one lacks a checkout or the project has two.
-  return { visible: input.checkoutCount > 1 || targets.length > 0, targets };
+  return input.connectedEnvironments.filter(
+    (environment) => !checkedOut.has(environment.environmentId),
+  );
 }
 
 // A loopback host names whichever machine runs the clone, not the source machine.
