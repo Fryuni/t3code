@@ -255,8 +255,9 @@ export function buildPiRpcLaunch(input: {
   /** OhMyPi config overlay, passed in `PI_CONFIG_FILES`, which plain Pi ignores. */
   readonly configOverlay?: { readonly path: string; readonly platform: NodeJS.Platform };
   readonly ephemeral?: boolean;
-  // T3 stops these processes as soon as they answer. They run --offline because Pi's startup
+  // T3 stops these processes as soon as they answer. They run offline because Pi's startup
   // catalog refresh renews expired OAuth tokens, and a stop mid-request loses the rotated one.
+  // PI_OFFLINE is Pi's --offline; OhMyPi rejects that flag and ignores the variable.
   readonly shortLived?: boolean;
   readonly disableExtensions?: boolean;
   readonly disableTools?: boolean;
@@ -282,7 +283,6 @@ export function buildPiRpcLaunch(input: {
         ? ["--session", input.sessionPath]
         : []),
     ...launchArgs,
-    ...(input.shortLived === true && !launchArgs.includes("--offline") ? ["--offline"] : []),
     // Restrictions must follow launch args so user flags cannot re-enable unattended tools/extensions.
     ...(input.disableExtensions === true ? ["--no-extensions"] : []),
     ...(input.disableTools === true ? ["--no-tools"] : []),
@@ -310,6 +310,7 @@ export function buildPiRpcLaunch(input: {
     args,
     env: {
       ...environment,
+      ...(input.shortLived === true ? { PI_OFFLINE: "1" } : {}),
       ...(hasT3Extension && input.extensionPath !== undefined
         ? { [T3_PI_MCP_EXTENSION_PATH_ENV]: input.extensionPath }
         : {}),

@@ -89,9 +89,9 @@ const makeFakePi = (
 it.effect("runs Pi offline, since the process is stopped as soon as it answers", () =>
   Effect.gen(function* () {
     const pi = yield* makeFakePi(JSON.stringify({ subject: "Update README", body: "" }));
-    const launches: Array<ReadonlyArray<string>> = [];
+    const launches: Array<string | undefined> = [];
     const spawner = ChildProcessSpawner.make((command) => {
-      if (ChildProcess.isStandardCommand(command)) launches.push(command.args.map(String));
+      if (ChildProcess.isStandardCommand(command)) launches.push(command.options.env?.PI_OFFLINE);
       return pi.spawner.spawn(command);
     });
     const textGeneration = yield* makePiTextGeneration(
@@ -108,10 +108,7 @@ it.effect("runs Pi offline, since the process is stopped as soon as it answers",
     });
 
     assert.equal(result.subject, "Update README");
-    assert.deepEqual(
-      launches.map((args) => args.filter((arg) => arg === "--offline")),
-      [["--offline"]],
-    );
+    assert.deepEqual(launches, ["1"]);
   }),
 );
 

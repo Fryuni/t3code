@@ -45,7 +45,16 @@ Upstream's message for an unusable default model
 `pi auth check` on Pi's version, which omp's numbering always passes; when omp
 cannot answer, the generic message shows.
 
+Upstream runs every short-lived Pi process, such as discovery, text generation, and
+thread forks, with `--offline`, so a stop mid-refresh cannot lose a rotated OAuth token
+([pingdotgg/t3code#30187](https://github.com/pingdotgg/t3code/pull/30187)). omp rejects
+that flag and exits at startup, which would drop its models, presets, and text generation.
+The [launch builder](../../packages/provider-pi/src/server/mcpInjection.ts) sets
+`PI_OFFLINE=1` instead, which Pi documents as the same switch and omp ignores, so omp keeps
+its startup refresh.
+
 When updating from upstream, keep presets inside the Pi provider and keep the
-per-process overlay; do not switch presets by writing omp's global config.
+per-process overlay; do not switch presets by writing omp's global config. Keep
+short-lived launches on `PI_OFFLINE` rather than `--offline` while omp rejects the flag.
 Remove this if Pi or omp exposes presets over RPC, or if upstream adds OhMyPi
 support.

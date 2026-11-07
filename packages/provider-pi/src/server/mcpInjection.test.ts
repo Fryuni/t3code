@@ -137,19 +137,11 @@ describe("pi T3 MCP injection", () => {
       "--no-session",
       "--provider",
       "anthropic",
-      "--offline",
       "--no-extensions",
       "--no-tools",
     ]);
-    const alreadyOffline = buildPiRpcLaunch({
-      launchArgs: ["--offline"],
-      environment: {},
-      mcpSession: undefined,
-      extensionPath: undefined,
-      ephemeral: true,
-      shortLived: true,
-    });
-    assert.deepEqual(alreadyOffline.args, ["--mode", "rpc", "--no-session", "--offline"]);
+    // Pi's PI_OFFLINE, not --offline, which OhMyPi rejects at startup.
+    assert.equal(launch.env.PI_OFFLINE, "1");
     assert.deepInclude(resolvePiLaunchArgs("--mode text"), {
       ok: false,
       message: "Pi launch argument '--mode' is controlled by T3 Code and cannot be overridden.",

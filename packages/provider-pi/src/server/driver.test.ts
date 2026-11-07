@@ -175,10 +175,7 @@ it.layer(layerTest)("PiDriver workspace discovery", (it) => {
         const discovery = launches.find(
           (launch) => launch.options.cwd === cwd && launch.args.includes("--mode"),
         );
-        assert.deepEqual(
-          discovery?.args.filter((arg) => arg === "--offline"),
-          ["--offline"],
-        );
+        assert.equal(discovery?.options.env?.PI_OFFLINE, "1");
       }
     }).pipe(Effect.scoped),
   );

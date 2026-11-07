@@ -2547,7 +2547,7 @@ describe("PiAdapterV2", () => {
       assert.equal(args[args.indexOf("--fork") + 1], FAKE_SESSION_FILE);
       assert.include(args, "--no-extensions");
       assert.include(args, "--no-tools");
-      assert.include(args, "--offline");
+      assert.equal(forkFake.lastSpawn().env.PI_OFFLINE, "1");
       assert.notInclude(args, "--no-session");
       assert.deepEqual(
         forkFake
