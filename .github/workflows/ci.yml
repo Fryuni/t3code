@@ -117,7 +117,14 @@ jobs:
         run: node --test .github/scripts/*.test.cjs
 
       - name: Test
-        run: vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test
+        run: |
+          set -o pipefail
+          # The runner's trace writer can crash on surrogate pairs in test output.
+          vp run --parallel --concurrency-limit 4 --filter '!t3' --filter '!@t3tools/monorepo' --filter '!@t3tools/web' test 2>&1 | python3 -u -c '
+          import sys
+          for line in sys.stdin:
+              sys.stdout.write(line.encode("ascii", "backslashreplace").decode("ascii"))
+          '
 
   # The web suite alone saturates a runner; sharing one with the other packages
   # starves its slow module imports past their hook timeouts.

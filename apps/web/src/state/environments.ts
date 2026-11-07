@@ -120,7 +120,3 @@ export function readEnvironmentConnected(environmentId: EnvironmentId): boolean 
     .get(environmentSummaries.connectedEnvironmentIdsAtom)
     .includes(environmentId);
 }
-
-export function useEnvironmentConnectionSummaries() {
-  return useAtomValue(environmentSummaries.environmentsAtom);
-}

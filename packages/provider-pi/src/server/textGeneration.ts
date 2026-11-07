@@ -90,6 +90,7 @@ export const makePiTextGeneration = Effect.fn("makePiTextGeneration")(function* 
         mcpSession: undefined,
         extensionPath: undefined,
         ephemeral: true,
+        shortLived: true,
         disableExtensions: true,
         // Background naming/content helpers must never mutate the workspace.
         disableTools: true,
