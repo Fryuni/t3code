@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
+- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
 
 The **Checkouts** section in a project's settings appeared only when the project
 already had more than one checkout. A project checked out on one machine gave no
@@ -10,15 +10,17 @@ hint that it could live on another, and adding it there meant leaving settings,
 opening the command palette, choosing the machine and clone source, and pasting
 the remote by hand.
 
-Project settings now show **Checkouts** whenever a connected machine lacks a
-checkout of the project, even while the existing checkout's machine is offline,
-or the project has several checkouts, and offer each such machine. With a
-single connected machine holding the only checkout, the section stays hidden. Targets are computed across the
-whole project group rather than the selected machine scope, disappear once
+Project settings offer each connected machine that lacks a checkout of the project,
+even while the existing checkout's machine is offline. Targets are computed across the
+whole project group rather than the selected machine scope, and disappear once
 every connected machine has a checkout. Scratch projects and projects set to
 **Keep separate** grouping never gain a checkout this way, since a copy elsewhere would be a
-project of its own, so a lone checkout of one keeps the section hidden. The shared rules live in
-[`projectCheckoutOptions` and `projectCheckoutCloneUrl`](../../packages/client-runtime/src/operations/projects.ts).
+project of its own. The shared rules live in
+[`projectCheckoutTargets` and `projectCheckoutCloneUrl`](../../packages/client-runtime/src/operations/projects.ts).
+The fork first also showed the web section for a lone checkout only when a machine could
+gain one. Upstream now always shows it, so a lone checkout's grouping rule can be changed
+([pingdotgg/t3code#23641](https://github.com/pingdotgg/t3code/pull/23641)), and the fork
+dropped its visibility rule when it synced onto upstream `83a3674ff`.
 
 The new checkout must land in the same project group, so the clone URL follows
 the group's identity. Grouping uses a fork's `origin`, while the repository
@@ -68,13 +70,12 @@ so this decision stands, but web now uses that dialog instead of a flow of its o
 
 Upstream stopped exporting `resolveProjectGroupingMode` when it trimmed its tests
 ([pingdotgg/t3code#22557](https://github.com/pingdotgg/t3code/pull/22557)); the fork
-exports it again for the web visibility rule. Upstream later restored its own
+exports it again for the web's **Keep separate** check. Upstream later restored its own
 `ProjectSettingsPanel` browser tests
 ([pingdotgg/t3code#24011](https://github.com/pingdotgg/t3code/pull/24011)), and the fork's
 checkout tests now run in that file's harness.
 
-When updating from upstream, keep the section visible with a second connected
-machine, keep web on upstream's add-to-machine dialog and mobile on its existing
+When updating from upstream, keep offering a second connected machine, keep web on upstream's add-to-machine dialog and mobile on its existing
 add-project screens rather than a second clone flow, and keep credentials out of the
 cloned URL. Remove the web entry point if upstream adds the dialog to project
 settings, and the mobile rows if upstream adds its own way to check a project out

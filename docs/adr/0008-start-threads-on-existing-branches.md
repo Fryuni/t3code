@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
+- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -44,7 +44,11 @@ combined with `branch` or `startFromOrigin: true`, a ref that is neither a local
 nor a remote branch, a remote branch whose local name tracks something else, and a
 branch another worktree or the project checkout already has. Preparation resolves the
 branch again, and finds the local branch a crashed first attempt created, so retries do
-not create it twice. The guard runs there,
+not create it twice. Upstream now deletes the branch of a launch that fails or is
+cancelled during setup ([pingdotgg/t3code#28373](https://github.com/pingdotgg/t3code/pull/28373),
+[#29781](https://github.com/pingdotgg/t3code/pull/29781)). That cleanup only deletes a
+branch the launch created: the local branch made for a remote ref, never a local branch
+that already existed, which can hold unpushed work. The guard runs there,
 before the thread exists, rather than in the git driver, which `ProviderTurnStartService`
 also calls to recreate a deleted worktree. Upstream's recovery
 ([pingdotgg/t3code#18359](https://github.com/pingdotgg/t3code/pull/18359)) checks out the

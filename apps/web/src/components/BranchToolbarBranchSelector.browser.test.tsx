@@ -56,7 +56,10 @@ vi.mock(import("../state/vcs"), async (original) => ({
 vi.mock(import("../state/query"), async (original) => ({
   ...(await original()),
   useEnvironmentQuery: ((query: string) => ({
-    data: query === "status" ? { refName: "main" } : { refs: state.refs },
+    data:
+      query === "status"
+        ? { refName: "main", workingTree: { rootPath: "/repo", files: [] } }
+        : { refs: state.refs },
     refresh: vi.fn(),
   })) as never,
 }));

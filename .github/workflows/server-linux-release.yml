@@ -103,8 +103,9 @@ jobs:
 
       # Without the release-repository define the build follows upstream's
       # releases, and its updates would leave this fork. Never publish one.
+      # The CLI is a raw asset inside the executable; dist-exe/bin.mjs is only its bootstrap.
       - name: Check the executable follows this repository
-        run: grep -qF "\"$GITHUB_REPOSITORY\"" apps/server/dist-exe/bin.mjs
+        run: grep -qaF "\"$GITHUB_REPOSITORY\"" apps/server/dist-exe/t3
 
       - name: Build resource monitor
         run: |

@@ -99,6 +99,13 @@ environment's time zone, which may differ from your phone's. Choose **Once**
 to run a task a single time at a date and time in your own time zone. If the
 environment is offline then, the task runs when it is back.
 
+Under **Destination**, choose where runs go. **New thread each run** keeps every
+run separate. The two one-thread choices start a thread on the first run and post
+later runs there: one continues the same conversation, the other starts each run
+in a fresh session that doesn't see earlier runs, so the thread stays readable
+without the agent's context growing. Moving such a task to another project starts
+a new thread there on its next run.
+
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.
 
@@ -187,11 +194,9 @@ checkouts and removal. Actions belong to a project: editing them creates the pro
 on each selected environment, and reset returns to the environment's shared list. A project's
 `t3.json` actions can be imported there.
 
-**Checkouts** appears when the project has several checkouts, or when a connected machine has
-none yet, unless the project's grouping is **Keep separate**. **Add checkout** lists connected
-machines without a checkout of the project; choosing one opens the command palette to clone the
-project's Git remote on that machine. For projects without a network remote, or opened from a folder
-inside a repository, choose **Local folder** there to add an existing folder instead.
+**Add checkout** in **Checkouts** lists connected machines without a checkout of the project,
+unless the project's grouping is **Keep separate**. Choosing one clones the project's Git remote
+on that machine. A project without a Git remote lists no machines.
 
 Settings a repository can also declare in `t3.json`, such as the workspace for new threads,
 resolve in one order: a project override, then the environment setting, then `t3.json`, then the

@@ -4,12 +4,15 @@ import { EnvironmentId, ProjectId } from "@t3tools/contracts";
 
 import {
   findExistingAddProject,
+  getCloneDestinationPath,
+  getCloneDirectoryLeafName,
   getCloneDirectoryName,
+  getCloneDirectoryPath,
   getDefaultCloneUrl,
   githubIncompleteOwnerRepositoryMessage,
   normalizePastedCloneUrl,
   projectCheckoutCloneUrl,
-  projectCheckoutOptions,
+  projectCheckoutTargets,
   projectCheckoutTitle,
 } from "./projects.ts";
 import type { EnvironmentProject } from "../state/models.ts";
@@ -97,6 +100,38 @@ describe("add project shared logic", () => {
     expect(getCloneDirectoryName("  https://github.com/owner/repo.git  ")).toBe("repo");
   });
 
+  it("lays clone folders out like ghq only when asked, and only when the URL is safe", () => {
+    expect(getCloneDirectoryPath("git@github.com:owner/repo.git", false)).toBe("repo");
+    expect(getCloneDirectoryPath("git@github.com:owner/repo.git", true)).toBe(
+      "github.com/owner/repo",
+    );
+    expect(getCloneDirectoryPath("ssh://git@gitlab.com:2222/group/sub/repo.git", true)).toBe(
+      "gitlab.com/group/sub/repo",
+    );
+    expect(getCloneDirectoryPath("https://github.com/owner/../../repo", true)).toBe("repo");
+    expect(getCloneDirectoryPath("/srv/git/repo.git", true)).toBe("repo");
+    expect(
+      getCloneDirectoryPath(
+        "git@ssh.dev.azure.com:v3/org/Project/My%20Repo",
+        false,
+        "Project/My Repo",
+      ),
+    ).toBe("My Repo");
+    expect(
+      getCloneDirectoryLeafName(
+        "git@ssh.dev.azure.com:v3/org/Project/My%20Repo",
+        true,
+        "Project/My Repo",
+      ),
+    ).toBe("My%20Repo");
+    expect(
+      getCloneDestinationPath(
+        "C:\\Users\\me\\ghq",
+        getCloneDirectoryPath("git@github.com:owner/repo.git", true),
+      ),
+    ).toBe("C:\\Users\\me\\ghq\\github.com\\owner\\repo");
+  });
+
   it("keeps a numeric repository name that sits on a path", () => {
     expect(getCloneDirectoryName("https://github.com/acme/123.git")).toBe("123");
     expect(getCloneDirectoryName("https://github.com/acme/123")).toBe("123");
@@ -137,65 +172,31 @@ describe("add project shared logic", () => {
   });
 });
 
-describe("projectCheckoutOptions", () => {
+describe("projectCheckoutTargets", () => {
   const laptop = { environmentId: "laptop" };
   const server = { environmentId: "server" };
-  const options = (overrides: Partial<Parameters<typeof projectCheckoutOptions>[0]> = {}) =>
-    projectCheckoutOptions({
+  const targets = (overrides: Partial<Parameters<typeof projectCheckoutTargets>[0]> = {}) =>
+    projectCheckoutTargets({
       connectedEnvironments: [laptop, server],
       checkoutEnvironmentIds: ["laptop"],
-      checkoutCount: 1,
       canCheckOut: true,
       ...overrides,
     });
 
   it("offers connected machines without a checkout", () => {
-    expect(options()).toEqual({ visible: true, targets: [server] });
+    expect(targets()).toEqual([server]);
   });
 
   it("offers no machine once every connected one has a checkout", () => {
-    expect(options({ checkoutEnvironmentIds: ["laptop", "server"], checkoutCount: 2 })).toEqual({
-      visible: true,
-      targets: [],
-    });
+    expect(targets({ checkoutEnvironmentIds: ["laptop", "server"] })).toEqual([]);
   });
 
   it("offers the connected machine while the only checkout's machine is offline", () => {
-    expect(options({ connectedEnvironments: [server] })).toEqual({
-      visible: true,
-      targets: [server],
-    });
+    expect(targets({ connectedEnvironments: [server] })).toEqual([server]);
   });
 
-  it("hides the section when only one machine is connected", () => {
-    expect(options({ connectedEnvironments: [laptop] })).toEqual({
-      visible: false,
-      targets: [],
-    });
-  });
-
-  it("keeps listing several checkouts when only one machine is connected", () => {
-    expect(
-      options({
-        connectedEnvironments: [laptop],
-        checkoutEnvironmentIds: ["laptop", "laptop"],
-        checkoutCount: 2,
-      }).visible,
-    ).toBe(true);
-  });
-
-  it("hides the section for a lone checkout that cannot gain another", () => {
-    expect(options({ canCheckOut: false })).toEqual({ visible: false, targets: [] });
-  });
-
-  it("keeps listing several checkouts that cannot gain another", () => {
-    expect(
-      options({
-        canCheckOut: false,
-        checkoutEnvironmentIds: ["laptop", "server"],
-        checkoutCount: 2,
-      }),
-    ).toEqual({ visible: true, targets: [] });
+  it("offers no machine for a project that cannot gain another checkout", () => {
+    expect(targets({ canCheckOut: false })).toEqual([]);
   });
 });
 

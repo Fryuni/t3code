@@ -10,6 +10,7 @@ import type {
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
+import { cloneUrlRepositoryPath } from "@t3tools/shared/cloneUrl";
 import { withoutRemoteCredentials } from "@t3tools/shared/git";
 import { newProjectFolderName, normalizeProjectPathForComparison } from "@t3tools/shared/path";
 import * as Arr from "effect/Array";
@@ -209,6 +210,26 @@ export function getCloneDirectoryName(repositoryOrRemoteUrl: string | null | und
   return lastSegment.endsWith(".git") ? lastSegment.slice(0, -".git".length) : lastSegment;
 }
 
+/** The folder a clone gets below its base: `<repo>`, or `<host>/<owner>/<repo>` like ghq. */
+export function getCloneDirectoryPath(
+  remoteUrl: string,
+  ghqCloneLayout: boolean,
+  repository = remoteUrl,
+): string {
+  return (
+    (ghqCloneLayout ? cloneUrlRepositoryPath(remoteUrl) : null) ?? getCloneDirectoryName(repository)
+  );
+}
+
+/** The clone's own folder, which folder browsing keeps at the end of the destination. */
+export function getCloneDirectoryLeafName(
+  remoteUrl: string,
+  ghqCloneLayout: boolean,
+  repository = remoteUrl,
+): string {
+  return getCloneDirectoryPath(remoteUrl, ghqCloneLayout, repository).split("/").at(-1) ?? "";
+}
+
 export function getCloneDestinationPath(
   directoryPath: string,
   directoryName: string | null | undefined,
@@ -217,7 +238,8 @@ export function getCloneDestinationPath(
   if (name.length === 0) {
     return directoryPath;
   }
-  return `${ensureBrowseDirectoryPath(directoryPath)}${name}`;
+  const base = ensureBrowseDirectoryPath(directoryPath);
+  return `${base}${base.endsWith("\\") ? name.replaceAll("/", "\\") : name}`;
 }
 
 export function getNewProjectPathPreview(newProjectsRoot: string, name: string): string {
@@ -327,26 +349,22 @@ export function buildProjectCreateCommand(input: {
 }
 
 /**
- * Checkouts are listed while the project has several, or a connected machine lacks one, even
- * when the existing checkout's machine is offline. Scratch and separately grouped projects never
- * gain one, since a copy elsewhere would be a project of its own.
+ * Connected machines that can gain a checkout, even while the existing checkout's machine is
+ * offline. Scratch and separately grouped projects never gain one, since a copy elsewhere would
+ * be a project of its own.
  */
-export function projectCheckoutOptions<
+export function projectCheckoutTargets<
   TEnvironment extends { readonly environmentId: string },
 >(input: {
   readonly connectedEnvironments: ReadonlyArray<TEnvironment>;
   readonly checkoutEnvironmentIds: ReadonlyArray<string>;
-  readonly checkoutCount: number;
   readonly canCheckOut: boolean;
-}): { readonly visible: boolean; readonly targets: ReadonlyArray<TEnvironment> } {
+}): ReadonlyArray<TEnvironment> {
+  if (!input.canCheckOut) return [];
   const checkedOut = new Set(input.checkoutEnvironmentIds);
-  const targets = input.canCheckOut
-    ? input.connectedEnvironments.filter(
-        (environment) => !checkedOut.has(environment.environmentId),
-      )
-    : [];
-  // With two machines connected, one lacks a checkout or the project has two.
-  return { visible: input.checkoutCount > 1 || targets.length > 0, targets };
+  return input.connectedEnvironments.filter(
+    (environment) => !checkedOut.has(environment.environmentId),
+  );
 }
 
 // A loopback host names whichever machine runs the clone, not the source machine.

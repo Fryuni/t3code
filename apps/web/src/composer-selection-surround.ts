@@ -2,6 +2,7 @@ import { TextSelection, type Transaction } from "@tiptap/pm/state";
 import type { EditorView } from "@tiptap/pm/view";
 
 import { selectionTouchesMentionBoundary } from "./composer-editor-mentions";
+import { MARKDOWN_SOURCE_MARK } from "./composer-rich-text";
 import { flatToMarkdown, pmToFlat, serializeEditorDoc } from "./composer-rich-text-doc";
 
 const SURROUND_CLOSE: Record<string, string> = {
@@ -44,10 +45,14 @@ export function surroundComposerSelection(
   // compositionend. ProseMirror keeps its composition id on the default edit.
   if (defaultTransaction().getMeta("composition") != null) return false;
   // Never wrap chips or other atoms, and never wrap styled text: the
-  // default replace keeps marks intact, wrapping would drop them.
+  // default replace keeps marks intact, wrapping would drop them. Shown
+  // Markdown source is plain text, so typed delimiters wrap it.
   let touchesSpecial = false;
   view.state.doc.nodesBetween(from, to, (node) => {
-    if ((node.isAtom && node.isInline && !node.isText) || (node.isText && node.marks.length > 0)) {
+    if (
+      (node.isAtom && node.isInline && !node.isText) ||
+      (node.isText && node.marks.some((mark) => mark.type.name !== MARKDOWN_SOURCE_MARK))
+    ) {
       touchesSpecial = true;
       return false;
     }
