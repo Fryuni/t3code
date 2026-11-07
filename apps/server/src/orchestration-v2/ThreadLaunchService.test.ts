@@ -1566,28 +1566,36 @@ it.effect("replays an existing-branch launch after its worktree holds the branch
   }),
 );
 
-it.effect("tracks the existing branch while its worktree is checked out", () =>
-  Effect.gen(function* () {
-    const checkoutStarted = yield* Deferred.make<void>();
-    const harness = makeHarness({
-      createWorktree: () =>
-        Deferred.succeed(checkoutStarted, undefined).pipe(Effect.andThen(Effect.never)),
-    });
-    yield* Effect.gen(function* () {
-      const launches = yield* ThreadLaunch.ThreadLaunchService;
-      const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
-      const launched = yield* launches.launch(
-        launchInput({
-          command: "command:launch:existing:tracked",
-          thread: "thread:launch:existing:tracked",
-          message: "Continue the feature",
-          workspace: { type: "worktree", baseRef: "feature/existing", createBranch: false },
-        }),
-      );
-      yield* Deferred.await(checkoutStarted);
-      assert.equal((yield* tracker.get(launched.threadId))?.branch, "feature/existing");
-    }).pipe(Effect.provide(harness.layer));
-  }),
+it.effect(
+  "tracks the existing branch while its worktree is checked out, and keeps it on cancel",
+  () =>
+    Effect.gen(function* () {
+      const checkoutStarted = yield* Deferred.make<void>();
+      const harness = makeHarness({
+        createWorktree: (_input, options) =>
+          (options?.progress?.onWorktreeClaimed?.("/repo-worktrees/existing") ?? Effect.void).pipe(
+            Effect.andThen(Deferred.succeed(checkoutStarted, undefined)),
+            Effect.andThen(Effect.never),
+          ),
+      });
+      yield* Effect.gen(function* () {
+        const launches = yield* ThreadLaunch.ThreadLaunchService;
+        const tracker = yield* WorktreeSetupTracker.WorktreeSetupTracker;
+        const launched = yield* launches.launch(
+          launchInput({
+            command: "command:launch:existing:tracked",
+            thread: "thread:launch:existing:tracked",
+            message: "Continue the feature",
+            workspace: { type: "worktree", baseRef: "feature/existing", createBranch: false },
+          }),
+        );
+        yield* Deferred.await(checkoutStarted);
+        assert.equal((yield* tracker.get(launched.threadId))?.branch, "feature/existing");
+        assert.isTrue(yield* tracker.cancel(launched.threadId));
+        assert.equal(harness.removeWorktree.mock.calls[0]?.[0].path, "/repo-worktrees/existing");
+        assert.equal(harness.deleteLocalBranch.mock.calls.length, 0);
+      }).pipe(Effect.provide(harness.layer));
+    }),
 );
 
 it.effect("reports the fetched remote commit on the fetch stage", () =>

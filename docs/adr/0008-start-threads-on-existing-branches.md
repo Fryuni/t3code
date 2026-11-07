@@ -44,7 +44,11 @@ combined with `branch` or `startFromOrigin: true`, a ref that is neither a local
 nor a remote branch, a remote branch whose local name tracks something else, and a
 branch another worktree or the project checkout already has. Preparation resolves the
 branch again, and finds the local branch a crashed first attempt created, so retries do
-not create it twice. The guard runs there,
+not create it twice. Upstream now deletes the branch of a launch that fails or is
+cancelled during setup ([pingdotgg/t3code#28373](https://github.com/pingdotgg/t3code/pull/28373),
+[#29781](https://github.com/pingdotgg/t3code/pull/29781)). That cleanup only deletes a
+branch the launch created: the local branch made for a remote ref, never a local branch
+that already existed, which can hold unpushed work. The guard runs there,
 before the thread exists, rather than in the git driver, which `ProviderTurnStartService`
 also calls to recreate a deleted worktree. Upstream's recovery
 ([pingdotgg/t3code#18359](https://github.com/pingdotgg/t3code/pull/18359)) checks out the

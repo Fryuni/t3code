@@ -576,6 +576,8 @@ const make = Effect.gen(function* () {
           branch = flattenTemporaryWorktreeBranchName(branch);
         }
         yield* setupTracker.stageStatus(threadId, "checkout", "running");
+        // A failed or cancelled launch deletes only a branch it created, never one the user had.
+        const ownedBranch = checkout === null || checkout.remote !== null ? branch : null;
         const worktree = yield* git
           .createWorktree(
             checkout === null
@@ -600,7 +602,7 @@ const make = Effect.gen(function* () {
                 onWorktreeClaimed: (path) =>
                   Effect.sync(() => {
                     createdWorktreePath = path;
-                    createdBranch = branch;
+                    createdBranch = ownedBranch;
                   }),
                 onCheckoutProgress: (progress) =>
                   setupTracker.stage(threadId, "checkout", { percent: progress.percent }),
@@ -611,7 +613,7 @@ const make = Effect.gen(function* () {
         worktreePath = worktree.worktree.path;
         branch = worktree.worktree.refName;
         createdWorktreePath = worktreePath;
-        createdBranch = branch;
+        createdBranch = ownedBranch === null ? null : branch;
         yield* setupTracker.update(threadId, (snapshot) => ({ ...snapshot, worktreePath, branch }));
         yield* setupTracker.stageStatus(threadId, "checkout", "done");
       }
