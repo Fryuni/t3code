@@ -470,27 +470,27 @@ describe("DesktopBackendConfiguration", () => {
       () =>
         Effect.gen(function* () {
           const configuration = yield* DesktopBackendConfiguration.DesktopBackendConfiguration;
-          const previousPublicUrl = process.env.T3CODE_PUBLIC_URL;
-          try {
-            process.env.T3CODE_PUBLIC_URL = "https://box.tailnet.ts.net:8443";
-            const config = yield* configuration.resolvePrimary;
-            assert.isTrue(Option.isNone(config.preflightFailure));
-            assert.deepEqual(config.args.slice(-2), [
-              "--public-url",
-              "https://box.tailnet.ts.net:8443",
-            ]);
+          const withPublicUrl = Effect.provideService(HostProcess.Environment, {
+            T3CODE_PUBLIC_URL: "https://box.tailnet.ts.net:8443",
+          });
+          const config = yield* configuration.resolvePrimary.pipe(withPublicUrl);
+          assert.isTrue(Option.isNone(config.preflightFailure));
+          assert.deepEqual(config.args.slice(-2), [
+            "--public-url",
+            "https://box.tailnet.ts.net:8443",
+          ]);
 
-            const secondary = yield* configuration.resolveWsl({ port: 5000, distro: "Ubuntu" });
-            assert.isTrue(Option.isNone(secondary.preflightFailure));
-            assert.notInclude(secondary.args, "--public-url");
-            assert.isUndefined(secondary.env.T3CODE_PUBLIC_URL);
+          const secondary = yield* configuration
+            .resolveWsl({ port: 5000, distro: "Ubuntu" })
+            .pipe(withPublicUrl);
+          assert.isTrue(Option.isNone(secondary.preflightFailure));
+          assert.notInclude(secondary.args, "--public-url");
+          assert.isUndefined(secondary.env.T3CODE_PUBLIC_URL);
 
-            delete process.env.T3CODE_PUBLIC_URL;
-            const withoutPublicUrl = yield* configuration.resolvePrimary;
-            assert.notInclude(withoutPublicUrl.args, "--public-url");
-          } finally {
-            restoreEnv("T3CODE_PUBLIC_URL", previousPublicUrl);
-          }
+          const withoutPublicUrl = yield* configuration.resolvePrimary.pipe(
+            Effect.provideService(HostProcess.Environment, {}),
+          );
+          assert.notInclude(withoutPublicUrl.args, "--public-url");
         }),
     ),
   );

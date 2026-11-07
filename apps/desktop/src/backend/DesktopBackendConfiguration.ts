@@ -776,7 +776,7 @@ export const make = Effect.gen(function* () {
       ...shared,
       port: backendExposure.port,
       distro: persistedSettings.wslDistro,
-      publicUrl: process.env.T3CODE_PUBLIC_URL,
+      publicUrl: (yield* HostProcess.Environment).T3CODE_PUBLIC_URL,
     }).pipe(
       Effect.provideService(DesktopEnvironment.DesktopEnvironment, environment),
       Effect.provideService(DesktopWslEnvironment.DesktopWslEnvironment, wslEnvironment),
