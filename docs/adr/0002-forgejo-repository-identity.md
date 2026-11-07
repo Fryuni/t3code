@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `47f2c8d29` (2026-11-02)
+- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -102,6 +102,12 @@ checkout or a public host, so the fork keeps the reference's host in that key.
 Legacy thread links recover theirs from the URL, which keeps the web port. The
 repository folds with `normalizeSourceControlRepository`, so case-distinct mounts
 stay apart.
+
+Upstream's client patches PR readers from the host's reply to an action
+([pingdotgg/t3code#25761](https://github.com/pingdotgg/t3code/pull/25761)) and matches them
+by a lower-cased repository. Those references carry no provider, so the fork keeps that
+match: only one project reading PRs from both `Forge/o/r` and `forge/o/r` on one host could
+patch the wrong reader, until its next read.
 
 Drop this when upstream's Forgejo identity keeps the web port and the mount's
 case.
