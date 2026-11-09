@@ -47,9 +47,9 @@ vi.mock(import("../rpc/atomRegistry"), async (original) => {
 // The primary environment, server configs, and project list derive from the connection
 // catalog, whose load can land mid-test and replace a seeded value. The tests seed plain atoms
 // instead, and stub the opener's click-time project read.
-vi.mock(import("../state/primaryEnvironment"), async () => {
+vi.mock(import("../state/primaryEnvironment"), async (original) => {
   const { Atom } = await import("effect/reactivity");
-  return { primaryEnvironmentIdAtom: Atom.make<EnvironmentId | null>(null) };
+  return { ...(await original()), primaryEnvironmentIdAtom: Atom.make<EnvironmentId | null>(null) };
 });
 vi.mock(import("../state/server"), async (original) => {
   const { Atom } = await import("effect/reactivity");
