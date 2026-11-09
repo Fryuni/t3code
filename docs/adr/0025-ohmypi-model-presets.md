@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-26
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 OhMyPi (`omp`) is a Pi fork that T3 runs through the Pi provider. Its model
 presets assign models to every role (`default`, `task`, `plan`, `smol`, ...)
@@ -52,6 +52,14 @@ that flag and exits at startup, which would drop its models, presets, and text g
 The [launch builder](../../packages/provider-pi/src/server/mcpInjection.ts) sets
 `PI_OFFLINE=1` instead, which Pi documents as the same switch and omp ignores, so omp keeps
 its startup refresh.
+
+Upstream's Pi service tiers ([pingdotgg/t3code#33177](https://github.com/pingdotgg/t3code/pull/33177))
+read a model's `serviceTiers` into a Service Tier select and set the tier through T3's
+extension command before each turn. A preset offers its main model's tiers, and preset
+turns apply the tier through the same step as plain models. The preset's `auto` thinking
+option belongs only in the Thinking select. Since upstream's thinking fix
+([pingdotgg/t3code#32389](https://github.com/pingdotgg/t3code/pull/32389)), a preset switch
+treats `set_model` as resetting thinking, as a plain model switch does.
 
 When updating from upstream, keep presets inside the Pi provider and keep the
 per-process overlay; do not switch presets by writing omp's global config. Keep

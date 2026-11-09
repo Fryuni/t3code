@@ -2490,7 +2490,10 @@ describe("PiAdapterV2", () => {
         yield* takeEvent((event) => event.type === "turn.terminal");
       });
 
-      yield* startTurn(runtime, providerThread, "preset:Anthropic");
+      yield* startTurn(runtime, providerThread, "preset:Anthropic", [], "Hello pi", {
+        ...modelSelection("preset:Anthropic"),
+        options: [{ id: "serviceTier", value: "priority" }],
+      });
       const anthropicModel = yield* fake.takeRequest("set_model");
       assert.deepEqual(
         [anthropicModel["provider"], anthropicModel["modelId"]],
@@ -2522,6 +2525,7 @@ describe("PiAdapterV2", () => {
       const plainModel = yield* fake.takeRequest("set_model");
       assert.deepEqual([plainModel["provider"], plainModel["modelId"]], ["xai", "grok-4.6"]);
       assert.deepEqual(yield* readOverlay, {});
+      assert.deepEqual(fake.promptServiceTiers, ["priority", null, null]);
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
 

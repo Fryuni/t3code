@@ -298,6 +298,45 @@ describe("PiProvider", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("offers an auto preset's Auto level only as a thinking option", () =>
+    Effect.gen(function* () {
+      const spawner = yield* piDiscoverySpawner(
+        {
+          models: [
+            {
+              provider: "openai",
+              id: "gpt",
+              reasoning: true,
+              serviceTiers: [{ id: "priority", name: "Fast" }],
+            },
+          ],
+        },
+        {
+          omp: {
+            configCalls: [],
+            modelPresets: {
+              Auto: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "auto" },
+            },
+          },
+        },
+      );
+      const snapshot = yield* checkPiProviderStatus({ ...settings, binaryPath: "omp" }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
+      const preset = snapshot.models.find((model) => model.slug === "preset:Auto");
+      assert.deepEqual(
+        preset?.capabilities?.optionDescriptors?.map((descriptor) => [
+          descriptor.id,
+          descriptor.type === "select" ? descriptor.options[0]?.id : undefined,
+        ]),
+        [
+          ["thinking", "auto"],
+          ["serviceTier", "default"],
+        ],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("keeps discovered models when OhMyPi preset discovery stalls after slow RPC", () =>
     Effect.gen(function* () {
       const stall = yield* Deferred.make<void>();
