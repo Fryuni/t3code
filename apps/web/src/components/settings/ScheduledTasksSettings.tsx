@@ -50,7 +50,7 @@ import { createModelSelection } from "@t3tools/shared/model";
 
 import { formatRelativeTime } from "../../timestampFormat";
 import { useEnvironmentSettings } from "../../hooks/useSettings";
-import { getCustomModelOptionsByInstance } from "../../modelSelection";
+import { getCustomModelOptionsByInstance, selectsPlanAgent } from "../../modelSelection";
 import { providerInstanceEntriesFor } from "../../providerInstances";
 import { usePrimaryCloudLinkState } from "../../cloud/cloudLinkState";
 import { requestConfirmDialog } from "../../confirmDialog";
@@ -1800,7 +1800,7 @@ function ScheduledTaskEditorForm({
                     setDraft((current) => ({ ...current, prompt: edit(current.prompt) }))
                   }
                   modelOptions={activeSelection.options ?? []}
-                  planModeEnabled={settings.planModeEnabled}
+                  includePlanAgent={selectsPlanAgent(activeSelection.options)}
                   triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                   onModelOptionsChange={(options) =>
                     setDraft((current) => ({

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -85,6 +85,11 @@ the measured agent context, so it records the fork's MCP tool list, about 1 KB l
 upstream's with this `target` and [ADR 0008](0008-start-threads-on-existing-branches.md)'s
 `createBranch`. The fork drops the workflow that blocks growth, per
 [ADR 0011](0011-fork-release-source.md).
+
+Upstream's Labs cleanup removed the plan mode setting
+([pingdotgg/t3code#33131](https://github.com/pingdotgg/t3code/pull/33131)), so the dialog's
+option picker offers the plan agent from the selection's own options, as upstream's other
+settings pickers do.
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target
