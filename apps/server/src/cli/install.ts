@@ -1,3 +1,4 @@
+import { CLI_RELEASE_FORK_REPOSITORY, cliInstallCommand } from "@t3tools/shared/cliRelease";
 import * as HostProcess from "@t3tools/shared/HostProcess";
 import { pathSetupCommand } from "@t3tools/shared/shell";
 import * as Console from "effect/Console";
@@ -51,9 +52,12 @@ export const installCli = Effect.fn("cli.install.install")(function* () {
   const runtime = yield* standaloneRuntime;
   const windows = platform === "win32";
   if (Option.isNone(runtime)) {
+    // Fork builds point at the fork's installer; t3.codes would move the user onto upstream.
     const script = windows
       ? "irm https://t3.codes/install.ps1 | iex"
-      : "curl -fsSL https://t3.codes/install.sh | sh";
+      : CLI_RELEASE_FORK_REPOSITORY === undefined
+        ? "curl -fsSL https://t3.codes/install.sh | sh"
+        : cliInstallCommand(packageJson.version);
     return yield* new CliInstallError({
       reason: `Only the standalone t3 can install itself. Use \`${script}\`, or Settings in the desktop app.`,
     });

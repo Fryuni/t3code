@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -130,7 +130,12 @@ in the web, mobile, and desktop bundles, which have no define. In a fork build:
   comes from `cliInstallCommand`, which in a fork build runs the fork's `install.sh` with
   `T3CODE_RELEASE_BASE_URL` set to the fork's releases, as
   [Install the Fryuni fork](../user/install.md#install-the-fryuni-fork) does. Upstream's
-  `t3.codes/install.sh` cannot download a fork version.
+  `t3.codes/install.sh` cannot download a fork version. Upstream's `t3 install`
+  ([pingdotgg/t3code#33150](https://github.com/pingdotgg/t3code/pull/33150)) only links the
+  running runtime, but outside the runtime layout it points at that installer, so a fork
+  build names `cliInstallCommand` there too. Its npx offer runs only from upstream's npm
+  package, and the desktop's fresh-install `t3`
+  ([pingdotgg/t3code#33153](https://github.com/pingdotgg/t3code/pull/33153)) is upstream's.
 
 Builds without the define, including every build from source, behave exactly like
 upstream. The workflow publishes a linux-x64 build every four hours when `main` has
@@ -164,7 +169,7 @@ own downgrade check and `--allow-downgrade`.
 ## Known caveats
 
 - **Version scheme.** The core comes from `apps/server/package.json`, `0.1.7` at
-  upstream `83a3674ff`, so builds are `0.1.7-fork.*`. A `-fork.` suffix is a semver
+  upstream `402d0623d`, so builds are `0.1.7-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
   upstream's stable `0.1.7`, while upstream labels newer code `0.1.8-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
