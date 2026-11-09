@@ -1,5 +1,6 @@
 import { rankComposerModelMentions } from "@t3tools/client-runtime/composer-model-mentions";
 import type { ProviderInstanceId } from "@t3tools/contracts";
+import { getModelProviderLabel } from "@t3tools/shared/model";
 
 import { isProviderInstancePickerReady, type ProviderInstanceEntry } from "../../providerInstances";
 import type { ComposerCommandItem } from "./ComposerCommandMenu";
@@ -23,6 +24,7 @@ export function matchComposerModelItems(input: {
   }
 
   return rankComposerModelMentions(candidates, input.query, ({ entry, option }) => ({
+    slug: option.slug,
     name: option.name,
     ...(option.shortName ? { shortName: option.shortName } : {}),
     ...(option.subProvider ? { subProvider: option.subProvider } : {}),
@@ -38,6 +40,6 @@ export function matchComposerModelItems(input: {
     acpRegistryAgentId: entry.acpRegistryAgentId,
     acpRegistryIconUrl: entry.acpRegistryIconUrl,
     label: getDisplayModelName(option),
-    description: option.subProvider ?? entry.displayName,
+    description: getModelProviderLabel(option) ?? entry.displayName,
   }));
 }

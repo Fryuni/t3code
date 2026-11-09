@@ -1,3 +1,5 @@
+import { getModelProviderLabel } from "@t3tools/shared/model";
+
 import { rankModelPickerSearch, type ModelPickerSearchableModel } from "./modelSearch.ts";
 
 const COMPOSER_MODEL_MENTION_LIMIT = 8;
@@ -33,6 +35,7 @@ export function rankComposerModelMentions<T>(
         model.subProvider,
         model.driverKind,
         model.providerDisplayName,
+        getModelProviderLabel(model),
       ]
         .join(" ")
         .toLowerCase();

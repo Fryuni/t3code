@@ -31,7 +31,9 @@ const models = [
 ];
 
 function rank(query: string): string[] {
-  return rankComposerModelMentions(models, query, (model) => model).map((model) => model.id);
+  return rankComposerModelMentions(models, query, (model) => ({ ...model, slug: model.id })).map(
+    (model) => model.id,
+  );
 }
 
 describe("rankComposerModelMentions", () => {
@@ -62,6 +64,21 @@ describe("rankComposerModelMentions", () => {
       expect(rank(query)).toEqual([]);
     },
   );
+
+  it("finds a model by the route qualifier its slug names", () => {
+    const routed = [
+      { slug: "glm-5.3", name: "glm-5.3", driverKind: "opencode", providerDisplayName: "OpenCode" },
+      {
+        slug: "azure.glm-5.3",
+        name: "glm-5.3",
+        driverKind: "opencode",
+        providerDisplayName: "OpenCode",
+      },
+    ];
+    expect(
+      rankComposerModelMentions(routed, "azure", (model) => model).map((model) => model.slug),
+    ).toEqual(["azure.glm-5.3"]);
+  });
 });
 
 describe("collectComposerModelMentions", () => {

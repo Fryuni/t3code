@@ -206,6 +206,7 @@ export function buildComposerModelItems(
     ),
     query,
     (option) => ({
+      slug: option.selection.model,
       name: option.label,
       ...(option.subtitle ? { subProvider: option.subtitle } : {}),
       driverKind: option.providerDriver,

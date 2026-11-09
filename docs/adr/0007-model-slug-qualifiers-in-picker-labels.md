@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its
@@ -32,6 +32,10 @@ removed `getProviderRowLabel`. The web row shows this helper's label there inste
 spoken short names ([pingdotgg/t3code#24205](https://github.com/pingdotgg/t3code/pull/24205))
 shorten the display name but leave the secondary label alone, so mobile options carry
 both.
+
+Upstream's `@` model mentions ([pingdotgg/t3code#31207](https://github.com/pingdotgg/t3code/pull/31207))
+list models outside the picker. The web mention row describes a model with this helper's
+label, and mention matching on web and mobile searches it, so `@azure` finds `azure.bar`.
 
 Drop this divergence when upstream's pickers distinguish `bar` from `foo/bar`
 without it.
