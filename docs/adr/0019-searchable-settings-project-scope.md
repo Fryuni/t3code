@@ -2,7 +2,7 @@
 
 - Status: superseded by upstream
 - Date: 2026-10-15
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 **Superseded.** Upstream made the settings scope pickers searchable in
 [pingdotgg/t3code#19744](https://github.com/pingdotgg/t3code/pull/19744)

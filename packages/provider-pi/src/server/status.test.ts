@@ -298,6 +298,45 @@ describe("PiProvider", () => {
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
+  it.effect("offers an auto preset's Auto level only as a thinking option", () =>
+    Effect.gen(function* () {
+      const spawner = yield* piDiscoverySpawner(
+        {
+          models: [
+            {
+              provider: "openai",
+              id: "gpt",
+              reasoning: true,
+              serviceTiers: [{ id: "priority", name: "Fast" }],
+            },
+          ],
+        },
+        {
+          omp: {
+            configCalls: [],
+            modelPresets: {
+              Auto: { modelRoles: { default: "openai/gpt" }, defaultThinkingLevel: "auto" },
+            },
+          },
+        },
+      );
+      const snapshot = yield* checkPiProviderStatus({ ...settings, binaryPath: "omp" }).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
+      const preset = snapshot.models.find((model) => model.slug === "preset:Auto");
+      assert.deepEqual(
+        preset?.capabilities?.optionDescriptors?.map((descriptor) => [
+          descriptor.id,
+          descriptor.type === "select" ? descriptor.options[0]?.id : undefined,
+        ]),
+        [
+          ["thinking", "auto"],
+          ["serviceTier", "default"],
+        ],
+      );
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   it.effect("keeps discovered models when OhMyPi preset discovery stalls after slow RPC", () =>
     Effect.gen(function* () {
       const stall = yield* Deferred.make<void>();
@@ -391,6 +430,49 @@ describe("PiProvider", () => {
       assert.equal(snapshot.auth.status, "authenticated");
       if (row.message === undefined) assert.isUndefined(snapshot.message);
       else assert.include(snapshot.message ?? "", row.message);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("advertises a model's service tiers beside its thinking levels", () =>
+    Effect.gen(function* () {
+      const spawner = yield* piDiscoverySpawner({
+        models: [
+          {
+            provider: "columbia-codex",
+            id: "gpt-6.1-sol",
+            reasoning: true,
+            serviceTiers: [
+              { id: "priority", name: "Fast", description: "2x speed, increased usage" },
+              { id: "ultrafast", name: "Ultrafast" },
+            ],
+          },
+          { provider: "anthropic", id: "claude-sonnet-4", reasoning: true },
+        ],
+      });
+      const snapshot = yield* checkPiProviderStatus(settings).pipe(
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+      );
+      const descriptors = (slug: string) =>
+        snapshot.models.find((model) => model.slug === slug)?.capabilities?.optionDescriptors ?? [];
+      assert.deepEqual(
+        descriptors("columbia-codex/gpt-6.1-sol").map((descriptor) => descriptor.id),
+        ["thinking", "serviceTier"],
+      );
+      assert.deepEqual(descriptors("columbia-codex/gpt-6.1-sol")[1], {
+        id: "serviceTier",
+        label: "Service Tier",
+        type: "select",
+        options: [
+          { id: "default", label: "Standard", isDefault: true },
+          { id: "priority", label: "Fast", description: "2x speed, increased usage" },
+          { id: "ultrafast", label: "Ultrafast" },
+        ],
+        currentValue: "default",
+      });
+      assert.deepEqual(
+        descriptors("anthropic/claude-sonnet-4").map((descriptor) => descriptor.id),
+        ["thinking"],
+      );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 

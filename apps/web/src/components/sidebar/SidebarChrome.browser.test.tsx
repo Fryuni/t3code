@@ -63,9 +63,9 @@ vi.mock("../../state/shell", async (importOriginal) => {
 });
 // The primary environment derives from the connection catalog, whose load can land mid-test
 // and replace a seeded value, so the tests seed a plain atom instead.
-vi.mock(import("../../state/primaryEnvironment"), async () => {
+vi.mock(import("../../state/primaryEnvironment"), async (original) => {
   const { Atom } = await import("effect/reactivity");
-  return { primaryEnvironmentIdAtom: Atom.make<EnvironmentId | null>(null) };
+  return { ...(await original()), primaryEnvironmentIdAtom: Atom.make<EnvironmentId | null>(null) };
 });
 vi.mock("../../state/presentation", async (importOriginal) => {
   const original = await importOriginal<typeof import("../../state/presentation")>();

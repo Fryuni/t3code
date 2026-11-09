@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-14
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 The composer's selection-surround shortcut treated every nonempty text-input
 replacement range as selected text. Dead keys also replace provisional text when

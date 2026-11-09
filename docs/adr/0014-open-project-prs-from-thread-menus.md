@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 Opening the PR page without a project filter can load PRs across hundreds of
 projects, and finding the project in the filter can itself be cumbersome. The

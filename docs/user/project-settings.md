@@ -29,7 +29,8 @@ Providers** with **All environments** shows the primary environment's providers,
 provider's settings, such as a custom model, its name, or its switch, also applies to every other
 connected environment that has a provider with the same ID. Only the fields you changed are copied,
 so each machine keeps its own paths and saved keys. Adding, removing, resetting, and setting up a
-provider apply to the shown environment only, as do usage sources and the health check interval.
+provider apply to the shown environment only, as do usage sources, text generators, and the health
+check interval.
 With a project or one environment selected, Providers shows that one environment. Every other
 setting fans out to the selection.
 
@@ -103,8 +104,9 @@ Under **Destination**, choose where runs go. **New thread each run** keeps every
 run separate. The two one-thread choices start a thread on the first run and post
 later runs there: one continues the same conversation, the other starts each run
 in a fresh session that doesn't see earlier runs, so the thread stays readable
-without the agent's context growing. Moving such a task to another project starts
-a new thread there on its next run.
+without the agent's context growing. To move a one-thread task, pick another
+thread in its project under **Destination**. Moving such a task to another
+project starts a new thread there on its next run.
 
 Deleting a thread also deletes tasks that post into that thread. Tasks that start
 a new thread on each run survive deletion of their previous threads.
@@ -216,6 +218,19 @@ New worktrees go in the `worktrees` folder of the T3 home directory. To put them
 such as another drive, set **Settings → Worktrees → Worktree location** to an absolute path like
 `D:\worktrees` or `~/worktrees`. The setting is per machine. Existing worktrees stay where they
 are, and cleanup covers both the default folder and the custom one.
+
+## Fast worktree checkout on macOS
+
+Fast worktree checkout is a beta. Turn it on for each Mac in **Settings → Labs → Fast worktree
+checkout**. T3 Code then keeps a few recent checkouts of each repository in the `caches` folder of
+the T3 home directory. A new worktree is cloned from one of them with APFS copy-on-write, which is
+about twice as fast as writing every file and makes the first `git status` in it fast as well.
+Turning it off deletes the cache.
+
+The first worktree of a repository uses Git's normal checkout and fills the cache. It needs Git 2.42
+or newer. Git's normal checkout is also used for worktrees on a different drive from the T3 home
+directory, sparse checkouts, repositories whose attributes use filters such as Git LFS, and
+repositories whose checkout settings changed.
 
 ## Storage cleanup
 

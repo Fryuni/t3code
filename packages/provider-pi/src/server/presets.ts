@@ -7,10 +7,7 @@ import * as Schema from "effect/Schema";
 import * as ChildProcess from "effect/process/ChildProcess";
 
 import { PiRpcError, PiRpcTimeoutError } from "./rpc.ts";
-import {
-  EMPTY_PI_MODEL_CAPABILITIES,
-  thinkingCapabilitiesForPiModel,
-} from "./thinkingCapabilities.ts";
+import { EMPTY_PI_MODEL_CAPABILITIES, piModelCapabilities } from "./modelCapabilities.ts";
 
 // OhMyPi (`omp`) model presets name a whole set of role models; T3 lists them as models.
 const PI_PRESET_SLUG_PREFIX = "preset:";
@@ -161,11 +158,11 @@ function ompPresetOverlay(
 
 /** Pi models have no `auto` level; a preset that uses omp's `auto` offers it as its default. */
 function presetThinkingCapabilities(rawModel: unknown, level: string | undefined) {
-  const capabilities = thinkingCapabilitiesForPiModel(rawModel, level);
+  const capabilities = piModelCapabilities(rawModel, level);
   if (level !== OMP_AUTO_THINKING) return capabilities;
   return {
     optionDescriptors: capabilities.optionDescriptors?.map((descriptor) =>
-      descriptor.type === "select"
+      descriptor.id === "thinking" && descriptor.type === "select"
         ? {
             ...descriptor,
             options: [
