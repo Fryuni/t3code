@@ -2525,6 +2525,7 @@ describe("PiAdapterV2", () => {
       const plainModel = yield* fake.takeRequest("set_model");
       assert.deepEqual([plainModel["provider"], plainModel["modelId"]], ["xai", "grok-4.6"]);
       assert.deepEqual(yield* readOverlay, {});
+      while (String((yield* fake.takeRequest("prompt"))["message"]).startsWith("/")) {}
       assert.deepEqual(fake.promptServiceTiers, ["priority", null, null]);
     }).pipe(Effect.scoped, Effect.provide(layerTest)),
   );
