@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `83a3674ff` (2026-11-07)
+- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
 
 Most server settings can be edited once for **All environments**, but
 **Settings → Providers** always showed one environment. Users who run the same
@@ -32,7 +32,11 @@ empty.
 This stays a bulk edit, as the rest of All environments is: offline
 environments keep their values and nothing is stored to replay later. Adding,
 deleting, resetting and setup flows stay on the shown environment because they
-install binaries, sign in accounts, or remove machine state. A project scope
+install binaries, sign in accounts, or remove machine state. Upstream's
+**Text generators** section on the same page
+([pingdotgg/t3code#33147](https://github.com/pingdotgg/t3code/pull/33147)) saves to the
+shown environment too, like usage sources, because generators are not provider
+instances. A project scope
 still picks one environment, because project provider overrides are stored per
 environment. Mobile has no provider config editor, so it is unchanged.
 

@@ -29,7 +29,8 @@ Providers** with **All environments** shows the primary environment's providers,
 provider's settings, such as a custom model, its name, or its switch, also applies to every other
 connected environment that has a provider with the same ID. Only the fields you changed are copied,
 so each machine keeps its own paths and saved keys. Adding, removing, resetting, and setting up a
-provider apply to the shown environment only, as do usage sources and the health check interval.
+provider apply to the shown environment only, as do usage sources, text generators, and the health
+check interval.
 With a project or one environment selected, Providers shows that one environment. Every other
 setting fans out to the selection.
 
