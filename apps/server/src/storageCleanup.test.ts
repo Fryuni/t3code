@@ -2825,6 +2825,20 @@ describe("worktrees removed outside T3 Code", () => {
   );
 });
 
+it.live("keeps a worktree whose .git file another tool removed", () =>
+  runCleanupTest(
+    Effect.gen(function* () {
+      const { service, fs, worktree } = yield* cleanupFixture();
+      yield* fs.remove(`${worktree}/.git`);
+      expect((yield* service.runNow).entries[0]).toMatchObject({
+        outcome: "kept",
+        reason: "Not a linked worktree",
+      });
+      expect(yield* fs.exists(`${worktree}/tracked.txt`)).toBe(true);
+    }),
+  ),
+);
+
 describe("settled worktree rechecks", () => {
   it.live.each(["autoResumeLimitedThreads", "snoozeLimitedThreads"] as const)(
     "keeps a usage-limited checkout when %s is enabled during measurement",

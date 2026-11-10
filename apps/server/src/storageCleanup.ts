@@ -857,8 +857,13 @@ const make = Effect.gen(function* () {
         return "worktree is a symbolic link";
       if (!roots.some((root) => inside(root, realPath)))
         return "outside the managed worktree folder";
-      if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
-        return "not a linked worktree";
+      const gitFile = yield* fs.stat(path.join(worktreePath, ".git")).pipe(
+        Effect.map((info) => info.type),
+        Effect.catch((error) =>
+          error.reason._tag === "NotFound" ? Effect.succeed(null) : Effect.fail(error),
+        ),
+      );
+      if (gitFile !== "File") return "not a linked worktree";
       return null;
     });
     const deletedRows = yield* sql<{ payload_json: string; workspaceRoot: string }>`
@@ -930,6 +935,7 @@ const make = Effect.gen(function* () {
         if (deleted && settings.worktreeOnDelete) kept.push(worktreePath);
         entries.push({ ...entry, reason: sentence(reason) });
       };
+      let removing = false;
       // Reasons a provider session stop or finished deletion work can clear.
       const waitForStop = (reason: string) => {
         if (deleted && settings.worktreeOnDelete) waiting = true;
@@ -1226,6 +1232,7 @@ const make = Effect.gen(function* () {
               const changes = yield* localChangesReason(worktreePath, settings);
               if (changes !== null) return keep(changes);
             }
+            removing = true;
             yield* removeLinkedWorktree({
               operation: "StorageCleanup.cleanupGit",
               cwd: project.workspaceRoot,
@@ -1245,7 +1252,10 @@ const make = Effect.gen(function* () {
         Effect.catch((error) =>
           Effect.gen(function* () {
             // Other tools may remove the worktree while it is checked; that is not a failure.
-            if (!(yield* fs.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)))) {
+            if (
+              !removing &&
+              !(yield* fs.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)))
+            ) {
               yield* Effect.logInfo("storage cleanup skipped a worktree removed elsewhere", {
                 threadId: thread.id,
               });
