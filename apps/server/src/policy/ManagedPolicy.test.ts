@@ -167,6 +167,36 @@ it.layer(NodeServices.layer)("ManagedPolicy.load", (it) => {
     }),
   );
 
+  it.effect("keeps a locked keep level from being bypassed by discarding local changes", () =>
+    Effect.gen(function* () {
+      const policy = yield* loadFrom(
+        JSON.stringify({
+          schemaVersion: 1,
+          organization: "Example Corp",
+          settings: {
+            "storageCleanup.worktreeKeepWhen": { value: "any-local-files", locked: true },
+            worktreeCleanup: { value: null, locked: true },
+          },
+        }),
+      );
+      const current = {
+        ...DEFAULT_SERVER_SETTINGS,
+        storageCleanup: {
+          ...DEFAULT_SERVER_SETTINGS.storageCleanup,
+          worktreeDiscardLocalChanges: true,
+        },
+      };
+      assert.isFalse(
+        policy.settings.applyLocks(current).storageCleanup.worktreeDiscardLocalChanges,
+      );
+      const patch = { storageCleanup: { worktreeDiscardLocalChanges: true } };
+      assert.deepEqual(policy.settings.vetWrite(DEFAULT_SERVER_SETTINGS, current, patch), {
+        _tag: "Locked",
+        path: "storageCleanup.worktreeDiscardLocalChanges",
+      });
+    }),
+  );
+
   it.effect("tells clients the runtime mode ceiling", () =>
     Effect.gen(function* () {
       const policy = yield* loadFrom(

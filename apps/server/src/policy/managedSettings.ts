@@ -275,6 +275,13 @@ export function makeManagedSettings(
     }
     (setting.locked ? locks : defaults).push({ path, segments, value: setting.value });
   }
+  // Fork: Never discards what a locked keep level protects, so that lock also pins Never off.
+  const discardPath = "storageCleanup.worktreeDiscardLocalChanges";
+  if (
+    locks.some((lock) => lock.path === "storageCleanup.worktreeKeepWhen") &&
+    !locks.some((lock) => lock.path === discardPath)
+  )
+    locks.push({ path: discardPath, segments: discardPath.split("."), value: false });
 
   for (const lock of locks) {
     const unheld = OVERRIDDEN_BY.find(

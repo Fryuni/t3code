@@ -27,7 +27,10 @@ the write picks a different keep level, which turns Never off. Upstream still sh
 underlying keep level while Never is on; choosing another one there must turn Never off,
 and changing an unrelated setting must not. Servers advertise the
 `worktreeDiscardLocalChanges` capability, and the web client offers Never only when
-every selected server has it, since older servers drop the key.
+every selected server has it, since older servers drop the key. A managed policy that locks
+`storageCleanup.worktreeKeepWhen` also locks the flag off
+([managedSettings.ts](../../apps/server/src/policy/managedSettings.ts)), so Never cannot
+bypass an administrator's keep level; upstream policies need no change.
 
 Other tools also remove worktrees. A worktree that is already gone when cleanup reaches
 it was always skipped. One removed while cleanup checks it is now skipped too, unless
