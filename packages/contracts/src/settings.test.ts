@@ -51,6 +51,7 @@ describe("storage cleanup settings", () => {
       worktreeOnDelete: false,
       worktreeUnchanged: false,
       worktreeKeepWhen: "uncommitted-changes",
+      worktreeDiscardLocalChanges: false,
       browserArtifactsAfterDays: null,
       logsAfterDays: null,
     });
@@ -109,6 +110,9 @@ describe("storage cleanup settings", () => {
     expect(
       decodeServerSettingsPatch({ storageCleanup: { worktreeKeepWhen: "tracked-changes" } }),
     ).toEqual({ storageCleanup: { worktreeKeepWhen: "tracked-changes" } });
+    expect(
+      decodeServerSettingsPatch({ storageCleanup: { worktreeDiscardLocalChanges: true } }),
+    ).toEqual({ storageCleanup: { worktreeDiscardLocalChanges: true } });
     expect(() =>
       decodeServerSettingsPatch({ storageCleanup: { worktreeKeepWhen: "unknown" } }),
     ).toThrow();

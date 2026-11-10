@@ -110,6 +110,7 @@ describe("serverSettings helpers", () => {
       worktreeOnDelete: false,
       worktreeUnchanged: false,
       worktreeKeepWhen: "uncommitted-changes",
+      worktreeDiscardLocalChanges: false,
       browserArtifactsAfterDays: null,
       logsAfterDays: 30,
     });

@@ -493,6 +493,14 @@ export function WorktreeCleanupSection() {
     isProjectScope
       ? updateSettings({ worktreeCleanup: { mode: "custom", rules: patch } })
       : update(patch);
+  const keepWhen = settings.worktreeDiscardLocalChanges ? "never" : settings.worktreeKeepWhen;
+  const keepWhenStatus =
+    ruleStatus("worktreeKeepWhen") ?? ruleStatus("worktreeDiscardLocalChanges");
+  // Older servers drop the unknown key, so offer Never only where it is honored.
+  const canDiscardLocalChanges = connectedEnvironments.every(
+    (environment) =>
+      environment.serverConfig?.environment.capabilities.worktreeDiscardLocalChanges === true,
+  );
 
   if (
     isProjectScope &&
@@ -570,7 +578,7 @@ export function WorktreeCleanupSection() {
               status={ruleStatus("worktreeOnDelete")}
               managedPaths={lockablePath("worktreeOnDelete")}
               description={`Remove unused worktrees when active or archived threads are deleted.${
-                settings.worktreeKeepWhen === "never"
+                settings.worktreeDiscardLocalChanges
                   ? ""
                   : " Worktrees with local changes are kept."
               }`}
@@ -666,43 +674,52 @@ export function WorktreeCleanupSection() {
               ) && (
                 <SettingsRow
                   {...searchableSetting("storage-worktree-keep-when")}
-                  status={ruleStatus("worktreeKeepWhen")}
-                  managedPaths={lockablePath("worktreeKeepWhen")}
+                  status={keepWhenStatus}
+                  managedPaths={
+                    isProjectScope
+                      ? ["worktreeCleanup"]
+                      : [
+                          "worktreeCleanup",
+                          "storageCleanup.worktreeKeepWhen",
+                          "storageCleanup.worktreeDiscardLocalChanges",
+                        ]
+                  }
                   description={
-                    settings.worktreeKeepWhen === "any-local-files"
+                    keepWhen === "any-local-files"
                       ? "Includes ignored files, except node_modules."
-                      : settings.worktreeKeepWhen === "tracked-changes"
+                      : keepWhen === "tracked-changes"
                         ? "Deletes untracked and ignored files, including .env."
-                        : settings.worktreeKeepWhen === "never"
+                        : keepWhen === "never"
                           ? "Deletes all local changes, including uncommitted edits."
                           : "Keeps edits and untracked files. Deletes ignored files, including .env."
                   }
                   serverScoped={!isProjectScope}
                   control={
                     <Select
-                      value={ruleStatus("worktreeKeepWhen") ? null : settings.worktreeKeepWhen}
+                      value={keepWhenStatus ? null : keepWhen}
                       onValueChange={(next) => {
-                        if (
+                        if (next === "never") updateWorktree({ worktreeDiscardLocalChanges: true });
+                        else if (
                           next === "any-local-files" ||
                           next === "uncommitted-changes" ||
-                          next === "tracked-changes" ||
-                          next === "never"
+                          next === "tracked-changes"
                         )
-                          updateWorktree({ worktreeKeepWhen: next });
+                          updateWorktree({
+                            worktreeKeepWhen: next,
+                            worktreeDiscardLocalChanges: false,
+                          });
                       }}
                     >
                       <SelectTrigger size="sm" aria-label="Keep worktrees with local changes">
                         <SelectValue>
-                          {ruleStatus("worktreeKeepWhen")
-                            ? "Mixed"
-                            : KEEP_WHEN_LABELS[settings.worktreeKeepWhen]}
+                          {keepWhenStatus ? "Mixed" : KEEP_WHEN_LABELS[keepWhen]}
                         </SelectValue>
                       </SelectTrigger>
                       <SelectPopup align="end" alignItemWithTrigger={false}>
                         <SelectItem value="any-local-files">Any local files</SelectItem>
                         <SelectItem value="uncommitted-changes">Uncommitted changes</SelectItem>
                         <SelectItem value="tracked-changes">Edited tracked files</SelectItem>
-                        <SelectItem value="never">Never</SelectItem>
+                        {canDiscardLocalChanges && <SelectItem value="never">Never</SelectItem>}
                       </SelectPopup>
                     </Select>
                   }

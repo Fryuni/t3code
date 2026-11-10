@@ -387,6 +387,7 @@ describe("resolveWorktreeCleanup", () => {
       worktreeOnMerge: false,
       worktreeUnchanged: false,
       worktreeKeepWhen: "any-local-files",
+      worktreeDiscardLocalChanges: false,
     });
     expect(resolveWorktreeCleanup(off, otherProjectId)).toEqual(inherited);
     const custom = applyServerSettingsPatch(off, {
@@ -412,7 +413,12 @@ describe("resolveWorktreeCleanup", () => {
   });
   it("completes partial machine custom rules and preserves them across edits", () => {
     const initial = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {
-      storageCleanup: { worktreeAfterDays: 8, worktreeSettledAfterDays: 0, worktreeOnDelete: true },
+      storageCleanup: {
+        worktreeAfterDays: 8,
+        worktreeSettledAfterDays: 0,
+        worktreeOnDelete: true,
+        worktreeDiscardLocalChanges: true,
+      },
     });
     const custom = applyServerSettingsPatch(initial, {
       worktreeCleanup: { mode: "custom", rules: { worktreeOnMerge: true } },
@@ -427,6 +433,7 @@ describe("resolveWorktreeCleanup", () => {
       worktreeOnMerge: true,
       worktreeUnchanged: false,
       worktreeKeepWhen: "uncommitted-changes",
+      worktreeDiscardLocalChanges: true,
     });
     expect(
       resolveWorktreeCleanup(applyServerSettingsPatch(edited, { worktreeCleanup: null }), null)

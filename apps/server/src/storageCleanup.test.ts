@@ -501,10 +501,15 @@ const cleanupFixture = (
       setSettings: (next: Partial<typeof settings>) => {
         settings = { ...settings, ...next };
       },
-      setPolicy: (worktreeKeepWhen: WorktreeKeepWhen) => {
+      setPolicy: (policy: WorktreeKeepWhen | "never") => {
         settings = {
           ...settings,
-          storageCleanup: { ...settings.storageCleanup, worktreeKeepWhen },
+          storageCleanup: {
+            ...settings.storageCleanup,
+            ...(policy === "never"
+              ? { worktreeDiscardLocalChanges: true }
+              : { worktreeKeepWhen: policy, worktreeDiscardLocalChanges: false }),
+          },
         };
       },
       disable: () => {

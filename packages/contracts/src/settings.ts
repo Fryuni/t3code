@@ -1117,7 +1117,6 @@ export const WorktreeKeepWhen = Schema.Literals([
   "any-local-files",
   "uncommitted-changes",
   "tracked-changes",
-  "never",
 ]);
 export type WorktreeKeepWhen = typeof WorktreeKeepWhen.Type;
 
@@ -1132,6 +1131,10 @@ export const WorktreeCleanupRules = Schema.Struct({
   worktreeOnMerge: Schema.Boolean,
   worktreeOnDelete: Schema.Boolean,
   worktreeUnchanged: Schema.Boolean,
+  // Fork-only; a separate key so upstream clients, which drop unknown keys, still decode settings.
+  worktreeDiscardLocalChanges: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
 });
 export type WorktreeCleanupRules = typeof WorktreeCleanupRules.Type;
 
@@ -1319,6 +1322,9 @@ export const StorageCleanupSettings = Schema.Struct({
   worktreeOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeOnDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeUnchanged: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  worktreeDiscardLocalChanges: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
   browserArtifactsAfterDays: StorageRetentionDays.pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1785,6 +1791,7 @@ export const ServerSettingsPatch = Schema.Struct({
             worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
             worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
             worktreeUnchanged: Schema.optionalKey(Schema.Boolean),
+            worktreeDiscardLocalChanges: Schema.optionalKey(Schema.Boolean),
           }),
         }),
       ]),
@@ -1798,6 +1805,7 @@ export const ServerSettingsPatch = Schema.Struct({
       worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
       worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
       worktreeUnchanged: Schema.optionalKey(Schema.Boolean),
+      worktreeDiscardLocalChanges: Schema.optionalKey(Schema.Boolean),
       browserArtifactsAfterDays: Schema.optionalKey(StorageRetentionDays),
       logsAfterDays: Schema.optionalKey(StorageRetentionDays),
     }),

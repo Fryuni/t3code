@@ -647,7 +647,7 @@ const make = Effect.gen(function* () {
     cwd: string,
     rules: WorktreeCleanupRules,
   ) {
-    if (rules.worktreeKeepWhen === "never") return null;
+    if (rules.worktreeDiscardLocalChanges) return null;
     const status = yield* git.execute({
       operation: "StorageCleanup.localChanges",
       cwd,
@@ -761,7 +761,7 @@ const make = Effect.gen(function* () {
       if (
         force &&
         rules.worktreeKeepWhen !== "tracked-changes" &&
-        rules.worktreeKeepWhen !== "never"
+        !rules.worktreeDiscardLocalChanges
       ) {
         const root = yield* fs.realPath(cwd);
         // Git status and foreach omit files inside deinitialized gitlink directories.
@@ -859,8 +859,9 @@ const make = Effect.gen(function* () {
         return "outside the managed worktree folder";
       const gitFile = yield* fs.stat(path.join(worktreePath, ".git")).pipe(
         Effect.map((info) => info.type),
-        Effect.catch((error) =>
-          error.reason._tag === "NotFound" ? Effect.succeed(null) : Effect.fail(error),
+        Effect.catchIf(
+          (error) => error.reason._tag === "NotFound",
+          () => Effect.succeed(null),
         ),
       );
       if (gitFile !== "File") return "not a linked worktree";
@@ -1238,7 +1239,7 @@ const make = Effect.gen(function* () {
               cwd: project.workspaceRoot,
               worktreePath,
               // Git requires force for submodules; recursive checks above cannot make removal atomic.
-              force: submodules.force || settings.worktreeKeepWhen === "never",
+              force: submodules.force || settings.worktreeDiscardLocalChanges,
               execute: git.execute,
               run: (args) => cleanupGit(project.workspaceRoot, [...args], "git worktree remove"),
             });
