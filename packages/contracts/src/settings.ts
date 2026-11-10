@@ -1144,6 +1144,19 @@ export const WorktreeCleanup = Schema.NullOr(
     Schema.Struct({ mode: Schema.Literal("custom"), rules: WorktreeCleanupRules }),
   ]),
 );
+// Patches leave the fork-only flag optional so a write that omits it keeps the stored value.
+const WorktreeCleanupPatch = Schema.NullOr(
+  Schema.Union([
+    Schema.Struct({ mode: Schema.Literal("off") }),
+    Schema.Struct({
+      mode: Schema.Literal("custom"),
+      rules: Schema.Struct({
+        ...WorktreeCleanupRules.fields,
+        worktreeDiscardLocalChanges: Schema.optionalKey(Schema.Boolean),
+      }),
+    }),
+  ]),
+);
 export type WorktreeCleanup = typeof WorktreeCleanup.Type;
 
 export const PROJECT_SCOPED_SERVER_SETTING_KEYS = [
@@ -1851,6 +1864,7 @@ export const ServerSettingsPatch = Schema.Struct({
           Schema.Struct({
             ...ProjectSettingsOverrides.fields,
             sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
+            worktreeCleanup: Schema.optionalKey(WorktreeCleanupPatch),
           }),
         ),
       ),

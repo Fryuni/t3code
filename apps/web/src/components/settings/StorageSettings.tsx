@@ -493,9 +493,14 @@ export function WorktreeCleanupSection() {
     isProjectScope
       ? updateSettings({ worktreeCleanup: { mode: "custom", rules: patch } })
       : update(patch);
-  const keepWhen = settings.worktreeDiscardLocalChanges ? "never" : settings.worktreeKeepWhen;
-  const keepWhenStatus =
-    ruleStatus("worktreeKeepWhen") ?? ruleStatus("worktreeDiscardLocalChanges");
+  const effectiveKeepWhen = (rules: WorktreeCleanupRules) =>
+    rules.worktreeDiscardLocalChanges ? "never" : rules.worktreeKeepWhen;
+  const keepWhen = effectiveKeepWhen(settings);
+  const keepWhenStatus = targets.some(
+    (target) => effectiveKeepWhen(resolveWorktreeCleanup(target.settings, null)) !== keepWhen,
+  )
+    ? "Mixed across selected machines"
+    : undefined;
   // Older servers drop the unknown key, so offer Never only where it is honored.
   const canDiscardLocalChanges = connectedEnvironments.every(
     (environment) =>

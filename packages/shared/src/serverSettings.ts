@@ -23,6 +23,7 @@ import {
   ServerSettings,
   type ServerSettingsPatch,
   withIdleCompaction,
+  type WorktreeCleanupRules,
 } from "@t3tools/contracts";
 import * as Option from "effect/Option";
 import * as Predicate from "effect/Predicate";
@@ -258,7 +259,11 @@ const byHost = (tokens: unknown) =>
 
 const knownProjectOverrideKeys = new Set(Object.keys(ProjectSettingsOverrides.fields));
 
-function pickOverrideKeys(entry: ProjectSettingsOverrides | undefined, known: boolean) {
+type ProjectSettingsOverridesPatch = NonNullable<
+  NonNullable<ServerSettingsPatch["projectSettingsOverrides"]>[ProjectId]
+>;
+
+function pickOverrideKeys(entry: ProjectSettingsOverridesPatch | undefined, known: boolean) {
   return Object.fromEntries(
     Object.entries<unknown>(entry ?? {}).filter(
       ([key]) => knownProjectOverrideKeys.has(key) === known,
@@ -266,10 +271,28 @@ function pickOverrideKeys(entry: ProjectSettingsOverrides | undefined, known: bo
   );
 }
 
+/** Upstream clients omit the fork-only discard flag: keep it unless they pick another keep level. */
+function withDiscardLocalChanges<
+  Rules extends Partial<
+    Pick<WorktreeCleanupRules, "worktreeKeepWhen" | "worktreeDiscardLocalChanges">
+  >,
+>(
+  rules: Rules,
+  current: Pick<WorktreeCleanupRules, "worktreeKeepWhen" | "worktreeDiscardLocalChanges"> | null,
+) {
+  return {
+    ...rules,
+    worktreeDiscardLocalChanges:
+      rules.worktreeDiscardLocalChanges ??
+      ((rules.worktreeKeepWhen ?? current?.worktreeKeepWhen) === current?.worktreeKeepWhen &&
+        (current?.worktreeDiscardLocalChanges ?? false)),
+  };
+}
+
 // Older clients omit providerInstances during whole-entry replacement; preserve it to avoid wiping overrides.
 function mergeProjectSettingsOverridesPatch(
   current: Readonly<Record<string, ProjectSettingsOverrides>>,
-  patch: Readonly<Record<string, ProjectSettingsOverrides | null>>,
+  patch: NonNullable<ServerSettingsPatch["projectSettingsOverrides"]>,
 ): Record<string, ProjectSettingsOverrides> {
   const next = new Map(Object.entries(current));
   for (const [projectId, entry] of Object.entries(patch)) {
@@ -278,10 +301,22 @@ function mergeProjectSettingsOverridesPatch(
       continue;
     }
     const storedProviderInstances = current[projectId]?.providerInstances;
+    const storedCleanup = current[projectId]?.worktreeCleanup;
     next.set(projectId, {
       // Preserve downgraded storage, but reject new unknown writes so clients can detect unsupported settings.
       ...pickOverrideKeys(current[projectId], false),
       ...pickOverrideKeys(entry, true),
+      ...(entry.worktreeCleanup?.mode === "custom"
+        ? {
+            worktreeCleanup: {
+              mode: "custom" as const,
+              rules: withDiscardLocalChanges(
+                entry.worktreeCleanup.rules,
+                storedCleanup?.mode === "custom" ? storedCleanup.rules : null,
+              ),
+            },
+          }
+        : {}),
       ...(Object.hasOwn(entry, "providerInstances") || storedProviderInstances === undefined
         ? {}
         : { providerInstances: storedProviderInstances }),
@@ -332,7 +367,7 @@ function translateLegacyProjectOverridePatch(
   }
   const currentEntries: Readonly<Record<string, ProjectSettingsOverrides>> =
     current.projectSettingsOverrides;
-  const entries = new Map<string, ProjectSettingsOverrides | null>(
+  const entries = new Map<string, ProjectSettingsOverridesPatch | null>(
     Object.entries(rest.projectSettingsOverrides ?? {}),
   );
   // Canonical entries outrank legacy maps, including deliberately omitted keys.
@@ -344,7 +379,7 @@ function translateLegacyProjectOverridePatch(
     if (map === undefined) return;
     for (const [projectId, value] of Object.entries(map)) {
       if (canonicalProjectIds.has(projectId)) continue;
-      const entry: ProjectSettingsOverrides = {
+      const entry: ProjectSettingsOverridesPatch = {
         ...(entries.get(projectId) ?? currentEntries[projectId]),
       };
       if (value === null || value === undefined) {
@@ -498,7 +533,17 @@ export function applyServerSettingsPatch(
       },
     };
   }
-  const next = deepMerge(current, patchForMerge);
+  const next = deepMerge(current, {
+    ...patchForMerge,
+    ...(patchForMerge.storageCleanup === undefined
+      ? {}
+      : {
+          storageCleanup: withDiscardLocalChanges(
+            patchForMerge.storageCleanup,
+            current.storageCleanup,
+          ),
+        }),
+  });
   const nextWithReplacementsBase = {
     ...next,
     favorites,
@@ -517,11 +562,15 @@ export function applyServerSettingsPatch(
                     worktreeOnMerge: next.storageCleanup.worktreeOnMerge,
                     worktreeOnDelete: next.storageCleanup.worktreeOnDelete,
                     worktreeUnchanged: next.storageCleanup.worktreeUnchanged,
-                    worktreeDiscardLocalChanges: next.storageCleanup.worktreeDiscardLocalChanges,
                     ...(current.worktreeCleanup?.mode === "custom"
                       ? current.worktreeCleanup.rules
                       : {}),
-                    ...worktreeCleanupPatch.rules,
+                    ...withDiscardLocalChanges(
+                      worktreeCleanupPatch.rules,
+                      current.worktreeCleanup?.mode === "custom"
+                        ? current.worktreeCleanup.rules
+                        : next.storageCleanup,
+                    ),
                   },
                 }
               : worktreeCleanupPatch,

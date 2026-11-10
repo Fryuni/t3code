@@ -21,7 +21,11 @@ Never is stored as a separate boolean, `worktreeDiscardLocalChanges`, not as a f
 ([ADR 0011](0011-fork-release-source.md)), so upstream clients connect to fork servers.
 Their schemas reject an unknown enum value, which would make the whole settings
 snapshot undecodable, but drop an unknown key. Upstream clients therefore keep working
-and show the underlying `worktreeKeepWhen`. Servers advertise the
+and show the underlying `worktreeKeepWhen`. Their writes omit the flag, so the
+[settings merge](../../packages/shared/src/serverSettings.ts) keeps the stored flag, unless
+the write picks a different keep level, which turns Never off. A write that omits the flag
+must never leave Never on while upstream shows a protective choice, or silently drop it
+when an unrelated setting changes. Servers advertise the
 `worktreeDiscardLocalChanges` capability, and the web client offers Never only when
 every selected server has it, since older servers drop the key.
 
