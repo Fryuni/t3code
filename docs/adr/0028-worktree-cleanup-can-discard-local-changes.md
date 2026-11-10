@@ -23,9 +23,9 @@ Their schemas reject an unknown enum value, which would make the whole settings
 snapshot undecodable, but drop an unknown key. Upstream clients therefore keep working
 and show the underlying `worktreeKeepWhen`. Their writes omit the flag, so the
 [settings merge](../../packages/shared/src/serverSettings.ts) keeps the stored flag, unless
-the write picks a different keep level, which turns Never off. A write that omits the flag
-must never leave Never on while upstream shows a protective choice, or silently drop it
-when an unrelated setting changes. Servers advertise the
+the write picks a different keep level, which turns Never off. Upstream still shows the
+underlying keep level while Never is on; choosing another one there must turn Never off,
+and changing an unrelated setting must not. Servers advertise the
 `worktreeDiscardLocalChanges` capability, and the web client offers Never only when
 every selected server has it, since older servers drop the key.
 
