@@ -501,10 +501,15 @@ const cleanupFixture = (
       setSettings: (next: Partial<typeof settings>) => {
         settings = { ...settings, ...next };
       },
-      setPolicy: (worktreeKeepWhen: WorktreeKeepWhen) => {
+      setPolicy: (policy: WorktreeKeepWhen | "never") => {
         settings = {
           ...settings,
-          storageCleanup: { ...settings.storageCleanup, worktreeKeepWhen },
+          storageCleanup: {
+            ...settings.storageCleanup,
+            ...(policy === "never"
+              ? { worktreeDiscardLocalChanges: true }
+              : { worktreeKeepWhen: policy, worktreeDiscardLocalChanges: false }),
+          },
         };
       },
       disable: () => {
@@ -696,6 +701,23 @@ it.live("keeps nested submodule files protected by the current keep rule", () =>
           ? yield* fs.readFileString(`${child}/notes.txt`)
           : null,
       }).toEqual({ outcome: "kept", contents: "notes after deinit\n" });
+    }),
+  ),
+);
+
+it.live("removes submodule worktrees with local files when nothing is kept", () =>
+  runCleanupTest(
+    Effect.gen(function* () {
+      const { service, fs, worktree, submodule, child, command, setPolicy } =
+        yield* submoduleCleanupFixture();
+      setPolicy("never");
+      yield* fs.writeFileString(`${submodule}/tracked.txt`, "local edit\n");
+      yield* command(submodule, ["submodule", "deinit", "child"]);
+      yield* fs.writeFileString(`${child}/notes.txt`, "notes after deinit\n");
+      expect(
+        (yield* service.runNow).entries.find((entry) => entry.path === worktree),
+      ).toMatchObject({ outcome: "removed" });
+      expect(yield* fs.exists(worktree)).toBe(false);
     }),
   ),
 );
@@ -2460,6 +2482,9 @@ describe("storage cleanup reports and local file policies", () => {
     ["any-local-files", "tracked.txt", "kept"],
     ["uncommitted-changes", "tracked.txt", "kept"],
     ["tracked-changes", "tracked.txt", "kept"],
+    ["never", ".env", "removed"],
+    ["never", "notes.txt", "removed"],
+    ["never", "tracked.txt", "removed"],
   ] as const)("applies %j", ([policy, file, outcome]) =>
     runCleanupTest(
       Effect.gen(function* () {
@@ -2775,6 +2800,49 @@ describe("storage cleanup reports and local file policies", () => {
     ),
   );
 });
+
+describe("worktrees removed outside T3 Code", () => {
+  it.live.each([
+    ["before-check", "git"],
+    ["before-check", "rm"],
+    ["while-measuring", "git"],
+    ["while-measuring", "rm"],
+  ] as const)("skips a worktree removed %s with %s", ([timing, method]) =>
+    runCleanupTest(
+      Effect.gen(function* () {
+        const fixture = yield* pausedMeasurementFixture();
+        const removeExternally =
+          method === "git"
+            ? fixture.command(fixture.repo, ["worktree", "remove", "--force", fixture.worktree])
+            : fixture.fs.remove(fixture.worktree, { recursive: true });
+        if (timing === "before-check") yield* removeExternally;
+        const run = yield* fixture.service.runNow.pipe(Effect.forkChild);
+        if (timing === "while-measuring") {
+          yield* Deferred.await(fixture.measuring);
+          yield* removeExternally;
+        }
+        yield* Deferred.succeed(fixture.resume, undefined);
+        const report = yield* Fiber.join(run);
+        expect(report.entries.filter((entry) => entry.kind === "worktree")).toEqual([]);
+        expect(report.counts.failed).toBe(0);
+      }),
+    ),
+  );
+});
+
+it.live("keeps a worktree whose .git file another tool removed", () =>
+  runCleanupTest(
+    Effect.gen(function* () {
+      const { service, fs, worktree } = yield* cleanupFixture();
+      yield* fs.remove(`${worktree}/.git`);
+      expect((yield* service.runNow).entries[0]).toMatchObject({
+        outcome: "kept",
+        reason: "Not a linked worktree",
+      });
+      expect(yield* fs.exists(`${worktree}/tracked.txt`)).toBe(true);
+    }),
+  ),
+);
 
 describe("settled worktree rechecks", () => {
   it.live.each(["autoResumeLimitedThreads", "snoozeLimitedThreads"] as const)(

@@ -110,9 +110,64 @@ describe("serverSettings helpers", () => {
       worktreeOnDelete: false,
       worktreeUnchanged: false,
       worktreeKeepWhen: "uncommitted-changes",
+      worktreeDiscardLocalChanges: false,
       browserArtifactsAfterDays: null,
       logsAfterDays: 30,
     });
+  });
+  it("keeps discard-local-changes through upstream writes unless they pick another keep level", () => {
+    const projectId = ProjectId.make("project-1");
+    const rules = {
+      worktreeKeepWhen: "uncommitted-changes",
+      worktreeAfterDays: null,
+      worktreeSettledAfterDays: 3,
+      worktreeOnMerge: false,
+      worktreeOnDelete: false,
+      worktreeUnchanged: false,
+    };
+    const apply = (settings: ServerSettings, patch: unknown) =>
+      applyServerSettingsPatch(settings, decodeServerSettingsPatch(patch));
+    const discarding = apply(DEFAULT_SERVER_SETTINGS, {
+      storageCleanup: { worktreeDiscardLocalChanges: true },
+      worktreeCleanup: { mode: "custom", rules: { worktreeDiscardLocalChanges: true } },
+      projectSettingsOverrides: {
+        [projectId]: {
+          worktreeCleanup: {
+            mode: "custom",
+            rules: { ...rules, worktreeDiscardLocalChanges: true },
+          },
+        },
+      },
+    });
+    // Upstream clients send the rules without the fork-only flag.
+    const resent = apply(discarding, {
+      storageCleanup: { worktreeKeepWhen: "uncommitted-changes", worktreeAfterDays: 8 },
+      worktreeCleanup: { mode: "custom", rules: { worktreeAfterDays: 8 } },
+      projectSettingsOverrides: {
+        [projectId]: { defaultAutoPull: true, worktreeCleanup: { mode: "custom", rules } },
+      },
+    });
+    const discardFlags = (settings: ServerSettings) => [
+      settings.storageCleanup.worktreeDiscardLocalChanges,
+      settings.worktreeCleanup?.mode === "custom" &&
+        settings.worktreeCleanup.rules.worktreeDiscardLocalChanges,
+      settings.projectSettingsOverrides[projectId]?.worktreeCleanup?.mode === "custom" &&
+        settings.projectSettingsOverrides[projectId].worktreeCleanup.rules
+          .worktreeDiscardLocalChanges,
+    ];
+    expect(discardFlags(resent)).toEqual([true, true, true]);
+    const protective = { ...rules, worktreeKeepWhen: "any-local-files" };
+    expect(
+      discardFlags(
+        apply(resent, {
+          storageCleanup: { worktreeKeepWhen: "any-local-files" },
+          worktreeCleanup: { mode: "custom", rules: { worktreeKeepWhen: "any-local-files" } },
+          projectSettingsOverrides: {
+            [projectId]: { worktreeCleanup: { mode: "custom", rules: protective } },
+          },
+        }),
+      ),
+    ).toEqual([false, false, false]);
   });
   it("replaces a source control host's patched field so a cleared account pin does not survive", () => {
     const pinned = applyServerSettingsPatch(DEFAULT_SERVER_SETTINGS, {

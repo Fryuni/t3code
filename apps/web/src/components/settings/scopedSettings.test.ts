@@ -169,6 +169,7 @@ describe("scoped settings writes", () => {
             worktreeOnMerge: true,
             worktreeUnchanged: false,
             worktreeKeepWhen: "uncommitted-changes",
+            worktreeDiscardLocalChanges: false,
           },
         },
       },
@@ -194,6 +195,7 @@ describe("scoped settings writes", () => {
         worktreeOnMerge: true,
         worktreeUnchanged: false,
         worktreeKeepWhen: "uncommitted-changes",
+        worktreeDiscardLocalChanges: false,
       },
       {
         worktreeAfterDays: null,
@@ -202,6 +204,7 @@ describe("scoped settings writes", () => {
         worktreeOnMerge: false,
         worktreeUnchanged: false,
         worktreeKeepWhen: "uncommitted-changes",
+        worktreeDiscardLocalChanges: false,
       },
     ]);
   });
@@ -459,6 +462,7 @@ describe("scoped settings writes", () => {
                 worktreeOnMerge: true,
                 worktreeUnchanged: false,
                 worktreeKeepWhen: "uncommitted-changes",
+                worktreeDiscardLocalChanges: false,
               },
             },
           },
@@ -490,6 +494,7 @@ describe("scoped settings writes", () => {
               worktreeOnMerge: true,
               worktreeUnchanged: false,
               worktreeKeepWhen: "uncommitted-changes",
+              worktreeDiscardLocalChanges: false,
             },
           },
         },
@@ -505,6 +510,7 @@ describe("scoped settings writes", () => {
               worktreeOnMerge: false,
               worktreeUnchanged: false,
               worktreeKeepWhen: "uncommitted-changes",
+              worktreeDiscardLocalChanges: false,
             },
           },
         },

@@ -647,6 +647,7 @@ const make = Effect.gen(function* () {
     cwd: string,
     rules: WorktreeCleanupRules,
   ) {
+    if (rules.worktreeDiscardLocalChanges) return null;
     const status = yield* git.execute({
       operation: "StorageCleanup.localChanges",
       cwd,
@@ -757,7 +758,11 @@ const make = Effect.gen(function* () {
         if (changes !== null) return { force: false, reason: `submodule ${changes}` };
       }
       const force = stored || paths.length > 0;
-      if (force && rules.worktreeKeepWhen !== "tracked-changes") {
+      if (
+        force &&
+        rules.worktreeKeepWhen !== "tracked-changes" &&
+        !rules.worktreeDiscardLocalChanges
+      ) {
         const root = yield* fs.realPath(cwd);
         // Git status and foreach omit files inside deinitialized gitlink directories.
         const populatedPaths = new Set(paths.map(pathKey));
@@ -852,8 +857,14 @@ const make = Effect.gen(function* () {
         return "worktree is a symbolic link";
       if (!roots.some((root) => inside(root, realPath)))
         return "outside the managed worktree folder";
-      if ((yield* fs.stat(path.join(worktreePath, ".git"))).type !== "File")
-        return "not a linked worktree";
+      const gitFile = yield* fs.stat(path.join(worktreePath, ".git")).pipe(
+        Effect.map((info) => info.type),
+        Effect.catchIf(
+          (error) => error.reason._tag === "NotFound",
+          () => Effect.succeed(null),
+        ),
+      );
+      if (gitFile !== "File") return "not a linked worktree";
       return null;
     });
     const deletedRows = yield* sql<{ payload_json: string; workspaceRoot: string }>`
@@ -925,6 +936,7 @@ const make = Effect.gen(function* () {
         if (deleted && settings.worktreeOnDelete) kept.push(worktreePath);
         entries.push({ ...entry, reason: sentence(reason) });
       };
+      let removing = false;
       // Reasons a provider session stop or finished deletion work can clear.
       const waitForStop = (reason: string) => {
         if (deleted && settings.worktreeOnDelete) waiting = true;
@@ -1221,12 +1233,13 @@ const make = Effect.gen(function* () {
               const changes = yield* localChangesReason(worktreePath, settings);
               if (changes !== null) return keep(changes);
             }
+            removing = true;
             yield* removeLinkedWorktree({
               operation: "StorageCleanup.cleanupGit",
               cwd: project.workspaceRoot,
               worktreePath,
               // Git requires force for submodules; recursive checks above cannot make removal atomic.
-              force: submodules.force,
+              force: submodules.force || settings.worktreeDiscardLocalChanges,
               execute: git.execute,
               run: (args) => cleanupGit(project.workspaceRoot, [...args], "git worktree remove"),
             });
@@ -1239,6 +1252,16 @@ const make = Effect.gen(function* () {
       }).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
+            // Other tools may remove the worktree while it is checked; that is not a failure.
+            if (
+              !removing &&
+              !(yield* fs.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)))
+            ) {
+              yield* Effect.logInfo("storage cleanup skipped a worktree removed elsewhere", {
+                threadId: thread.id,
+              });
+              return;
+            }
             entries.push({
               ...entry,
               outcome: "failed",

@@ -1131,6 +1131,10 @@ export const WorktreeCleanupRules = Schema.Struct({
   worktreeOnMerge: Schema.Boolean,
   worktreeOnDelete: Schema.Boolean,
   worktreeUnchanged: Schema.Boolean,
+  // Fork-only; a separate key so upstream clients, which drop unknown keys, still decode settings.
+  worktreeDiscardLocalChanges: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
 });
 export type WorktreeCleanupRules = typeof WorktreeCleanupRules.Type;
 
@@ -1138,6 +1142,19 @@ export const WorktreeCleanup = Schema.NullOr(
   Schema.Union([
     Schema.Struct({ mode: Schema.Literal("off") }),
     Schema.Struct({ mode: Schema.Literal("custom"), rules: WorktreeCleanupRules }),
+  ]),
+);
+// Patches leave the fork-only flag optional so a write that omits it keeps the stored value.
+const WorktreeCleanupPatch = Schema.NullOr(
+  Schema.Union([
+    Schema.Struct({ mode: Schema.Literal("off") }),
+    Schema.Struct({
+      mode: Schema.Literal("custom"),
+      rules: Schema.Struct({
+        ...WorktreeCleanupRules.fields,
+        worktreeDiscardLocalChanges: Schema.optionalKey(Schema.Boolean),
+      }),
+    }),
   ]),
 );
 export type WorktreeCleanup = typeof WorktreeCleanup.Type;
@@ -1318,6 +1335,9 @@ export const StorageCleanupSettings = Schema.Struct({
   worktreeOnMerge: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeOnDelete: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
   worktreeUnchanged: Schema.Boolean.pipe(Schema.withDecodingDefault(Effect.succeed(false))),
+  worktreeDiscardLocalChanges: Schema.Boolean.pipe(
+    Schema.withDecodingDefault(Effect.succeed(false)),
+  ),
   browserArtifactsAfterDays: StorageRetentionDays.pipe(
     Schema.withDecodingDefault(Effect.succeed(null)),
   ),
@@ -1784,6 +1804,7 @@ export const ServerSettingsPatch = Schema.Struct({
             worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
             worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
             worktreeUnchanged: Schema.optionalKey(Schema.Boolean),
+            worktreeDiscardLocalChanges: Schema.optionalKey(Schema.Boolean),
           }),
         }),
       ]),
@@ -1797,6 +1818,7 @@ export const ServerSettingsPatch = Schema.Struct({
       worktreeOnMerge: Schema.optionalKey(Schema.Boolean),
       worktreeOnDelete: Schema.optionalKey(Schema.Boolean),
       worktreeUnchanged: Schema.optionalKey(Schema.Boolean),
+      worktreeDiscardLocalChanges: Schema.optionalKey(Schema.Boolean),
       browserArtifactsAfterDays: Schema.optionalKey(StorageRetentionDays),
       logsAfterDays: Schema.optionalKey(StorageRetentionDays),
     }),
@@ -1842,6 +1864,7 @@ export const ServerSettingsPatch = Schema.Struct({
           Schema.Struct({
             ...ProjectSettingsOverrides.fields,
             sourceControlWritingStyle: Schema.optionalKey(SourceControlWritingStyleSettings),
+            worktreeCleanup: Schema.optionalKey(WorktreeCleanupPatch),
           }),
         ),
       ),
