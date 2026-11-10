@@ -1117,6 +1117,7 @@ export const WorktreeKeepWhen = Schema.Literals([
   "any-local-files",
   "uncommitted-changes",
   "tracked-changes",
+  "never",
 ]);
 export type WorktreeKeepWhen = typeof WorktreeKeepWhen.Type;
 

@@ -229,7 +229,7 @@ export const SETTINGS_SEARCH_ITEMS = [
     to: "/settings/worktrees",
     scope: "project-defaults",
     searchTerms: [
-      "any local files uncommitted changes edited tracked files ignored env build output cleanup",
+      "any local files uncommitted changes edited tracked files never discard ignored env build output cleanup",
     ],
   },
   {

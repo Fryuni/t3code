@@ -176,6 +176,7 @@ const KEEP_WHEN_LABELS = {
   "any-local-files": "Any local files",
   "uncommitted-changes": "Uncommitted changes",
   "tracked-changes": "Edited tracked files",
+  never: "Never",
 } as const;
 
 function lastRunSummary(
@@ -568,7 +569,11 @@ export function WorktreeCleanupSection() {
               title="Delete worktrees with deleted threads"
               status={ruleStatus("worktreeOnDelete")}
               managedPaths={lockablePath("worktreeOnDelete")}
-              description="Remove unused worktrees when active or archived threads are deleted. Worktrees with local changes are kept."
+              description={`Remove unused worktrees when active or archived threads are deleted.${
+                settings.worktreeKeepWhen === "never"
+                  ? ""
+                  : " Worktrees with local changes are kept."
+              }`}
               serverScoped={!isProjectScope}
               control={
                 <Switch
@@ -668,7 +673,9 @@ export function WorktreeCleanupSection() {
                       ? "Includes ignored files, except node_modules."
                       : settings.worktreeKeepWhen === "tracked-changes"
                         ? "Deletes untracked and ignored files, including .env."
-                        : "Keeps edits and untracked files. Deletes ignored files, including .env."
+                        : settings.worktreeKeepWhen === "never"
+                          ? "Deletes all local changes, including uncommitted edits."
+                          : "Keeps edits and untracked files. Deletes ignored files, including .env."
                   }
                   serverScoped={!isProjectScope}
                   control={
@@ -678,7 +685,8 @@ export function WorktreeCleanupSection() {
                         if (
                           next === "any-local-files" ||
                           next === "uncommitted-changes" ||
-                          next === "tracked-changes"
+                          next === "tracked-changes" ||
+                          next === "never"
                         )
                           updateWorktree({ worktreeKeepWhen: next });
                       }}
@@ -694,6 +702,7 @@ export function WorktreeCleanupSection() {
                         <SelectItem value="any-local-files">Any local files</SelectItem>
                         <SelectItem value="uncommitted-changes">Uncommitted changes</SelectItem>
                         <SelectItem value="tracked-changes">Edited tracked files</SelectItem>
+                        <SelectItem value="never">Never</SelectItem>
                       </SelectPopup>
                     </Select>
                   }

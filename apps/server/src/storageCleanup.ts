@@ -647,6 +647,7 @@ const make = Effect.gen(function* () {
     cwd: string,
     rules: WorktreeCleanupRules,
   ) {
+    if (rules.worktreeKeepWhen === "never") return null;
     const status = yield* git.execute({
       operation: "StorageCleanup.localChanges",
       cwd,
@@ -757,7 +758,11 @@ const make = Effect.gen(function* () {
         if (changes !== null) return { force: false, reason: `submodule ${changes}` };
       }
       const force = stored || paths.length > 0;
-      if (force && rules.worktreeKeepWhen !== "tracked-changes") {
+      if (
+        force &&
+        rules.worktreeKeepWhen !== "tracked-changes" &&
+        rules.worktreeKeepWhen !== "never"
+      ) {
         const root = yield* fs.realPath(cwd);
         // Git status and foreach omit files inside deinitialized gitlink directories.
         const populatedPaths = new Set(paths.map(pathKey));
@@ -1226,7 +1231,7 @@ const make = Effect.gen(function* () {
               cwd: project.workspaceRoot,
               worktreePath,
               // Git requires force for submodules; recursive checks above cannot make removal atomic.
-              force: submodules.force,
+              force: submodules.force || settings.worktreeKeepWhen === "never",
               execute: git.execute,
               run: (args) => cleanupGit(project.workspaceRoot, [...args], "git worktree remove"),
             });
@@ -1239,6 +1244,13 @@ const make = Effect.gen(function* () {
       }).pipe(
         Effect.catch((error) =>
           Effect.gen(function* () {
+            // Other tools may remove the worktree while it is checked; that is not a failure.
+            if (!(yield* fs.exists(worktreePath).pipe(Effect.orElseSucceed(() => true)))) {
+              yield* Effect.logInfo("storage cleanup skipped a worktree removed elsewhere", {
+                threadId: thread.id,
+              });
+              return;
+            }
             entries.push({
               ...entry,
               outcome: "failed",
