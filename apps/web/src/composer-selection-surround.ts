@@ -3,7 +3,12 @@ import type { EditorView } from "@tiptap/pm/view";
 
 import { selectionTouchesMentionBoundary } from "./composer-editor-mentions";
 import { MARKDOWN_SOURCE_MARK } from "./composer-rich-text";
-import { flatToMarkdown, pmToFlat, serializeEditorDoc } from "./composer-rich-text-doc";
+import {
+  flatToMarkdown,
+  pmToFlat,
+  serializeEditorDoc,
+  surroundSelectionWithMark,
+} from "./composer-rich-text-doc";
 
 const SURROUND_CLOSE: Record<string, string> = {
   "(": ")",
@@ -63,6 +68,11 @@ export function surroundComposerSelection(
   const startMd = flatToMarkdown(map, pmToFlat(map, from));
   const endMd = flatToMarkdown(map, pmToFlat(map, to));
   if (selectionTouchesMentionBoundary(map.value, startMd, endMd)) return false;
+  const markTr = surroundSelectionWithMark(view.state, from, to, text);
+  if (markTr) {
+    view.dispatch(markTr);
+    return true;
+  }
   const tr = view.state.tr.insertText(closer, to).insertText(text, from);
   tr.setSelection(TextSelection.create(tr.doc, from + text.length, to + text.length));
   view.dispatch(tr);

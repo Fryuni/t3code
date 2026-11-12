@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-14
-- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
+- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
 
 The composer's selection-surround shortcut treated every nonempty text-input
 replacement range as selected text. Dead keys also replace provisional text when
@@ -32,6 +32,11 @@ surrounds selected text when a dead key's final DOM replacement arrives after
 upstream's range guard into the shared handler, kept the transaction metadata guard,
 and runs both upstream's composer tests and its own; its DOM regressions run in the
 browser test project, since upstream moved every DOM test into real Chromium.
+Upstream then formats a selection typed over with `` ` ``, `*`, or `_` as code or italic
+instead of wrapping it in the literal markers
+([pingdotgg/t3code#14870](https://github.com/pingdotgg/t3code/pull/14870)); the shared
+handler calls upstream's `surroundSelectionWithMark` after its guards, and the fork's
+regressions expect a mark for those three.
 
 When updating from upstream, preserve the selection, composing, and transaction
 metadata guards. Keep regressions for both collapsed carets and selected text,

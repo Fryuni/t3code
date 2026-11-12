@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-26
-- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
+- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
 
 OhMyPi (`omp`) is a Pi fork that T3 runs through the Pi provider. Its model
 presets assign models to every role (`default`, `task`, `plan`, `smol`, ...)
@@ -38,7 +38,10 @@ config get` cannot read `--config` overlays from the instance's launch
 arguments and returns same-name presets merged across config layers, where omp
 takes the highest layer's entry whole; both are accepted gaps. Text
 generation has no per-model filter, so a preset chosen there uses only its
-main model.
+main model. Upstream's text generation now matches a slug against the models Pi reports,
+so a provider name containing `/` resolves
+([pingdotgg/t3code#32585](https://github.com/pingdotgg/t3code/pull/32585)); a preset's main
+model goes through the same match, and one `get_available_models` read serves both.
 
 Upstream's message for an unusable default model
 ([pingdotgg/t3code#27513](https://github.com/pingdotgg/t3code/pull/27513)) gates

@@ -118,6 +118,10 @@ asks before restarting the background service; if you decline, run
 stop it and start it again afterwards with your usual options such as `--host`
 or `--tailscale-serve`.
 
+If you decline the restart for a background service installed by an older
+release, the service can stay down after a crash or reboot until you run
+`t3 service restart`.
+
 A `t3` [installed from the Fryuni fork](./install.md#install-the-fryuni-fork)
 updates from the fork instead: run plain `t3 update` to move to the fork's
 latest release. The fork does not publish the versions an app shows, so
