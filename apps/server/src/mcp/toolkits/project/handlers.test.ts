@@ -97,7 +97,7 @@ it.effect("reports a rejected existing-branch launch as an invalid request", () 
       }),
       Layer.mock(Project.ProjectService)({
         getById: (id) =>
-          Effect.succeed(Option.some({ id, workspaceRoot: "/repo" } as unknown as ProjectRecord)),
+          Effect.succeedSome({ id, workspaceRoot: "/repo" } as unknown as ProjectRecord),
       }),
       Layer.mock(ManagedProjectFolders.ManagedProjectFolders)({ namedProjectsRoot: "/projects" }),
       Layer.mock(GitVcsDriver.GitVcsDriver)({}),
