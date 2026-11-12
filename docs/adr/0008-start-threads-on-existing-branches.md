@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
+- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -77,6 +77,16 @@ the same reason. Scheduled tasks do not offer it: a recurring run would find its
 branch still checked out by the previous run. **Start from remote** is hidden for
 **Check out in worktree**: a remote branch with no local branch yet is fetched, and a
 local branch, including one that already tracks the chosen remote branch, never is.
+
+Upstream now checks a worktree launch before the thread exists, from the web RPC as well
+as `t3_thread_launch`: its base ref must resolve, the project must be a Git repository, and
+an explicit new branch name must not collide with an existing branch's path
+([pingdotgg/t3code#29328](https://github.com/pingdotgg/t3code/pull/29328),
+[#34279](https://github.com/pingdotgg/t3code/pull/34279)). With `createBranch: false` the
+chosen branch is the base ref and no new name is given, so that check passes and the fork's
+own existing-branch validation still decides. Upstream's project-folder launches record the
+checkout's branch ([pingdotgg/t3code#34812](https://github.com/pingdotgg/t3code/pull/34812));
+an existing-branch launch still records the branch it checks out.
 
 Upstream later moved the web composer's send and selection logic out of `ChatView`
 ([pingdotgg/t3code#23062](https://github.com/pingdotgg/t3code/pull/23062),

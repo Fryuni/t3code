@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-10
-- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
+- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
 
 Upstream's **Keep worktrees with local changes** setting (`worktreeKeepWhen`) always
 protects at least edited tracked files, so a settled worktree with stray edits is never

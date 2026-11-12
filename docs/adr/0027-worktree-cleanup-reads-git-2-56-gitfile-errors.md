@@ -1,8 +1,16 @@
 # ADR 0027: Worktree cleanup reads Git 2.56's broken gitfile error
 
-- Status: accepted
+- Status: superseded by upstream
 - Date: 2026-10-29
-- Compared with upstream: `pingdotgg/t3code` at `402d0623d` (2026-11-09)
+- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+
+**Superseded.** Upstream added the same recognition in
+[pingdotgg/t3code#33423](https://github.com/pingdotgg/t3code/pull/33423) (`301999c32`):
+[`isNonRepositoryGitStderr`](../../apps/server/src/vcs/GitVcsDriverCore.ts) treats both
+"not a git repository" and "gitfile does not point to a valid repository" as a missing
+repository, and storage cleanup and GitManager both use it. The fork dropped its own check
+in `storageCleanup.ts` when it synced onto upstream `ee90bdc94` and keeps upstream's
+implementation. The rest of this record describes the decision as it stood before.
 
 Before removing a worktree, storage cleanup re-reads its checked-out branch and keeps
 the worktree when the repository is gone or the branch moved. It recognizes a missing

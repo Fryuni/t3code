@@ -82,12 +82,9 @@ describe("composer selection surround", () => {
   it.each([
     ["'", "'"],
     ['"', '"'],
-    ["`", "`"],
     ["(", ")"],
     ["[", "]"],
     ["{", "}"],
-    ["*", "*"],
-    ["_", "_"],
   ])("still surrounds a user selection with %s and %s", (opener, closer) => {
     const editor = composer("word");
     editor.view.dispatch(
@@ -98,5 +95,20 @@ describe("composer selection surround", () => {
     expect(editor.view.state.doc.textContent).toBe(`${opener}word${closer}`);
     expect(editor.view.state.selection.from).toBe(2);
     expect(editor.view.state.selection.to).toBe(6);
+  });
+
+  it.each([
+    ["`", "code"],
+    ["*", "italic"],
+    ["_", "italic"],
+  ])("still formats a user selection typed over with %s as %s", (marker, mark) => {
+    const editor = composer("word");
+    editor.view.dispatch(
+      editor.view.state.tr.setSelection(TextSelection.create(editor.view.state.doc, 1, 5)),
+    );
+    editor.input(1, 5, marker);
+
+    expect(editor.view.state.doc.textContent).toBe("word");
+    expect(editor.view.state.doc.rangeHasMark(1, 5, schema.marks[mark]!)).toBe(true);
   });
 });
