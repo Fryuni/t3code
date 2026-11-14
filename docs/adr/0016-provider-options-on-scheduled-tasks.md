@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the

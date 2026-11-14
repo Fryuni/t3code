@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -61,6 +61,13 @@ first run when they are rejected. Upstream's `/side` and `/btw`
 ([pingdotgg/t3code#26901](https://github.com/pingdotgg/t3code/pull/26901)) are handled by
 the client before the split and are refused on a new thread, so they never become setup
 messages.
+
+Upstream's web send now drops a failed send's optimistic row whether or not the draft is
+restored ([pingdotgg/t3code#35102](https://github.com/pingdotgg/t3code/pull/35102)); the
+leading commands' rows go with it. Upstream's mobile outbox reuses a launched task's workspace
+when it resends after a lost reply
+([pingdotgg/t3code#32330](https://github.com/pingdotgg/t3code/pull/32330)); the split runs again
+and yields the same commands and ids.
 
 When updating from upstream, preserve the launch-time dispatch order, the
 preparation-failure queue hold, and the capability gate. Remove this if upstream adds an equivalent way to run setup

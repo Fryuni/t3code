@@ -2,7 +2,7 @@
 
 - Status: superseded by upstream
 - Date: 2026-10-29
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 **Superseded.** Upstream added the same recognition in
 [pingdotgg/t3code#33423](https://github.com/pingdotgg/t3code/pull/33423) (`301999c32`):

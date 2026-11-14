@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -30,8 +30,8 @@ Upstream has no reason to support other release sources, and its release pipelin
 `ci.yml` and `server-linux-release.yml` in `.github/workflows`; upstream's other
 workflows need its organization's runners, secrets, and stores, so syncs drop any
 upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`,
-`mobile-fingerprint-label.yml`, `mobile-eas-preview-fork.yml`, `mobile-dev-client.yml`, and
-`pr-limits.yml`, along with scripts only they use, such as
+`mobile-fingerprint-label.yml`, `mobile-eas-preview-fork.yml`, `mobile-dev-client.yml`,
+`pr-limits.yml`, and `issue-vouch.yml`, along with scripts only they use, such as
 `.github/scripts/mirror-play-apk.cjs`, `pr-limits.cjs`, `test-delta.cjs`, and
 `mobile-preview-comment.cjs`. The exception is
 `scripts/generate-release-notes.ts`
@@ -40,7 +40,9 @@ upstream's `release.yml` runs: it stays, because
 [release.md](../operations/release.md) describes it and knip reaches it through its test. `ci.yml` itself keeps the fork's
 layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
-code needs, such as Chromium for the web browser tests, but not Blacksmith runners
+code needs, such as Chromium for the web browser tests, and the commit pins upstream gives the
+actions both files use ([pingdotgg/t3code#33696](https://github.com/pingdotgg/t3code/pull/33696)),
+but not Blacksmith runners
 or upstream's per-change job gating, so its `ci-changes` action is dropped as well, nor
 its Blacksmith apt mirror setup (`setup-apt-mirrors`), its two-shard `Test Web`
 ([pingdotgg/t3code#34554](https://github.com/pingdotgg/t3code/pull/34554)), or its server
@@ -173,7 +175,7 @@ own downgrade check and `--allow-downgrade`.
 ## Known caveats
 
 - **Version scheme.** The core comes from `apps/server/package.json`, `0.1.9` at
-  upstream `ee90bdc94`, so builds are `0.1.9-fork.*`. A `-fork.` suffix is a semver
+  upstream `13f89ae0a`, so builds are `0.1.9-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
   upstream's stable `0.1.9`, while upstream labels newer code `0.1.10-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for

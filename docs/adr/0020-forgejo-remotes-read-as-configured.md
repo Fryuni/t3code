@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-17
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 A checkout can set its remote to the Forgejo web URL and let git push over SSH
 through `url.<base>.insteadOf`, for example `https://forge.example/` rewritten to
@@ -34,12 +34,14 @@ still drops owner/repo, so one verdict per server remains upstream's design.
 The MCP `link_pull_request` and `watch_pull_request` tools also move a link off
 the clone host. When a URL names the project's repository on the host of its
 SSH remote, and that host differs from the project's change-request host, the
-[handler](../../apps/server/src/mcp/toolkits/pullRequests/handlers.ts) links the
+[target resolver](../../apps/server/src/pullRequest/pullRequestTarget.ts) links the
 same number on the project's host instead. Links to any other repository on that
 host are kept as given. Upstream's `link_pull_requests`
 ([pingdotgg/t3code#27994](https://github.com/pingdotgg/t3code/pull/27994)) resolves its
 URLs without a project; the fork passes the thread's project so each URL gets the same
-mapping.
+mapping. Upstream moved that resolver out of the MCP handlers so its PR watch service can
+share it ([pingdotgg/t3code#33389](https://github.com/pingdotgg/t3code/pull/33389)); the
+mapping moved with it, and the service passes the thread's project too.
 
 Upstream rewrote the registry's tests around fake drivers
 ([pingdotgg/t3code#24000](https://github.com/pingdotgg/t3code/pull/24000)). The fork's
