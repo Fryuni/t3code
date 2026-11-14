@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -26,7 +26,12 @@ moved there from Source Control, beside **Start from remote**. Upstream's mobile
 flow now derives a draft's base in `fillNewTaskWorkspaceBranch` instead of writing it from
 an effect ([pingdotgg/t3code#25706](https://github.com/pingdotgg/t3code/pull/25706)). The
 fork passes this branch to it, which replaced its own `resolveAutomaticWorktreeBaseBranch`,
-so the new task flow, its send path, and the pending drafts list agree.
+so the new task flow, its send path, and the pending drafts list agree. Upstream's web branch
+toolbar now reads the repository default and the checked-out branch from the listed refs, so
+a project still cloning gets no base until its refs load
+([pingdotgg/t3code#36379](https://github.com/pingdotgg/t3code/pull/36379)); the fork's
+`resolveWorktreeBaseBranchCandidate` puts this branch ahead of upstream's
+`resolveDefaultWorktreeBaseBranch`.
 
 It is a project override, not a server-wide setting. A branch name only means
 something in one repository, so an environment default would send other projects'

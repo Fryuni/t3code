@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `ee90bdc94` (2026-11-12)
+- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -67,8 +67,9 @@ fold moved with it.
 GitManager's PR repository key reads the registry's parsed link. For a link with
 an authority it returns `authority/repository`, keeping the Forgejo port and mount,
 and it skips `_git` repositories, whose Azure DevOps Server remotes key by hostname.
-The MCP link tools build a Forgejo URL from the project's resolved `webUrl` origin
-when the remote is SSH, so the scheme survives.
+The MCP link and watch tools'
+[target resolver](../../apps/server/src/pullRequest/pullRequestTarget.ts) builds a Forgejo URL
+from the project's resolved `webUrl` origin when the remote is SSH, so the scheme survives.
 
 Keeping the rules consistent matters because project selection, credential
 selection, synchronization, and clients must agree about repository identity.
