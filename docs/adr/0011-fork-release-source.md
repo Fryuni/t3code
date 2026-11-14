@@ -33,7 +33,9 @@ upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`,
 `mobile-fingerprint-label.yml`, `mobile-eas-preview-fork.yml`, `mobile-dev-client.yml`,
 `pr-limits.yml`, and `issue-vouch.yml`, along with scripts only they use, such as
 `.github/scripts/mirror-play-apk.cjs`, `pr-limits.cjs`, `test-delta.cjs`, and
-`mobile-preview-comment.cjs`. The exception is
+`mobile-preview-comment.cjs`, and tests that read them, such as the
+`build-desktop-artifact` check that the macOS preview packages its bundle as untrusted
+([pingdotgg/t3code#36407](https://github.com/pingdotgg/t3code/pull/36407)). The exception is
 `scripts/generate-release-notes.ts`
 ([pingdotgg/t3code#26893](https://github.com/pingdotgg/t3code/pull/26893)), which only
 upstream's `release.yml` runs: it stays, because
