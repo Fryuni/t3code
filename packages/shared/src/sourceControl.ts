@@ -1,7 +1,9 @@
+import { canonicalRepositoryPath } from "./git.ts";
+
 const SCP_SSH_REMOTE_PATTERN = /^[a-zA-Z0-9._-]+@([^:/]+):/;
 // Git reads `host:path` as SSH too, leaving the user to ssh config. A single letter is a Windows
 // drive and `::` names a remote helper.
-const USERLESS_SCP_SSH_REMOTE_PATTERN = /^([^@:/\\\s]{2,}):(?!:)\/?[^/\s]+(?:\/[^/\s]+)+\/?$/u;
+const USERLESS_SCP_SSH_REMOTE_PATTERN = /^([^@:/\\\s]{2,}):(?!:)\/?[^/\s]+(?:\/[^/\s]+)*\/?$/u;
 
 /** Null unless the remote is `host:path`, with no user. */
 export function userlessScpRemoteHost(remoteUrl: string): string | null {
@@ -24,10 +26,12 @@ export function isSshRemoteUrl(remoteUrl: string): boolean {
  */
 export function normalizeSourceControlRepository(repository: string, kind?: string | null): string {
   if (kind != null && kind !== "unknown" && kind !== "forgejo")
-    return repository.trim().toLowerCase();
+    return canonicalRepositoryPath(repository.trim());
   const segments = repository.trim().split("/");
   return segments
-    .map((segment, index) => (index >= segments.length - 2 ? segment.toLowerCase() : segment))
+    .map((segment, index) =>
+      index >= segments.length - 2 ? canonicalRepositoryPath(segment) : segment,
+    )
     .join("/");
 }
 

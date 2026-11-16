@@ -12,6 +12,7 @@ describe("isSshRemoteUrl", () => {
     "ssh://git@github.com/owner/repo.git",
     "github.com:owner/repo.git",
     "github-work:owner/repo.git",
+    "gitserver:repo.git",
   ])("reads %s as SSH", (remoteUrl) => {
     expect(isSshRemoteUrl(remoteUrl)).toBe(true);
   });
@@ -23,6 +24,7 @@ describe("isSshRemoteUrl", () => {
     "./team:group/repo",
     "file:///srv/git/repo.git",
     "hg::owner/repo",
+    "C:repo.git",
   ])("does not read %s as SSH", (remoteUrl) => {
     expect(isSshRemoteUrl(remoteUrl)).toBe(false);
   });
@@ -33,6 +35,10 @@ it("folds repository paths without losing Forgejo instance path case", () => {
   expect(normalizeSourceControlRepository("Forge/Owner/Repo")).toBe("Forge/owner/repo");
   expect(normalizeSourceControlRepository("Group/Subgroup/Repo", "gitlab")).toBe(
     "group/subgroup/repo",
+  );
+  // Owner and name share one spelling however they are percent-encoded.
+  expect(normalizeSourceControlRepository("Forge/Owner/Sample%20%28Beta%29")).toBe(
+    normalizeSourceControlRepository("Forge/owner/Sample (Beta)"),
   );
 });
 

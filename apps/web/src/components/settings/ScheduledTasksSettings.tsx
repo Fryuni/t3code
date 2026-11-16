@@ -1179,6 +1179,16 @@ const THREAD_MODE_LABELS: Record<ScheduledTaskThreadMode, string> = {
   fresh_session: "One thread, fresh session each run",
 };
 
+function useScheduledTaskThread(environmentId: EnvironmentId, threadId: ThreadId | null) {
+  const ref = threadId === null ? null : scopeThreadRef(environmentId, threadId);
+  const shell = useThreadShell(ref);
+  // The shell can omit older settled threads; their family read still carries the row.
+  const family = useEnvironmentQuery(
+    ref !== null && shell === null ? threadFamilies.familyAtom(environmentId, ref.threadId) : null,
+  );
+  return shell ?? family.data?.threads.find((row) => row.id === threadId) ?? null;
+}
+
 function ScheduledTaskDestination({
   environmentId,
   projectId,
@@ -1200,12 +1210,7 @@ function ScheduledTaskDestination({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const ref = threadId === null ? null : scopeThreadRef(environmentId, threadId);
-  const shell = useThreadShell(ref);
-  // The shell can omit older settled threads; their family read still carries the title.
-  const family = useEnvironmentQuery(
-    ref !== null && shell === null ? threadFamilies.familyAtom(environmentId, ref.threadId) : null,
-  );
-  const thread = shell ?? family.data?.threads.find((row) => row.id === threadId);
+  const thread = useScheduledTaskThread(environmentId, threadId);
   const currentLabel =
     ref !== null
       ? thread?.title.trim() || `Thread ${ref.threadId}`
@@ -1418,13 +1423,20 @@ function ScheduledTaskEditorForm({
       : scheduledTaskDefaultModel(settings, selectedProject ?? null, instanceEntries);
   const activeInstanceId =
     activeSelection?.instanceId ?? firstInstance?.instanceId ?? ("" as ProviderInstanceId);
-  const activeModel = activeSelection?.model ?? "";
-  const activeEntry = instanceEntries.find((entry) => entry.instanceId === activeInstanceId);
+  const boundThread = useScheduledTaskThread(
+    environmentId,
+    draft.threadId ? (draft.threadId as ThreadId) : null,
+  );
+  // Bound runs use the thread's current model, so the locked pickers show that one.
+  const shownSelection = draft.threadId ? (boundThread?.modelSelection ?? null) : activeSelection;
+  const shownInstanceId = shownSelection?.instanceId ?? activeInstanceId;
+  const shownModel = shownSelection?.model ?? "";
+  const shownEntry = instanceEntries.find((entry) => entry.instanceId === shownInstanceId);
   const modelOptionsByInstance = getCustomModelOptionsByInstance(
     settings,
     providers,
-    activeInstanceId,
-    activeModel,
+    shownInstanceId,
+    shownModel,
   );
 
   const reportFailure = (title: string, error: unknown) => {
@@ -1762,9 +1774,10 @@ function ScheduledTaskEditorForm({
             <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               <ProviderModelPicker
                 environmentId={environmentId}
-                disabled={saving || !connected}
-                activeInstanceId={activeInstanceId}
-                model={activeModel}
+                // The saved selection only seeds new threads; bound runs ignore it.
+                disabled={saving || !connected || draft.threadId !== ""}
+                activeInstanceId={shownInstanceId}
+                model={shownModel}
                 lockedProvider={null}
                 instanceEntries={instanceEntries}
                 modelOptionsByInstance={modelOptionsByInstance}
@@ -1781,24 +1794,25 @@ function ScheduledTaskEditorForm({
                   }))
                 }
               />
-              {activeEntry && activeSelection ? (
+              {shownEntry && shownSelection ? (
                 <TraitsPicker
-                  provider={activeEntry.driverKind}
-                  models={activeEntry.models}
-                  model={activeSelection.model}
+                  disabled={saving || !connected || draft.threadId !== ""}
+                  provider={shownEntry.driverKind}
+                  models={shownEntry.models}
+                  model={shownSelection.model}
                   promptUltrathink={readPromptUltrathink(draft.prompt)}
                   onPromptEdit={(edit) =>
                     setDraft((current) => ({ ...current, prompt: edit(current.prompt) }))
                   }
-                  modelOptions={activeSelection.options ?? []}
-                  includePlanAgent={selectsPlanAgent(activeSelection.options)}
+                  modelOptions={shownSelection.options ?? []}
+                  includePlanAgent={selectsPlanAgent(shownSelection.options)}
                   triggerClassName={SETTINGS_PICKER_TRIGGER_CLASSNAME}
                   onModelOptionsChange={(options) =>
                     setDraft((current) => ({
                       ...current,
                       modelSelection: createModelSelection(
-                        activeSelection.instanceId,
-                        activeSelection.model,
+                        shownSelection.instanceId,
+                        shownSelection.model,
                         options,
                       ),
                     }))

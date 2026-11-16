@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -32,8 +32,8 @@ workflows need its organization's runners, secrets, and stores, so syncs drop an
 upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`,
 `mobile-fingerprint-label.yml`, `mobile-eas-preview-fork.yml`, `mobile-dev-client.yml`,
 `pr-limits.yml`, and `issue-vouch.yml`, along with scripts only they use, such as
-`.github/scripts/mirror-play-apk.cjs`, `pr-limits.cjs`, `test-delta.cjs`, and
-`mobile-preview-comment.cjs`, and tests that read them, such as the
+`.github/scripts/mirror-play-apk.cjs`, `pr-limits.cjs`, `test-delta.cjs`,
+`mobile-preview-comment.cjs`, and `mobile-ios-preview-record.cjs`, and tests that read them, such as the
 `build-desktop-artifact` check that the macOS preview packages its bundle as untrusted
 ([pingdotgg/t3code#36407](https://github.com/pingdotgg/t3code/pull/36407)). The exception is
 `scripts/generate-release-notes.ts`
@@ -177,7 +177,7 @@ own downgrade check and `--allow-downgrade`.
 ## Known caveats
 
 - **Version scheme.** The core comes from `apps/server/package.json`, `0.1.9` at
-  upstream `13f89ae0a`, so builds are `0.1.9-fork.*`. A `-fork.` suffix is a semver
+  upstream `dfeaf7b13`, so builds are `0.1.9-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
   upstream's stable `0.1.9`, while upstream labels newer code `0.1.10-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for

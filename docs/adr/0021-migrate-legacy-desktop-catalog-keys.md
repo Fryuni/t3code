@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14); the rename landed in `81493efb7`
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16); the rename landed in `81493efb7`
 
 On Linux, Electron selects its libsecret encryption key using the application's
 name. Changing the packaged name from `T3 Code (Alpha)` to `T3 Code (Beta)` leaves
@@ -34,10 +34,16 @@ and Linux ([pingdotgg/t3code#20907](https://github.com/pingdotgg/t3code/pull/209
 which also pinned the safeStorage name at startup, then reverted it
 ([pingdotgg/t3code#22219](https://github.com/pingdotgg/t3code/pull/22219)) because
 existing installs could no longer decrypt catalogs written under the current identity.
-Upstream at `13f89ae0a` has neither, so the fork keeps this migration. Upstream deleted
+Upstream at `dfeaf7b13` has neither, so the fork keeps this migration. Upstream deleted
 the catalog store's unused `clear`
 ([pingdotgg/t3code#26238](https://github.com/pingdotgg/t3code/pull/26238)), and the fork's
 serialized version went with it.
+
+Upstream now copies a catalog it cannot decrypt or decode to `connection-catalog.json.unreadable-<ms>`
+before a save replaces it ([pingdotgg/t3code#34944](https://github.com/pingdotgg/t3code/pull/34944)).
+That is a second safety net, not a migration, so the fork keeps both: the copy runs with the write
+under the store's mutex. Upstream's `get` still returns undecodable plaintext; the fork's fails as
+above, and its copy of upstream's test expects that.
 
 Keep it when syncing upstream until upstream supports equivalent key migration
 or uses an encryption identity stable across product renames. Do not replace

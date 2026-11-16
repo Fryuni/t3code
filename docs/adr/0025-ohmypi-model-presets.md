@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-26
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 OhMyPi (`omp`) is a Pi fork that T3 runs through the Pi provider. Its model
 presets assign models to every role (`default`, `task`, `plan`, `smol`, ...)
@@ -70,6 +70,16 @@ turns apply the tier through the same step as plain models. The preset's `auto` 
 option belongs only in the Thinking select. Since upstream's thinking fix
 ([pingdotgg/t3code#32389](https://github.com/pingdotgg/t3code/pull/32389)), a preset switch
 treats `set_model` as resetting thinking, as a plain model switch does.
+
+Upstream now starts Pi through a restartable connection, so a session can respawn Pi on another
+session file ([pingdotgg/t3code#37472](https://github.com/pingdotgg/t3code/pull/37472),
+[#21512](https://github.com/pingdotgg/t3code/pull/21512)). The overlay belongs to the session,
+not the connection: it is written once and passed to every spawn, so a respawned omp keeps the
+selected preset's roles. Upstream also re-reads Pi's model before skipping a cached plain
+selection, so a model an extension switched is restored
+([pingdotgg/t3code#37512](https://github.com/pingdotgg/t3code/pull/37512)). A cached preset is
+not re-read: an extension that switches the model under a preset keeps it until the thread
+picks another selection. That is an accepted gap.
 
 When updating from upstream, keep presets inside the Pi provider and keep the
 per-process overlay; do not switch presets by writing omp's global config. Keep
