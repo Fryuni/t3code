@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-10
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 Upstream's **Keep worktrees with local changes** setting (`worktreeKeepWhen`) always
 protects at least edited tracked files, so a settled worktree with stray edits is never
@@ -47,6 +47,13 @@ and skips one removed during the walk. Upstream now keeps a worktree whose `.git
 removed as "not a linked worktree"
 ([pingdotgg/t3code#34894](https://github.com/pingdotgg/t3code/pull/34894)), as the fork did;
 the fork keeps upstream's check and test.
+
+Upstream now removes a worktree through the repository that owns it
+([pingdotgg/t3code#33586](https://github.com/pingdotgg/t3code/pull/33586)), and runs the
+**Uncommitted changes** `git clean -ffdx` only after the submodule checks pass and only for an
+unforced removal, so a worktree those checks keep also keeps its files
+([pingdotgg/t3code#34196](https://github.com/pingdotgg/t3code/pull/34196)). Never forces the
+removal, so it skips the clean too.
 
 Drop the boolean and capability if upstream adds an equivalent choice; keep the
 vanished-worktree handling unless upstream does the same.

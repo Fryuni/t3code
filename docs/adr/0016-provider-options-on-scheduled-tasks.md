@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -97,6 +97,15 @@ went with it, and its `splitModelKey` stays gone because the draft holds a selec
 Upstream now also treats an inherited selection's model alias as the same model when it
 decides whether a target keeps the inherited options; the resolver keeps the fork's guard
 for an absent inherited selection.
+
+Upstream's `schedule_task` now takes a client caller's default from the project's effective
+settings rather than the legacy project field
+([pingdotgg/t3code#37299](https://github.com/pingdotgg/t3code/pull/37299)); the inherited
+selection a `target` merges over reads the same effective default. Upstream's editor now locks
+a thread-bound task's model picker on the thread's current model, since its runs ignore the
+saved one ([pingdotgg/t3code#36628](https://github.com/pingdotgg/t3code/pull/36628)); the option
+picker follows it, showing that thread's options and locked the same way. The measured tool list
+is upstream's 49,736 bytes plus the fork's 1,005.
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target

@@ -4,6 +4,7 @@ import type {
   ThreadPullRequestKey,
   ThreadPullRequestLink,
 } from "@t3tools/contracts";
+import { canonicalRepositoryPath } from "@t3tools/shared/git";
 import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import { visibleThreadPullRequests } from "@t3tools/shared/threadPullRequests";
 
@@ -80,11 +81,12 @@ export function makeThreadPullRequests(
     const parsed =
       candidate !== null &&
       candidate.number === key.number &&
-      candidate.repository.toLowerCase() === key.repository.trim().toLowerCase()
+      canonicalRepositoryPath(candidate.repository) ===
+        canonicalRepositoryPath(key.repository.trim())
         ? candidate
         : null;
     const host = (key.authority ?? parsed?.authority ?? key.host).trim().toLowerCase();
-    const folded = `${host}/${key.repository.trim().toLowerCase()}`;
+    const folded = `${host}/${canonicalRepositoryPath(key.repository.trim())}`;
     // A host with several spellings of one key, as Azure has, folds the whole path.
     const canonical = registry.canonicalRepositoryKey(
       parsed !== null

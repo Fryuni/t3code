@@ -1,4 +1,5 @@
 import { SourceControlProviderKind } from "@t3tools/contracts";
+import { canonicalRepositoryPath } from "@t3tools/shared/git";
 import { normalizeSourceControlRepository } from "@t3tools/shared/sourceControl";
 import {
   buildCommitUrl,
@@ -38,7 +39,7 @@ function sameRepositoryPath(left: string, right: string): boolean {
   const ownerAndName = (path: string) => trimSlashes(path).split("/").slice(-2).join("/");
   return (
     mountOf(left) === mountOf(right) &&
-    ownerAndName(left).toLowerCase() === ownerAndName(right).toLowerCase()
+    canonicalRepositoryPath(ownerAndName(left)) === canonicalRepositoryPath(ownerAndName(right))
   );
 }
 

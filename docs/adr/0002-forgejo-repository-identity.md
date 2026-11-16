@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -39,8 +39,12 @@ recognize its own remotes, and name the host its change requests are keyed under
 - `parseChangeRequestUrl` keeps the mount's case and folds only owner/name.
   Upstream's lower-cases the whole path.
 - `changeRequestHost` prefers the resolved `webUrl`'s authority, then an HTTP
-  remote's, so an SSH checkout keys on the web port. The core
-  `ChangeRequestHostIdentity` type gains `webUrl` for this.
+  remote's, so an SSH checkout keys on the web port. **Implemented upstream:**
+  [pingdotgg/t3code#29784](https://github.com/pingdotgg/t3code/pull/29784) made
+  Forgejo's `changeRequestHost` do the same and added `webUrl` to the core
+  `ChangeRequestHostIdentity`, so the fork keeps upstream's field. The fork's
+  `changeRequestHost` is behaviorally upstream's; it stays written over the `httpUrl`
+  helper the instance checks below share.
 - `isChangeRequestInRepository` and `canReadChangeRequestOnHost` compare the mount
   above owner/name exactly. Upstream's version compares it as a case-insensitive
   prefix, which lets `/git` lend credentials to `/git/other`.
@@ -63,6 +67,16 @@ page's project filter into client-runtime's `pullRequestProjectFilter.ts` and
 shares it with mobile
 ([pingdotgg/t3code#25219](https://github.com/pingdotgg/t3code/pull/25219)); the
 fold moved with it.
+
+Upstream then gave repository paths one spelling however they are percent-encoded,
+through `canonicalRepositoryPath` in `@t3tools/shared/git`
+([pingdotgg/t3code#36929](https://github.com/pingdotgg/t3code/pull/36929)). It
+lower-cases the whole path, and the registry's `canonicalRepositoryKey` now applies it
+to every key no host claims. The fork keeps upstream's helper but applies it only to
+the segments it folds: `normalizeSourceControlRepository` and the Forgejo owner/name
+comparison canonicalize owner and name with it, and an unclaimed key folds with
+`foldRepositoryKey`, so a mount keeps its case and its spelling as written. A mount
+spelled with different percent-encodings therefore still reads as two instances.
 
 GitManager's PR repository key reads the registry's parsed link. For a link with
 an authority it returns `authority/repository`, keeping the Forgejo port and mount,

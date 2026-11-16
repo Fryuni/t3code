@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -61,6 +61,17 @@ first run when they are rejected. Upstream's `/side` and `/btw`
 ([pingdotgg/t3code#26901](https://github.com/pingdotgg/t3code/pull/26901)) are handled by
 the client before the split and are refused on a new thread, so they never become setup
 messages.
+
+Upstream now commits a new thread together with its first run: `thread.create` carries the
+launch's first message, so no client sees the thread idle before it starts
+([pingdotgg/t3code#36682](https://github.com/pingdotgg/t3code/pull/36682)). In the fork that
+message is the first launch message, a setup command when there is one, and the rest still
+queue behind its run. A reused thread, or a replayed claim that carried none, dispatches it
+under its own command id, as upstream does. Upstream now refuses to resume a queue while
+worktree setup has failed ([pingdotgg/t3code#36616](https://github.com/pingdotgg/t3code/pull/36616)),
+and makes a send to an idle thread wait behind its queue
+([pingdotgg/t3code#33857](https://github.com/pingdotgg/t3code/pull/33857)); the fork's hold for
+any failed preparation reads the failed run that change identifies.
 
 Upstream's web send now drops a failed send's optimistic row whether or not the draft is
 restored ([pingdotgg/t3code#35102](https://github.com/pingdotgg/t3code/pull/35102)); the

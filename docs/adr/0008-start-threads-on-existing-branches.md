@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `13f89ae0a` (2026-11-14)
+- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -93,6 +93,14 @@ Upstream now gives a launch without a branch name its project's static prefix, t
 generated name as temporary, and flattens it when it collides with an existing branch's path
 ([pingdotgg/t3code#35718](https://github.com/pingdotgg/t3code/pull/35718)). An existing-branch
 launch generates no name, so its branch is never flattened or renamed.
+
+Upstream's `t3_thread_launch` now fills an omitted `startFromOrigin` from the project's
+**Start from remote** setting ([pingdotgg/t3code#30226](https://github.com/pingdotgg/t3code/pull/30226)).
+The fork skips that for `createBranch: false`, which the launch service would otherwise refuse
+whenever the setting is on. Upstream also re-bases a new worktree whose recorded base ref no longer
+resolves onto the remote default branch
+([pingdotgg/t3code#31747](https://github.com/pingdotgg/t3code/pull/31747)); an existing-branch
+checkout never reads that base, so the check is skipped for it.
 
 Upstream later moved the web composer's send and selection logic out of `ChatView`
 ([pingdotgg/t3code#23062](https://github.com/pingdotgg/t3code/pull/23062),
