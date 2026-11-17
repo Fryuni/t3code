@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -52,8 +52,11 @@ is a tier between the environment value and the built-in default, so it only acc
 project-only key has neither, and widening that mechanism was not worth it for one
 setting.
 
-Agent and scheduled launches do not adopt it. `t3_thread_launch` requires an
-explicit `baseRef`. `t3_worktree_handoff` defaults to the checkout's current branch,
+Agent and scheduled launches do not adopt it. `t3_thread_launch` takes an
+explicit `baseRef`; an outside caller that names no workspace now follows the project's
+new-threads-in-a-worktree default from the checkout's current branch
+([pingdotgg/t3code#38261](https://github.com/pingdotgg/t3code/pull/38261)), as upstream
+does, without this branch. `t3_worktree_handoff` defaults to the checkout's current branch,
 because it moves work already in progress. Unbound scheduled tasks created over MCP
 start a worktree with `startFromOrigin` from the primary remote's default branch, falling
 back to `main` or `master`

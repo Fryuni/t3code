@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -105,7 +105,7 @@ selection a `target` merges over reads the same effective default. Upstream's ed
 a thread-bound task's model picker on the thread's current model, since its runs ignore the
 saved one ([pingdotgg/t3code#36628](https://github.com/pingdotgg/t3code/pull/36628)); the option
 picker follows it, showing that thread's options and locked the same way. The measured tool list
-is upstream's 49,736 bytes plus the fork's 1,005.
+is upstream's 52,145 bytes plus the fork's 1,005, or 53,150.
 
 When updating from upstream, preserve the draft holding a selection rather than a
 key string, the resolver's inherited-selection input, and the omitted-target

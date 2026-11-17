@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Opening the PR page without a project filter can load PRs across hundreds of
 projects, and finding the project in the filter can itself be cumbersome. The
@@ -38,7 +38,9 @@ the sidebar filter several projects at once
 page filters by one, so a filter of several opens the page unscoped, as upstream does.
 Upstream's sidebar reads a filter on an archived project as all projects
 ([pingdotgg/t3code#26154](https://github.com/pingdotgg/t3code/pull/26154)), so these entry
-points open the page unscoped for it too.
+points open the page unscoped for it too. Upstream's **Issues** button and palette entry
+beside them ([pingdotgg/t3code#19260](https://github.com/pingdotgg/t3code/pull/19260)) keep
+upstream's unscoped navigation; this record covers only PRs.
 
 When updating from upstream, preserve navigation to the exact project and
 environment before any list request. Retire this fork addition when upstream
