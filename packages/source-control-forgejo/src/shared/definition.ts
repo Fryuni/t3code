@@ -9,6 +9,7 @@ import {
   defineSourceControl,
   isChangeRequestOnProjectHost,
   parseChangeRequestPath,
+  parseIssuePath,
   parseCommitPath,
   repositoryUrlFromPagePath,
   projectChangeRequestHost,
@@ -23,9 +24,19 @@ const CHANGE_REQUEST_REFERENCE =
 // Forgejo and Gitea run on any hostname, possibly mounted below a path.
 const CHANGE_REQUEST_PATH = /^\/([^/]+(?:\/[^/]+)+)\/pulls\/(\d+)(?:\/|$)/u;
 const COMMIT_PATH = /^\/([^/]+(?:\/[^/]+)+)\/commit\/([0-9a-f]+)\/?$/iu;
+const ISSUE_PATH = /^\/([^/]+(?:\/[^/]+)+)\/issues\/(\d+)(?:\/|$)/u;
 const REPOSITORY_PAGE_PATH = /^\/([^/]+(?:\/[^/]+)+?)\/src\/(?:branch|tag|commit)\/[^/]/u;
 
 const KIND = SourceControlProviderKind.make("forgejo");
+
+function isForgejoHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return (
+    host === "codeberg.org" ||
+    host.split(".").includes("forgejo") ||
+    host.split(".").includes("gitea")
+  );
+}
 
 const changeRequestHeadRef = (number: number) => `refs/pull/${number}/head`;
 
@@ -116,6 +127,8 @@ export const definition = defineSourceControl({
       : `${remoteWebOrigin(host, remoteUrl)}/${repository}/pulls/${number}`,
   parseChangeRequestUrl: (url) =>
     onInstance(url, CHANGE_REQUEST_PATH, parseChangeRequestPath(url, CHANGE_REQUEST_PATH)),
+  // `/issues/` is too generic a path to believe from a host not named after Forgejo or Gitea.
+  parseIssueUrl: (url) => (isForgejoHost(url.hostname) ? parseIssuePath(url, ISSUE_PATH) : null),
   changeRequestUrlFromReferenceAutolink: () => null,
   commitUrl: (input) => buildCommitUrl(input, "commit"),
   parseCommitUrl: (url) => onInstance(url, COMMIT_PATH, parseCommitPath(url, COMMIT_PATH)),
@@ -143,9 +156,7 @@ export const definition = defineSourceControl({
   checkoutChangeRequestHost: () => null,
   changeRequestHeadRef,
   recognizeRemote: ({ remoteUrl, host, hostname }) =>
-    hostname === "codeberg.org" ||
-    hostname.split(".").includes("forgejo") ||
-    hostname.split(".").includes("gitea")
+    isForgejoHost(hostname)
       ? {
           kind: KIND,
           name: "Forgejo",

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-21
 - Tracking: [Fryuni/t3code#29](https://github.com/Fryuni/t3code/issues/29)
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Upstream opens PR links through a URL-based
 [shared opener](../../apps/web/src/lib/openPullRequestLink.ts), which selects the
@@ -31,7 +31,12 @@ so the fork's remaining change is one line: beside a thread, the web passes that
 thread's project. Upstream later wrapped that resolution in an `openPullRequest`
 closure that commit links fall back to
 ([pingdotgg/t3code#19941](https://github.com/pingdotgg/t3code/pull/19941)); the
-line lives in that closure. Mobile, which now opens PR links in the app too, follows
+line lives in that closure. Upstream then moved the resolution into
+`pullRequestLinkPanelTarget`, which the thread's PR panel also calls to read a PR ahead
+when the pointer rests on its link
+([pingdotgg/t3code#32911](https://github.com/pingdotgg/t3code/pull/32911)). That helper
+takes an optional `projectId`, and the panel passes its thread's project, so the read-ahead
+warms the same project the click opens. Mobile, which now opens PR links in the app too, follows
 upstream unchanged. Forgejo instance matching uses the shared rules from
 [ADR 0002](0002-forgejo-repository-identity.md), so checkout preference cannot
 collapse distinct ports or case-sensitive mounts.

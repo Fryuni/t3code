@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -101,6 +101,11 @@ whenever the setting is on. Upstream also re-bases a new worktree whose recorded
 resolves onto the remote default branch
 ([pingdotgg/t3code#31747](https://github.com/pingdotgg/t3code/pull/31747)); an existing-branch
 checkout never reads that base, so the check is skipped for it.
+Upstream's `t3_thread_launch` now refuses an explicit `branch` that already exists
+([pingdotgg/t3code#31279](https://github.com/pingdotgg/t3code/pull/31279)), so agents reach an
+existing branch only through `createBranch: false`, which names none. A launch that names no
+workspace now gets a worktree strategy without `createBranch`
+([pingdotgg/t3code#38261](https://github.com/pingdotgg/t3code/pull/38261)), so it creates a branch.
 
 Upstream later moved the web composer's send and selection logic out of `ChatView`
 ([pingdotgg/t3code#23062](https://github.com/pingdotgg/t3code/pull/23062),
@@ -121,8 +126,9 @@ capability, so a draft on an older server still gets one. Upstream also removed 
 queued task from the new task screen
 ([pingdotgg/t3code#25684](https://github.com/pingdotgg/t3code/pull/25684)), and the fork's
 copy of the choice there went with it. The outbox delivery, now an app service
-([pingdotgg/t3code#25678](https://github.com/pingdotgg/t3code/pull/25678)), still sends
-and restores it.
+([pingdotgg/t3code#25678](https://github.com/pingdotgg/t3code/pull/25678)) that runs one Effect
+fiber per thread ([pingdotgg/t3code#37725](https://github.com/pingdotgg/t3code/pull/37725)),
+still sends and restores it.
 
 Upstream cut T3's agent instructions and tool copy
 ([pingdotgg/t3code#24850](https://github.com/pingdotgg/t3code/pull/24850)), dropping

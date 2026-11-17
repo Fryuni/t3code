@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-11
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Upstream binds `terminal.split` to `mod+d` and `terminal.splitVertical` to
 `mod+shift+d` while a terminal is focused. Outside macOS `mod` is Ctrl, and
@@ -24,6 +24,10 @@ recorded so a user who chooses `mod+d` again keeps it. Customized split
 shortcuts are left alone. The untouched-default check uses upstream's rule comparison,
 which matches equivalent spellings of a shortcut or `when` expression since
 [pingdotgg/t3code#25556](https://github.com/pingdotgg/t3code/pull/25556).
+Upstream now lets a user unassign a default, stored as the rule with `when: "false"`
+([pingdotgg/t3code#28687](https://github.com/pingdotgg/t3code/pull/28687)), and its late
+defaults skip a rule the user unassigned. The fork's loop applies that skip to `replaces`
+entries too, so an unassigned `mod+s` split is not added back.
 
 When updating from upstream, keep the `mod+s` defaults, the two
 `terminal.split*` migration entries, and the `replaces` handling in startup sync.

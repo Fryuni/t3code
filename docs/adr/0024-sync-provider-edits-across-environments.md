@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Most server settings can be edited once for **All environments**, but
 **Settings → Providers** always showed one environment. Users who run the same

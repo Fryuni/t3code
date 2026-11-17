@@ -545,7 +545,11 @@ const make = Effect.gen(function* () {
         const earlier = "replaces" in late ? late.replaces : late.alongside;
         if (
           !persistedConfig.some((entry) => isSameKeybindingRule(entry, earlier)) ||
-          persistedConfig.some((entry) => hasSameShortcutContext(entry, late.rule))
+          persistedConfig.some(
+            (entry) =>
+              hasSameShortcutContext(entry, late.rule) ||
+              isSameKeybindingRule(entry, { ...late.rule, when: "false" }),
+          )
         ) {
           continue;
         }
@@ -688,29 +692,35 @@ const make = Effect.gen(function* () {
           const customConfig = yield* loadWritableCustomKeybindingsConfig();
           const rule = keybindingRuleFromInput(input);
           const replaceTarget = replaceTargetFromUpsertInput(input);
+          const siblingDefaults =
+            rule.when === "false" &&
+            replaceTarget &&
+            !customConfig.some(({ rule: entry }) => entry?.command === rule.command)
+              ? DEFAULT_KEYBINDINGS.filter(
+                  (entry) =>
+                    entry.command === rule.command && !isSameKeybindingRule(entry, replaceTarget),
+                ).map((entry) => ({ value: entry, rule: entry }))
+              : [];
+          const retainedConfig = customConfig.filter(({ rule: entry }) => {
+            if (!entry) return true;
+            return (
+              (!replaceTarget || !isSameKeybindingRule(entry, replaceTarget)) &&
+              !isSameKeybindingRule(entry, rule)
+            );
+          });
+          const availableSlots = MAX_KEYBINDINGS_COUNT - siblingDefaults.length - 1;
           const nextConfig = [
-            ...customConfig.filter(({ rule: entry }) => {
-              if (!entry) return true;
-              if (replaceTarget) {
-                return (
-                  !isSameKeybindingRule(entry, replaceTarget) && !isSameKeybindingRule(entry, rule)
-                );
-              }
-              return !isSameKeybindingRule(entry, rule);
-            }),
+            ...siblingDefaults,
+            ...retainedConfig.slice(-availableSlots),
             { value: rule, rule },
           ];
-          const cappedConfig =
-            nextConfig.length > MAX_KEYBINDINGS_COUNT
-              ? nextConfig.slice(-MAX_KEYBINDINGS_COUNT)
-              : nextConfig;
-          if (nextConfig.length > MAX_KEYBINDINGS_COUNT) {
+          if (retainedConfig.length > availableSlots) {
             yield* Effect.logWarning("truncating keybindings config to max entries", {
               path: keybindingsConfigPath,
               maxEntries: MAX_KEYBINDINGS_COUNT,
             });
           }
-          yield* writeConfigAtomically(cappedConfig.map(({ value }) => value));
+          yield* writeConfigAtomically(nextConfig.map(({ value }) => value));
           return yield* reloadAndEmit;
         }),
       ),

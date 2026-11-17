@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `dfeaf7b13` (2026-11-16)
+- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -71,7 +71,12 @@ under its own command id, as upstream does. Upstream now refuses to resume a que
 worktree setup has failed ([pingdotgg/t3code#36616](https://github.com/pingdotgg/t3code/pull/36616)),
 and makes a send to an idle thread wait behind its queue
 ([pingdotgg/t3code#33857](https://github.com/pingdotgg/t3code/pull/33857)); the fork's hold for
-any failed preparation reads the failed run that change identifies.
+any failed preparation reads the failed run that change identifies. Upstream now lets a
+buffered background-task wake through a provider failure's hold, because it only replays
+output the CLI already produced
+([pingdotgg/t3code#38035](https://github.com/pingdotgg/t3code/pull/38035)). A failed
+preparation holds every queued run, wakes included, as a missing worktree does: no provider
+ran, so there is nothing to replay.
 
 Upstream's web send now drops a failed send's optimistic row whether or not the draft is
 restored ([pingdotgg/t3code#35102](https://github.com/pingdotgg/t3code/pull/35102)); the
