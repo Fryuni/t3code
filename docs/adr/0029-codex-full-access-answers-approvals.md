@@ -15,7 +15,7 @@ The fork owner's rule: Full access never asks for approval. An elicitation asks 
 whether to proceed, so it may still be answered. The
 [Codex adapter](../../apps/server/src/orchestration-v2/Adapters/CodexAdapterV2.ts) accepts
 command, file-change, and permissions approvals (v2 and legacy) in Full access without
-showing them. Dangerous commands now run, where `never` refused them. A mode between Auto
+showing them, unless the runtime policy carries an explicit approval policy. Dangerous commands now run, where `never` refused them. A mode between Auto
 and Full access that still asks for dangerous commands would be a new selector entry, not a
 change to Full access.
 

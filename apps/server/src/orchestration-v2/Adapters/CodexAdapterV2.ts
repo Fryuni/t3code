@@ -2175,6 +2175,11 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
           sessionApprovals.set(nativeThreadId, { runtimeMode, kinds });
           return kinds;
         };
+        // Codex still asks before commands it deems dangerous; Full access means no prompts
+        // unless an explicit approval policy overrides it.
+        const answersApprovalsItself = (context: ActiveCodexTurnContext) =>
+          context.input.runtimePolicy.runtimeMode === "full-access" &&
+          context.input.runtimePolicy.approvalPolicy === undefined;
         /** Retain settled contexts while background commands run so late item events still project. */
         const settledTurns = yield* Ref.make(new Map<string, ActiveCodexTurnContext>());
         const runningCommandItemsByTurn = yield* Ref.make(
@@ -5864,8 +5869,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            // Codex still asks before commands it deems dangerous; Full access means no prompts.
-            if (context.input.runtimePolicy.runtimeMode === "full-access") {
+            if (answersApprovalsItself(context)) {
               return {
                 decision: "accept",
               } satisfies CodexSchema.CommandExecutionRequestApprovalResponse;
@@ -5941,7 +5945,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (context.input.runtimePolicy.runtimeMode === "full-access") {
+            if (answersApprovalsItself(context)) {
               return {
                 decision: "accept",
               } satisfies CodexSchema.FileChangeRequestApprovalResponse;
@@ -6018,7 +6022,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (context.input.runtimePolicy.runtimeMode === "full-access") {
+            if (answersApprovalsItself(context)) {
               return permissionsResponseFromDecision({
                 decision: "accept",
                 permissions: payload.permissions,
@@ -6169,7 +6173,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (context.input.runtimePolicy.runtimeMode === "full-access") {
+            if (answersApprovalsItself(context)) {
               return { decision: "approved" } satisfies CodexSchema.ExecCommandApprovalResponse;
             }
             const allowance = sessionAllowance(payload.conversationId, context);
@@ -6241,7 +6245,7 @@ export const makeCodexAdapterV2 = Effect.fn("makeCodexAdapterV2")(function* (
                 payload,
               );
             }
-            if (context.input.runtimePolicy.runtimeMode === "full-access") {
+            if (answersApprovalsItself(context)) {
               return { decision: "approved" } satisfies CodexSchema.ApplyPatchApprovalResponse;
             }
             const allowance = sessionAllowance(payload.conversationId, context);
