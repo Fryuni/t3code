@@ -11892,30 +11892,49 @@ describe("CodexAdapterV2 post-settle continuation", () => {
     const startApprovalTurn = (
       scenario: string,
       entries: ReadonlyArray<CodexReplay.CodexAppServerReplayEntry>,
+      runtimeMode: "auto-accept-edits" | "full-access" = "auto-accept-edits",
     ) =>
       Effect.gen(function* () {
         const pending = yield* Queue.unbounded<OrchestrationV2RuntimeRequest>();
         const harness = yield* makeCodexReplayHarness(
           makeCodexReplayTranscript({
             scenario,
-            entries: [...codexReplayPreamble({ nativeThreadId, nativeTurnId, prompt }), ...entries],
+            entries: [
+              ...codexReplayPreamble({
+                nativeThreadId,
+                nativeTurnId,
+                prompt,
+                ...(runtimeMode === "full-access"
+                  ? {}
+                  : {
+                      turnPolicy: {
+                        approvalPolicy: "on-request",
+                        sandboxPolicy: { type: "workspaceWrite" },
+                      },
+                    }),
+              }),
+              ...entries,
+            ],
           }),
           (event) =>
             event.type === "runtime_request.updated" && event.runtimeRequest.status === "pending"
               ? Queue.offer(pending, event.runtimeRequest)
               : Effect.void,
         );
-        yield* harness.runtime.startTurn(
-          makeCodexTestTurnInput({
-            threadId: harness.threadId,
-            providerThread: harness.providerThread,
-            now: yield* DateTime.now,
-            attemptId: RunAttemptId.make(`${scenario}-attempt`),
-            text: prompt,
-          }),
-        );
+        const turnInput = makeCodexTestTurnInput({
+          threadId: harness.threadId,
+          providerThread: harness.providerThread,
+          now: yield* DateTime.now,
+          attemptId: RunAttemptId.make(`${scenario}-attempt`),
+          text: prompt,
+        });
+        yield* harness.runtime.startTurn({
+          ...turnInput,
+          runtimePolicy: { ...turnInput.runtimePolicy, runtimeMode },
+        });
         return {
           harness,
+          pending,
           answerNext: Queue.take(pending).pipe(
             Effect.tap((request) =>
               harness.runtime.respondToRuntimeRequest({
@@ -12046,6 +12065,96 @@ describe("CodexAdapterV2 post-settle continuation", () => {
           { operation: "delete", path: "/w/e.ts" },
           { operation: "add", path: "/w/a.ts" },
         ]);
+      }).pipe(
+        Effect.scoped,
+        Effect.provide(
+          Layer.mergeAll(
+            IdAllocator.layer,
+            McpProviderSessions.layer,
+            NodeServices.layer,
+            NodeCrypto.layer,
+          ),
+        ),
+      ),
+    );
+
+    it.effect("answers every approval itself in full access", () =>
+      Effect.gen(function* () {
+        const answered = (
+          id: number,
+          method: string,
+          params: Record<string, unknown>,
+          result: Record<string, unknown>,
+        ): Array<CodexReplay.CodexAppServerReplayEntry> => [
+          { type: "emit_inbound", label: method, frame: { id, method, params } },
+          { type: "expect_outbound", label: method, frame: { id, result } },
+        ];
+        const permissions = { fileSystem: { write: ["/w/out"] } };
+        const { harness, pending } = yield* startApprovalTurn(
+          "full-access-approvals",
+          [
+            ...answered(
+              0,
+              "item/commandExecution/requestApproval",
+              {
+                threadId: nativeThreadId,
+                turnId: nativeTurnId,
+                itemId: "rm",
+                startedAtMs: 2,
+                command: "rm -rf /w/tmp",
+              },
+              { decision: "accept" },
+            ),
+            ...answered(
+              1,
+              "item/fileChange/requestApproval",
+              { threadId: nativeThreadId, turnId: nativeTurnId, itemId: "patch", startedAtMs: 2 },
+              { decision: "accept" },
+            ),
+            ...answered(
+              2,
+              "item/permissions/requestApproval",
+              {
+                threadId: nativeThreadId,
+                turnId: nativeTurnId,
+                itemId: "perm",
+                cwd: "/w",
+                startedAtMs: 2,
+                permissions,
+              },
+              { permissions, scope: "turn" },
+            ),
+            ...answered(
+              3,
+              "execCommandApproval",
+              {
+                conversationId: nativeThreadId,
+                callId: "legacy-rm",
+                command: ["rm", "-rf", "/w/tmp"],
+                cwd: "/w",
+                parsedCmd: [],
+              },
+              { decision: "approved" },
+            ),
+            ...answered(
+              4,
+              "applyPatchApproval",
+              { conversationId: nativeThreadId, callId: "legacy-patch", fileChanges: {} },
+              { decision: "approved" },
+            ),
+            turnCompleted(nativeTurnId),
+          ],
+          "full-access",
+        );
+        const request = yield* Effect.raceFirst(
+          harness.firstTerminal.pipe(Effect.as(undefined)),
+          Queue.take(pending),
+        );
+        assert.isUndefined(request, "Full access must not present an approval");
+        assert.deepEqual(
+          harness.terminalEvents().map((event) => event.status),
+          ["completed"],
+        );
       }).pipe(
         Effect.scoped,
         Effect.provide(
