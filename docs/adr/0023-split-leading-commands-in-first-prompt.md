@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
+- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend

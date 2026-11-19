@@ -7,6 +7,9 @@ import {
 } from "@t3tools/shared/hostClassification";
 import { buildHostedPairingUrl } from "../../hostedPairing";
 import { setPairingTokenOnUrl } from "@t3tools/shared/remote";
+import { msg } from "gt-react";
+
+import { m, type MessageResolver } from "../../i18n/messages";
 
 // Tailscale assigns 100.64.0.0/10, which only resolves inside the tailnet.
 const TAILSCALE_IPV4_PATTERN = /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./;
@@ -37,14 +40,16 @@ function classifyPublicUrlReachability(hostname: string): AdvertisedEndpoint["re
 export function withPublicUrlEndpoint(
   endpoints: ReadonlyArray<AdvertisedEndpoint>,
   publicUrl: string | undefined,
+  resolve: MessageResolver = m,
 ): ReadonlyArray<AdvertisedEndpoint> {
   if (!publicUrl) return endpoints;
   const url = new URL(publicUrl);
+  const label = resolve(msg("Public URL"));
   return [
     createAdvertisedEndpoint({
       id: `server-public:${url.origin}`,
-      label: "Public URL",
-      provider: { id: "server-public", label: "Public URL", kind: "manual", isAddon: false },
+      label,
+      provider: { id: "server-public", label, kind: "manual", isAddon: false },
       httpBaseUrl: publicUrl,
       reachability: classifyPublicUrlReachability(url.hostname),
       ...(url.protocol === "https:" ? ({ hostedHttpsCompatibility: "compatible" } as const) : {}),

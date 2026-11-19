@@ -1,5 +1,6 @@
 import type { ScopedProjectRef } from "@t3tools/contracts";
 import { useNavigate } from "@tanstack/react-router";
+import { useGT } from "gt-react";
 import {
   pullRequestListPreferences,
   readPullRequestListPreferences,
@@ -46,6 +47,7 @@ export function useOpenProjectPullRequestList() {
 }
 
 export function useOpenPullRequestList() {
+  const gt = useGT();
   const navigate = useNavigate();
   const projects = useProjects();
   const serverConfigs = useServerConfigs();
@@ -74,9 +76,9 @@ export function useOpenPullRequestList() {
     // An incomplete or cached catalog cannot establish that a persisted scope is gone.
     const disabledReason =
       scopeKey !== null && group === undefined && !allProjectSnapshotsReady
-        ? "Waiting for projects"
+        ? gt("Waiting for projects")
         : group !== undefined && project === undefined
-          ? "Pull requests unavailable for this project"
+          ? gt("Pull requests unavailable for this project")
           : null;
     return { project, disabledReason };
   };

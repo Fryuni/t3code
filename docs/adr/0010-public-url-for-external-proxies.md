@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#7](https://github.com/Fryuni/t3code/pull/7)
-- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
+- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
 
 Upstream works out whether a server is reachable from other machines by looking
 only at the address it binds. Its remote routes are binding a LAN or tailnet
@@ -103,6 +103,12 @@ such a name loopback, since it resolves to the server's own machine. The fork's
 server's managed-policy check sees a public-URL server as remote-reachable too. A policy
 that refuses remote clients therefore refuses to start such a server, with upstream's
 "cannot listen on" message naming the loopback host.
+
+Upstream's headless startup output now warns that a non-loopback address uses plain HTTP
+([pingdotgg/t3code#38813](https://github.com/pingdotgg/t3code/pull/38813)). An `https` public
+URL is usually TLS terminated by the operator's proxy, so
+[`formatHeadlessServeOutput`](../../apps/server/src/startupAccess.ts) skips the warning for
+it; an `http` public URL still gets it.
 
 There is no settings UI or desktop IPC for it. The public URL is a fact about the
 deployment, owned by whoever runs the proxy, so it is configured where the server
