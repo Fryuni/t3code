@@ -49,6 +49,7 @@ it.effect("prints the public URL and QR at startup with a loopback listener", ()
     expect(access.connectionString).toBe("https://t3.example.com:8443/");
     expect(access.pairingUrl).toBe("https://t3.example.com:8443/pair#token=PAIRCODE");
     expect(formatHeadlessServeOutput(access)).toContain(renderTerminalQrCode(access.pairingUrl));
+    expect(formatHeadlessServeOutput(access)).not.toContain("plain HTTP");
   }).pipe(
     Effect.provide(
       Layer.mergeAll(

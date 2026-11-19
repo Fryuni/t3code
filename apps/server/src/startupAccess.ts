@@ -235,17 +235,27 @@ export const renderTerminalQrCode = (value: string, margin = 2): string => {
   return rows.join("\n");
 };
 
-export const formatHeadlessServeOutput = (accessInfo: HeadlessServeAccessInfo): string =>
-  [
+export const formatHeadlessServeOutput = (accessInfo: HeadlessServeAccessInfo): string => {
+  const connectionUrl = new URL(accessInfo.connectionString);
+  return [
     "T3 Code server is ready.",
     `Connection string: ${accessInfo.connectionString}`,
     `Token: ${accessInfo.token}`,
     `Pairing URL: ${accessInfo.pairingUrl}`,
     `App link: ${buildPairingAppLink(accessInfo.pairingUrl)}`,
+    // A `--public-url` can be HTTPS terminated by the operator's proxy.
+    ...(connectionUrl.protocol === "https:" || isLoopbackHost(connectionUrl.hostname)
+      ? []
+      : [
+          "",
+          "Warning: this address uses plain HTTP. Anyone on the same network can read the",
+          "token and control this machine. Use it over a VPN or tailnet you trust.",
+        ]),
     "",
     renderTerminalQrCode(accessInfo.pairingUrl),
     "",
   ].join("\n");
+};
 
 export const issueHeadlessServeAccessInfo = Effect.fn("issueHeadlessServeAccessInfo")(function* () {
   const serverConfig = yield* ServerConfig.ServerConfig;

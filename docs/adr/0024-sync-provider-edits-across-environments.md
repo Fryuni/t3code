@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
+- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
 
 Most server settings can be edited once for **All environments**, but
 **Settings → Providers** always showed one environment. Users who run the same
@@ -39,6 +39,12 @@ shown environment too, like usage sources, because generators are not provider
 instances. A project scope
 still picks one environment, because project provider overrides are stored per
 environment. Mobile has no provider config editor, so it is unchanged.
+
+Upstream's `updateInstance` now returns the source write's result, so the instance card keeps a
+custom model draft until it saves
+([pingdotgg/t3code#35176](https://github.com/pingdotgg/t3code/pull/35176)). An earlier sync left
+the fork's sync call after that `return`, where it never ran; the handler now starts the sync
+and returns the source write's result, so the card's draft follows only the shown environment.
 
 When updating from upstream, preserve the field-level copy and the same id and
 driver rule. Remove this if upstream adds its own cross-environment provider

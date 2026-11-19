@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `2ebe7f8e2` (2026-11-17)
+- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -180,7 +180,7 @@ own downgrade check and `--allow-downgrade`.
 ## Known caveats
 
 - **Version scheme.** The core comes from `apps/server/package.json`, `0.1.10` at
-  upstream `2ebe7f8e2`, so builds are `0.1.10-fork.*`. A `-fork.` suffix is a semver
+  upstream `aced664ed`, so builds are `0.1.10-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
   upstream's stable `0.1.10`, while upstream labels newer code `0.1.11-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
