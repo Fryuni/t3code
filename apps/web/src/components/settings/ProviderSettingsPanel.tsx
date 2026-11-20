@@ -635,8 +635,12 @@ export function EnvironmentProviderSettings({
   const [updatingProviderInstanceIds, setUpdatingProviderInstanceIds] = useState<
     ReadonlySet<ProviderInstanceId>
   >(() => new Set());
+  const [refreshingModelInstanceIds, setRefreshingModelInstanceIds] = useState<
+    ReadonlySet<ProviderInstanceId>
+  >(() => new Set());
   const refreshingRef = useRef(false);
   const updatingInstanceIdsRef = useRef<Set<ProviderInstanceId>>(new Set());
+  const refreshingModelInstanceIdsRef = useRef<Set<ProviderInstanceId>>(new Set());
 
   const acceptUrlAuthentication = useStableCallback(
     (instanceId: ProviderInstanceId, action: AcpRegistryUrlAuthAction) => {
@@ -705,6 +709,48 @@ export function EnvironmentProviderSettings({
       }
     })();
   };
+
+  const refreshProviderModels = useStableCallback(async (instanceId: ProviderInstanceId) => {
+    if (
+      refreshingModelInstanceIdsRef.current.has(instanceId) ||
+      !readEnvironmentScope(environmentId, AuthOrchestrationReadScope)
+    )
+      return;
+    refreshingModelInstanceIdsRef.current.add(instanceId);
+    setRefreshingModelInstanceIds((previous) => new Set(previous).add(instanceId));
+    const result = await refreshServerProviders({
+      environmentId,
+      input: { instanceId, refreshModels: true },
+    });
+    if (result._tag === "Failure" && !isAtomCommandInterrupted(result)) {
+      const error = squashAtomCommandFailure(result);
+      console.warn("Failed to refresh provider models", {
+        operation: "refresh-provider-models",
+        environmentId,
+        instanceId,
+        ...safeErrorLogAttributes(error),
+      });
+      toastManager.add(
+        stackedThreadToast({
+          type: "error",
+          title: gt("Could not refresh models"),
+          description:
+            error instanceof Error
+              ? (errorDisplayMessage(error, resolveNow) ?? error.message)
+              : gt("The provider model list could not be refreshed."),
+        }),
+      );
+    }
+    refreshingModelInstanceIdsRef.current.delete(instanceId);
+    setRefreshingModelInstanceIds((previous) => {
+      if (!previous.has(instanceId)) {
+        return previous;
+      }
+      const next = new Set(previous);
+      next.delete(instanceId);
+      return next;
+    });
+  });
 
   const runProviderUpdate = useStableCallback(
     async (
@@ -1086,6 +1132,7 @@ export function EnvironmentProviderSettings({
   const stableToggleModelFavorite = useStableCallback(toggleModelFavorite);
   const actions: ProviderInstanceRowActions = {
     acceptUrlAuthentication,
+    refreshProviderModels,
     runProviderUpdate,
     updateInstance,
     enableInstance,
@@ -1117,8 +1164,10 @@ export function EnvironmentProviderSettings({
         selected={mode === "list" && selectedRow?.instanceId === row.instanceId}
         readOnly={readOnly}
         canWriteSettings={canWriteSettings}
+        canRefreshModels={canRefreshProviders}
         liveProvider={serverProviders.find((candidate) => candidate.instanceId === row.instanceId)}
         isUpdateDispatching={updatingProviderInstanceIds.has(row.instanceId)}
+        isRefreshingModels={isRefreshingProviders || refreshingModelInstanceIds.has(row.instanceId)}
         showProjectOverride={showProjectOverride}
         projectOverrideValue={
           showProjectOverride
@@ -1391,6 +1440,7 @@ interface ProviderInstanceRowActions {
     instanceId: ProviderInstanceId,
     action: AcpRegistryUrlAuthAction,
   ) => void;
+  readonly refreshProviderModels: (instanceId: ProviderInstanceId) => Promise<void>;
   readonly runProviderUpdate: (
     candidate: Pick<ProviderSettingsUpdateCandidate, "driver" | "instanceId">,
     targetVersion?: string,
@@ -1433,8 +1483,10 @@ function ProviderInstanceRow({
   selected,
   readOnly,
   canWriteSettings,
+  canRefreshModels,
   liveProvider,
   isUpdateDispatching,
+  isRefreshingModels,
   showProjectOverride,
   projectOverrideValue,
   projectOverrideEffectiveEnabled,
@@ -1453,8 +1505,10 @@ function ProviderInstanceRow({
   readonly selected: boolean;
   readonly readOnly: boolean;
   readonly canWriteSettings: boolean;
+  readonly canRefreshModels: boolean;
   readonly liveProvider: ServerProvider | undefined;
   readonly isUpdateDispatching: boolean;
+  readonly isRefreshingModels: boolean;
   readonly showProjectOverride: boolean;
   readonly projectOverrideValue: boolean | undefined;
   readonly projectOverrideEffectiveEnabled: boolean;
@@ -1511,6 +1565,12 @@ function ProviderInstanceRow({
       onAcceptUrlAuth={
         readOnly ? undefined : (action) => actions.acceptUrlAuthentication(instanceId, action)
       }
+      onRefreshModels={
+        mode === "editor" && canRefreshModels
+          ? () => void actions.refreshProviderModels(instanceId)
+          : undefined
+      }
+      isRefreshingModels={isRefreshingModels}
       instanceId={instanceId}
       instance={instance}
       driverOption={driverOption}

@@ -7492,3 +7492,162 @@ process.stdout.write('{"type":"ready"}\\n');
       }).pipe(Effect.provide(NodeServices.layer)),
   );
 });
+
+describe("PiRpc protocol v2", () => {
+  const encodeChunks = (frame: Record<string, unknown>, chunkId: string, chunkSize = 64) => {
+    const payload = Buffer.from(JSON.stringify(frame), "utf8");
+    const count = Math.ceil(payload.byteLength / chunkSize);
+    const lines: string[] = [];
+    for (let index = 0; index < count; index += 1) {
+      lines.push(
+        `${JSON.stringify({
+          type: "rpc_chunk",
+          chunkId,
+          index,
+          count,
+          byteLength: payload.byteLength,
+          data: payload.subarray(index * chunkSize, (index + 1) * chunkSize).toString("base64"),
+        })}\n`,
+      );
+    }
+    return lines.join("");
+  };
+
+  it.effect(
+    "negotiates protocol v2 on ready, reassembles chunked frames, and retries pre-ready overflowed requests",
+    () =>
+      Effect.gen(function* () {
+        const stdout = yield* Queue.unbounded<Uint8Array>();
+        const push = (text: string) =>
+          Queue.offer(stdout, new TextEncoder().encode(text)).pipe(Effect.asVoid);
+        let protocolVersion = 1;
+        let readySent = false;
+        let chunkSeq = 0;
+        let stdinBuffer = "";
+
+        const handleStdinLine = (line: string) =>
+          Effect.gen(function* () {
+            if (!readySent) {
+              readySent = true;
+              yield* push(
+                `${JSON.stringify({
+                  type: "ready",
+                  protocolVersion: 1,
+                  supportedProtocolVersions: [1, 2],
+                  maxFrameBytes: 1048576,
+                  maxReassembledFrameBytes: 67108864,
+                })}\n`,
+              );
+            }
+            const command = JSON.parse(line) as Record<string, unknown>;
+            const id = String(command["id"]);
+            if (command["type"] === "negotiate_protocol") {
+              protocolVersion = command["protocolVersion"] === 2 ? 2 : 1;
+              yield* push(
+                `${JSON.stringify({
+                  id,
+                  type: "response",
+                  command: "negotiate_protocol",
+                  success: true,
+                  data: { protocolVersion },
+                })}\n`,
+              );
+              return;
+            }
+            if (command["type"] === "get_available_models") {
+              if (protocolVersion < 2) {
+                yield* push(
+                  `${JSON.stringify({
+                    id,
+                    type: "response",
+                    command: "get_available_models",
+                    success: false,
+                    error: "RPC response exceeded the transport limit",
+                  })}\n`,
+                );
+                return;
+              }
+              yield* push(
+                encodeChunks(
+                  {
+                    id,
+                    type: "response",
+                    command: "get_available_models",
+                    success: true,
+                    data: {
+                      models: [
+                        { provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude" },
+                      ],
+                    },
+                  },
+                  `rpc-${++chunkSeq}`,
+                ),
+              );
+            }
+          });
+
+        const stdin = Sink.forEach<Uint8Array, void, never, never>((chunk) =>
+          Effect.gen(function* () {
+            stdinBuffer += new TextDecoder().decode(chunk);
+            let newline = stdinBuffer.indexOf("\n");
+            while (newline >= 0) {
+              const line = stdinBuffer.slice(0, newline);
+              stdinBuffer = stdinBuffer.slice(newline + 1);
+              if (line.length > 0) yield* handleStdinLine(line);
+              newline = stdinBuffer.indexOf("\n");
+            }
+          }),
+        );
+
+        const spawner = ChildProcessSpawner.make(() =>
+          Effect.succeed(
+            ChildProcessSpawner.makeHandle({
+              pid: ChildProcessSpawner.ProcessId(FAKE_PID),
+              exitCode: Effect.never,
+              isRunning: Effect.succeed(true),
+              kill: () => Effect.void,
+              unref: Effect.succeed(Effect.void),
+              stdin,
+              stdout: Stream.fromQueue(stdout),
+              stderr: Stream.empty,
+              all: Stream.empty,
+              getInputFd: () => Sink.drain,
+              getOutputFd: () => Stream.empty,
+            }),
+          ),
+        );
+
+        const connection = yield* makePiRpcConnection({
+          command: "omp",
+          args: ["--mode", "rpc", "--no-session"],
+          cwd: undefined,
+          env: {},
+        }).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner));
+
+        // First request goes out before `ready`, hits v1 overflow, then retries once v2 negotiates.
+        const firstResult = yield* connection.request({ type: "get_available_models" });
+        assert.deepEqual(firstResult, {
+          models: [{ provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude" }],
+        });
+
+        // Subsequent request uses v2 directly.
+        const secondResult = yield* connection.request({ type: "get_available_models" });
+        assert.deepEqual(secondResult, {
+          models: [{ provider: "openrouter", id: "anthropic/claude-sonnet-4", name: "Claude" }],
+        });
+
+        // Chunked event frames are also reassembled and delivered on events.
+        yield* push(
+          encodeChunks(
+            { type: "message_end", message: { role: "assistant", text: "chunked payload" } },
+            `rpc-${++chunkSeq}`,
+          ),
+        );
+        assert.equal((yield* Queue.take(connection.events))["type"], "ready");
+        assert.deepEqual(yield* Queue.take(connection.events), {
+          type: "message_end",
+          message: { role: "assistant", text: "chunked payload" },
+        });
+      }).pipe(Effect.scoped, Effect.provide(NodeServices.layer)),
+  );
+});

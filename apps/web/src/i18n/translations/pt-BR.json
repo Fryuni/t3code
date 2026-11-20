@@ -9024,6 +9024,8 @@
     },
     ", que não está disponível nesta build. A configuração dela é preservada."
   ],
+  "a9b5d2852719fddc": "Atualizando modelos",
+  "4811262c294ce7d5": "Atualizar modelos",
   "b534d4cd528ede39": "As preferências de modelo e os modelos personalizados são salvos no ambiente selecionado e compartilhados entre os dispositivos conectados.",
   "caaef21e8722857d": "Modo rápido",
   "a860db2b1bb3aa31": "Sem raciocínio",
@@ -9135,6 +9137,8 @@
   "9cd6647baae39b79": "Atualize o provedor e inicie o fluxo de autenticação novamente.",
   "34e971a4cd3cfdf3": "Não foi possível continuar a autenticação",
   "25617239c4886378": "A solicitação de autenticação expirou.",
+  "254dc4b4151094ef": "Não foi possível atualizar os modelos",
+  "114f22c0e3900fad": "Não foi possível atualizar a lista de modelos do provedor.",
   "1bc94053b36b3f40": "Não foi possível atualizar o {provider}",
   "5b39dc5c8173ee94": "Não foi possível iniciar o comando de atualização do provedor.",
   "53e1e3591fc1abc9": "Não foi possível atualizar a instância do provedor",

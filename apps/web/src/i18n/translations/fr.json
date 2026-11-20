@@ -9025,6 +9025,8 @@
     },
     ", qui n’est pas disponible dans cette version. Sa configuration est conservée."
   ],
+  "a9b5d2852719fddc": "Actualisation des modèles",
+  "4811262c294ce7d5": "Actualiser les modèles",
   "b534d4cd528ede39": "Les préférences de modèle et les modèles personnalisés sont enregistrés dans l’environnement sélectionné et partagés entre les appareils connectés.",
   "caaef21e8722857d": "Mode rapide",
   "a860db2b1bb3aa31": "Sans raisonnement",
@@ -9136,6 +9138,8 @@
   "9cd6647baae39b79": "Actualisez le fournisseur et relancez l’authentification.",
   "34e971a4cd3cfdf3": "Impossible de continuer l’authentification",
   "25617239c4886378": "La demande d’authentification a expiré.",
+  "254dc4b4151094ef": "Impossible d’actualiser les modèles",
+  "114f22c0e3900fad": "Impossible d’actualiser la liste des modèles du fournisseur.",
   "1bc94053b36b3f40": "Impossible de mettre à jour {provider}",
   "5b39dc5c8173ee94": "La commande de mise à jour du fournisseur n’a pas pu démarrer.",
   "53e1e3591fc1abc9": "Impossible de mettre à jour l’instance du fournisseur",

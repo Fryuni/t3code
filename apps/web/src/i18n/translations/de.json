@@ -9025,6 +9025,8 @@
     },
     ", das in diesem Build nicht verfügbar ist. Die Konfiguration bleibt erhalten."
   ],
+  "a9b5d2852719fddc": "Modelle werden aktualisiert",
+  "4811262c294ce7d5": "Modelle aktualisieren",
   "b534d4cd528ede39": "Modelleinstellungen und benutzerdefinierte Modelle werden in der ausgewählten Umgebung gespeichert und mit verbundenen Geräten geteilt.",
   "caaef21e8722857d": "Schnellmodus",
   "a860db2b1bb3aa31": "Kein Reasoning",
@@ -9136,6 +9138,8 @@
   "9cd6647baae39b79": "Aktualisiere den Anbieter und starte die Authentifizierung erneut.",
   "34e971a4cd3cfdf3": "Authentifizierung konnte nicht fortgesetzt werden",
   "25617239c4886378": "Die Authentifizierungsanfrage ist abgelaufen.",
+  "254dc4b4151094ef": "Modelle konnten nicht aktualisiert werden",
+  "114f22c0e3900fad": "Die Modellliste des Anbieters konnte nicht aktualisiert werden.",
   "1bc94053b36b3f40": "{provider} konnte nicht aktualisiert werden",
   "5b39dc5c8173ee94": "Der Update-Befehl des Anbieters konnte nicht gestartet werden.",
   "53e1e3591fc1abc9": "Anbieterinstanz konnte nicht aktualisiert werden",
