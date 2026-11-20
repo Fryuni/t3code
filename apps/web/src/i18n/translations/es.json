@@ -9023,6 +9023,8 @@
     },
     ", que no está disponible en esta compilación. Se conserva su configuración."
   ],
+  "a9b5d2852719fddc": "Actualizando modelos",
+  "4811262c294ce7d5": "Actualizar modelos",
   "b534d4cd528ede39": "Las preferencias de modelos y los modelos personalizados se guardan en el entorno seleccionado y se comparten entre los dispositivos conectados.",
   "caaef21e8722857d": "Modo rápido",
   "a860db2b1bb3aa31": "Sin razonamiento",
@@ -9134,6 +9136,8 @@
   "9cd6647baae39b79": "Actualiza el proveedor y vuelve a iniciar el flujo de autenticación.",
   "34e971a4cd3cfdf3": "No se pudo continuar la autenticación",
   "25617239c4886378": "La solicitud de autenticación caducó.",
+  "254dc4b4151094ef": "No se pudieron actualizar los modelos",
+  "114f22c0e3900fad": "No se pudo actualizar la lista de modelos del proveedor.",
   "1bc94053b36b3f40": "No se pudo actualizar {provider}",
   "5b39dc5c8173ee94": "No se pudo iniciar el comando de actualización del proveedor.",
   "53e1e3591fc1abc9": "No se pudo actualizar la instancia del proveedor",

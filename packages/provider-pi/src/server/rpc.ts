@@ -114,6 +114,112 @@ interface PendingPiRequest {
 // MCP duplicates images in model content and CallToolResult; budget both plus bounded overhead.
 const MAX_PI_RECORD_CHARS =
   2 * MAX_TOOL_OUTPUT_IMAGES * MAX_TOOL_OUTPUT_IMAGE_BASE64_LENGTH + 8 * 1024 * 1024;
+const MAX_PI_REASSEMBLED_BYTES = 64 * 1024 * 1024;
+const PI_RESPONSE_TRANSPORT_LIMIT_ERROR = "RPC response exceeded the transport limit";
+
+function supportsRpcProtocolV2(record: PiRpcRecord): boolean {
+  return (
+    record["type"] === "ready" &&
+    Array.isArray(record["supportedProtocolVersions"]) &&
+    record["supportedProtocolVersions"].includes(2)
+  );
+}
+
+interface PendingRpcChunk {
+  readonly chunkId: string;
+  readonly count: number;
+  readonly byteLength: number;
+  nextIndex: number;
+  readonly chunks: Array<Buffer>;
+  receivedBytes: number;
+}
+
+function makeRpcChunkAssembler() {
+  let pending: PendingRpcChunk | undefined;
+  const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+  return (record: PiRpcRecord): { readonly record?: PiRpcRecord; readonly warning?: string } => {
+    if (record["type"] !== "rpc_chunk") {
+      if (pending !== undefined) {
+        pending = undefined;
+        return { record, warning: "Interrupted pi RPC chunk sequence." };
+      }
+      return { record };
+    }
+
+    const chunkId = piRecordString(record, "chunkId");
+    const index = piRecordNumber(record, "index");
+    const count = piRecordNumber(record, "count");
+    const byteLength = piRecordNumber(record, "byteLength");
+    const data = piRecordString(record, "data");
+    if (
+      chunkId === undefined ||
+      chunkId.length === 0 ||
+      chunkId.length > 128 ||
+      index === undefined ||
+      count === undefined ||
+      byteLength === undefined ||
+      !Number.isSafeInteger(index) ||
+      !Number.isSafeInteger(count) ||
+      !Number.isSafeInteger(byteLength) ||
+      index < 0 ||
+      count < 2 ||
+      index >= count ||
+      byteLength <= 0 ||
+      byteLength > MAX_PI_REASSEMBLED_BYTES ||
+      data === undefined ||
+      data.length === 0
+    ) {
+      pending = undefined;
+      return { warning: "Dropping invalid pi RPC chunk metadata." };
+    }
+
+    const bytes = Buffer.from(data, "base64");
+    if (pending === undefined) {
+      if (index !== 0) {
+        return { warning: "Dropping out-of-order pi RPC chunk." };
+      }
+      pending = { chunkId, count, byteLength, nextIndex: 0, chunks: [], receivedBytes: 0 };
+    }
+
+    if (
+      pending.chunkId !== chunkId ||
+      pending.count !== count ||
+      pending.byteLength !== byteLength ||
+      pending.nextIndex !== index
+    ) {
+      pending = undefined;
+      return { warning: "Dropping mismatched pi RPC chunk sequence." };
+    }
+
+    pending.chunks.push(bytes);
+    pending.receivedBytes += bytes.byteLength;
+    pending.nextIndex += 1;
+    if (pending.receivedBytes > pending.byteLength) {
+      pending = undefined;
+      return { warning: "Dropping oversized pi RPC chunk sequence." };
+    }
+    if (pending.nextIndex < pending.count) {
+      return {};
+    }
+
+    const completed = pending;
+    pending = undefined;
+    if (completed.receivedBytes !== completed.byteLength) {
+      return { warning: "Dropping truncated pi RPC chunk sequence." };
+    }
+    try {
+      const decoded = utf8Decoder.decode(Buffer.concat(completed.chunks));
+      const reassembled = parsePiRecord(decoded);
+      if (reassembled === undefined) {
+        return { warning: "Dropping undecodable pi RPC chunk payload." };
+      }
+      return { record: reassembled };
+    } catch {
+      return { warning: "Dropping undecodable pi RPC chunk payload." };
+    }
+  };
+}
 
 function makeJsonlFramer() {
   let buffer = "";
@@ -290,6 +396,8 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
   const outgoing = yield* Queue.unbounded<Uint8Array, PiRpcError>();
   const transportDown = yield* Deferred.make<never, PiRpcError>();
   const exitDeferred = yield* Deferred.make<number, PiRpcError>();
+  const assembleChunk = makeRpcChunkAssembler();
+  let protocolV2Negotiation: Deferred.Deferred<boolean> | undefined;
   let nextRequestId = 0;
 
   const failTransport = Effect.fn("PiRpc.failTransport")(function* (error: PiRpcError) {
@@ -303,9 +411,48 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     yield* Queue.fail(events, error);
   });
 
+  const send =
+    /* Protocol records and writes include streaming deltas; avoid a span per record. */
+    Effect.fnUntraced(function* (record: PiRpcRecord): Effect.fn.Return<void, PiRpcError> {
+      const accepted = yield* Queue.offer(
+        outgoing,
+        new TextEncoder().encode(`${encodeJsonLine(record)}\n`),
+      );
+      if (!accepted) {
+        return yield* Deferred.await(transportDown);
+      }
+    });
+
   const routeRecord =
     /* Protocol records and writes include streaming deltas; avoid a span per record. */
-    Effect.fnUntraced(function* (record: PiRpcRecord) {
+    Effect.fnUntraced(function* (rawRecord: PiRpcRecord) {
+      const { record, warning } = assembleChunk(rawRecord);
+      if (warning !== undefined) {
+        yield* Effect.logWarning(warning);
+      }
+      if (record === undefined) return;
+      if (protocolV2Negotiation === undefined && supportsRpcProtocolV2(record)) {
+        const negotiation = yield* Deferred.make<boolean>();
+        protocolV2Negotiation = negotiation;
+        const id = `t3-${nextRequestId++}`;
+        const responseDeferred = yield* Deferred.make<unknown, PiRpcError>();
+        pendingRequests.set(id, { deferred: responseDeferred });
+        yield* send({ type: "negotiate_protocol", protocolVersion: 2, id }).pipe(
+          Effect.catch(() =>
+            Effect.sync(() => {
+              pendingRequests.delete(id);
+            }).pipe(Effect.andThen(Deferred.succeed(negotiation, false))),
+          ),
+        );
+        yield* Deferred.await(responseDeferred).pipe(
+          Effect.matchEffect({
+            onFailure: () => Deferred.succeed(negotiation, false),
+            onSuccess: (data) =>
+              Deferred.succeed(negotiation, piRecordNumber(data, "protocolVersion") === 2),
+          }),
+          Effect.forkIn(scope),
+        );
+      }
       if (record["type"] === "response" && typeof record["id"] === "string") {
         const pending = pendingRequests.get(record["id"]);
         if (pending !== undefined) {
@@ -424,21 +571,21 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
     Effect.forkIn(scope),
   );
 
-  const send =
-    /* Protocol records and writes include streaming deltas; avoid a span per record. */
-    Effect.fnUntraced(function* (record: PiRpcRecord): Effect.fn.Return<void, PiRpcError> {
-      const accepted = yield* Queue.offer(
-        outgoing,
-        new TextEncoder().encode(`${encodeJsonLine(record)}\n`),
-      );
-      if (!accepted) {
-        return yield* Deferred.await(transportDown);
-      }
-    });
+  const awaitProtocolV2Negotiation = (
+    negotiation: Deferred.Deferred<boolean>,
+    operation: string,
+    timeoutMs: number,
+  ): Effect.Effect<boolean, PiRpcError | PiRpcTimeoutError> =>
+    Effect.raceFirst(Deferred.await(negotiation), Deferred.await(transportDown)).pipe(
+      Effect.timeoutOrElse({
+        duration: Duration.millis(timeoutMs),
+        orElse: () => Effect.fail(new PiRpcTimeoutError({ operation, timeoutMs })),
+      }),
+    );
 
-  const request = Effect.fn("PiRpc.request")(function* (
+  const sendRequestOnce = Effect.fnUntraced(function* (
     record: PiRpcRecord,
-    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+    timeoutMs: number,
   ): Effect.fn.Return<unknown, PiRpcError | PiRpcTimeoutError> {
     const id = `t3-${nextRequestId++}`;
     const deferred = yield* Deferred.make<unknown, PiRpcError>();
@@ -459,6 +606,37 @@ export const makePiRpcConnection = Effect.fnUntraced(function* (options: PiRpcSp
       }),
       Effect.onInterrupt(() => Effect.sync(() => pendingRequests.delete(id))),
       Effect.onError(() => Effect.sync(() => pendingRequests.delete(id))),
+    );
+  });
+
+  const request = Effect.fn("PiRpc.request")(function* (
+    record: PiRpcRecord,
+    timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
+  ): Effect.fn.Return<unknown, PiRpcError | PiRpcTimeoutError> {
+    const operation = String(record["type"] ?? "request");
+    const negotiationAtStart = protocolV2Negotiation;
+    if (negotiationAtStart !== undefined) {
+      yield* awaitProtocolV2Negotiation(negotiationAtStart, operation, timeoutMs);
+    }
+    return yield* sendRequestOnce(record, timeoutMs).pipe(
+      // A first request can reach omp before its `ready` frame triggers v2 negotiation.
+      Effect.catchIf(
+        (error): error is PiRpcError =>
+          negotiationAtStart === undefined &&
+          error._tag === "PiRpcError" &&
+          error.detail === PI_RESPONSE_TRANSPORT_LIMIT_ERROR &&
+          protocolV2Negotiation !== undefined,
+        (error) =>
+          Effect.gen(function* () {
+            const negotiated = yield* awaitProtocolV2Negotiation(
+              protocolV2Negotiation!,
+              operation,
+              timeoutMs,
+            );
+            if (!negotiated) return yield* error;
+            return yield* sendRequestOnce(record, timeoutMs);
+          }),
+      ),
     );
   });
 

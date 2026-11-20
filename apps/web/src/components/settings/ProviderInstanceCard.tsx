@@ -47,6 +47,7 @@ import { Button } from "../ui/button";
 import { DraftInput } from "../ui/draft-input";
 import { SecretSourceInput, type SecretSource } from "./SecretSourceInput";
 import { Popover, PopoverPopup, PopoverTrigger } from "../ui/popover";
+import { RefreshIcon } from "../ui/refresh-icon";
 import { Switch } from "../ui/switch";
 import { ManagedControl, ManagedNotice } from "../ManagedPolicy";
 import { managedInstanceLocks, useManagedPolicy } from "../../state/managedPolicy";
@@ -731,6 +732,8 @@ interface ProviderInstanceCardProps {
   readonly onRunUpdate?: (() => void) | undefined;
   readonly onInstallRecommended?: (() => void) | undefined;
   readonly isUpdating?: boolean | undefined;
+  readonly onRefreshModels?: (() => void) | undefined;
+  readonly isRefreshingModels?: boolean | undefined;
   readonly onAcceptUrlAuth?: ((action: AcpRegistryUrlAuthAction) => void) | undefined;
   readonly environmentId?: EnvironmentId | undefined;
   readonly secretSources?: ReadonlyArray<SecretSource>;
@@ -802,6 +805,8 @@ export function ProviderInstanceCard({
   onRunUpdate,
   onInstallRecommended,
   isUpdating = false,
+  onRefreshModels,
+  isRefreshingModels = false,
   onAcceptUrlAuth,
   environmentId,
   acpProjects = EMPTY_ACP_PROJECTS,
@@ -1485,7 +1490,25 @@ export function ProviderInstanceCard({
       ) : null}
 
       {driverOption !== undefined ? (
-        <SettingsSection title={gt("Models")}>
+        <SettingsSection
+          title={gt("Models")}
+          headerAction={
+            onRefreshModels !== undefined ? (
+              <Button
+                type="button"
+                size="xs"
+                variant="ghost-muted"
+                className="-me-2"
+                disabled={!enabled || isRefreshingModels}
+                aria-busy={isRefreshingModels}
+                onClick={onRefreshModels}
+              >
+                <RefreshIcon refreshing={isRefreshingModels} />
+                {isRefreshingModels ? <T>Refreshing models</T> : <T>Refresh models</T>}
+              </Button>
+            ) : undefined
+          }
+        >
           <div className="px-3 py-3 sm:px-4">
             <p className="mb-3 text-xs text-muted-foreground">
               <T>

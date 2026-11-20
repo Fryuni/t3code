@@ -9031,6 +9031,8 @@
     },
     ", som inte finns i den här versionen. Dess konfiguration bevaras."
   ],
+  "a9b5d2852719fddc": "Uppdaterar modeller",
+  "4811262c294ce7d5": "Uppdatera modeller",
   "b534d4cd528ede39": "Modellinställningar och anpassade modeller sparas i den valda miljön och delas mellan anslutna enheter.",
   "caaef21e8722857d": "Snabbläge",
   "a860db2b1bb3aa31": "Inget resonerande",
@@ -9142,6 +9144,8 @@
   "9cd6647baae39b79": "Uppdatera leverantören och starta autentiseringen igen.",
   "34e971a4cd3cfdf3": "Kunde inte fortsätta autentiseringen",
   "25617239c4886378": "Autentiseringsbegäran har gått ut.",
+  "254dc4b4151094ef": "Kunde inte uppdatera modeller",
+  "114f22c0e3900fad": "Leverantörens modellista kunde inte uppdateras.",
   "1bc94053b36b3f40": "Kunde inte uppdatera {provider}",
   "5b39dc5c8173ee94": "Leverantörens uppdateringskommando kunde inte startas.",
   "53e1e3591fc1abc9": "Kunde inte uppdatera leverantörsinstansen",

@@ -9033,6 +9033,8 @@
     },
     ", which is not available in this build. Its configuration is preserved."
   ],
+  "a9b5d2852719fddc": "Refreshing models",
+  "4811262c294ce7d5": "Refresh models",
   "b534d4cd528ede39": "Model preferences and custom models are saved on the selected environment and shared across connected devices.",
   "caaef21e8722857d": "Fast mode",
   "a860db2b1bb3aa31": "No reasoning",
@@ -9144,6 +9146,8 @@
   "9cd6647baae39b79": "Refresh the provider and start the authentication flow again.",
   "34e971a4cd3cfdf3": "Could not continue authentication",
   "25617239c4886378": "The authentication request expired.",
+  "254dc4b4151094ef": "Could not refresh models",
+  "114f22c0e3900fad": "The provider model list could not be refreshed.",
   "1bc94053b36b3f40": "Could not update {provider}",
   "5b39dc5c8173ee94": "The provider update command could not be started.",
   "53e1e3591fc1abc9": "Could not update provider instance",

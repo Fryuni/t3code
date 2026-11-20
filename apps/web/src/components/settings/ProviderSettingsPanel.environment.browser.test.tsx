@@ -593,6 +593,21 @@ describe("EnvironmentProviderSettings instance removal", () => {
       }),
     );
   });
+
+  it("refreshes models for the selected provider instance", async () => {
+    await setup();
+    await setProviders([provider()]);
+    await using _screen = await render(panel({ targetInstanceId: codexId }));
+
+    await userEvent.click(page.getByRole("button", { name: "Refresh models" }));
+
+    await vi.waitFor(() =>
+      expect(state.refresh).toHaveBeenCalledWith({
+        environmentId,
+        input: { instanceId: codexId, refreshModels: true },
+      }),
+    );
+  });
 });
 
 describe("EnvironmentProviderSettings health check interval", () => {
