@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-10
-- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 Upstream's **Keep worktrees with local changes** setting (`worktreeKeepWhen`) always
 protects at least edited tracked files, so a settled worktree with stray edits is never
@@ -54,6 +54,10 @@ Upstream now removes a worktree through the repository that owns it
 unforced removal, so a worktree those checks keep also keeps its files
 ([pingdotgg/t3code#34196](https://github.com/pingdotgg/t3code/pull/34196)). Never forces the
 removal, so it skips the clean too.
+
+Upstream's task folders ([pingdotgg/t3code#35925](https://github.com/pingdotgg/t3code/pull/35925))
+check each checkout in the folder as cleanup checks a single worktree. Never forces each of those
+removals and skips their `git clean` the same way.
 
 Drop the boolean and capability if upstream adds an equivalent choice; keep the
 vanished-worktree handling unless upstream does the same.

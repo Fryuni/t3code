@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -141,6 +141,16 @@ the cap with a rule that each effect states its reason
 selector keeps the effect that clears a branch another worktree holds under
 **Check out in worktree**, with a reasoned exception, because that is known only once
 the paginated refs load.
+
+Upstream's projects can now cover several repositories
+([pingdotgg/t3code#35925](https://github.com/pingdotgg/t3code/pull/35925)): a worktree launch in
+a project that tracks Git folders, or lays out its own thread folder, makes a task folder with one
+new branch in every repository. An existing branch belongs to one repository, so the launch service
+refuses `createBranch: false` whenever the project plans a task folder, and web and mobile hide
+**Check out in worktree** for projects that track Git repositories. Upstream also made a launch
+uninterruptible once it starts committing, leaving only its branch lookup interruptible
+([pingdotgg/t3code#36499](https://github.com/pingdotgg/t3code/pull/36499)); the fork's
+existing-branch check runs Git before anything commits, so it stays interruptible too.
 
 ## Continue on the current branch from the command palette
 

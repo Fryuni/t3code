@@ -1,4 +1,3 @@
-import { thrownErrorMessage } from "@t3tools/client-runtime/errors";
 import { ThreadDetailsControl } from "./chat/ThreadDetailsControl";
 import { ComposerContextLabel } from "./ComposerContextLabel";
 import { useRightPanelStore } from "../rightPanelStore";
@@ -20,7 +19,6 @@ import {
 import { resolveProjectSettings } from "@t3tools/shared/projectSettings";
 import { msg, T, useGT, useMessages, Var } from "gt-react";
 import { GitBranchIcon } from "lucide-react";
-import { m } from "../i18n/messages";
 import {
   useEffect,
   useEffectEvent,
@@ -75,6 +73,7 @@ import {
   resolveWorktreeBaseBranchCandidate,
   sanitizeNewRefName,
   shouldIncludeBranchPickerItem,
+  toBranchActionErrorMessage,
 } from "./BranchToolbar.logic";
 import {
   ThreadPullRequestBadgeControl,
@@ -112,10 +111,6 @@ interface BranchToolbarBranchSelectorProps {
 }
 
 const WORKTREE_CHANGE_BLOCKED_MESSAGE = msg("Stop the current turn to switch worktrees.");
-
-function toBranchActionErrorMessage(error: unknown): string {
-  return thrownErrorMessage(error, m) ?? m(msg("An error occurred."));
-}
 
 export function BranchToolbarBranchSelector({
   forceNewWorktree = false,

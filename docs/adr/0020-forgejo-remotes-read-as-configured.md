@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-17
-- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 A checkout can set its remote to the Forgejo web URL and let git push over SSH
 through `url.<base>.insteadOf`, for example `https://forge.example/` rewritten to
@@ -28,7 +28,9 @@ Because the answer now depends on the checkout's configuration, the
 [provider registry](../../apps/server/src/sourceControl/SourceControlProviderRegistry.ts)
 adds the configured URL's server to its unknown-remote cache key. Otherwise a
 checkout cloned straight from the SSH alias would cache "unknown" for that host
-and hide the instance from an `insteadOf` checkout for five minutes. The key
+and hide the instance from an `insteadOf` checkout until the verdict expires, now an hour,
+or a forge CLI's discovery result changes
+([pingdotgg/t3code#40053](https://github.com/pingdotgg/t3code/pull/40053)). The key
 still drops owner/repo, so one verdict per server remains upstream's design.
 
 The MCP `link_pull_request` and `watch_pull_request` tools also move a link off

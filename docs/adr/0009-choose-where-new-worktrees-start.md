@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -61,8 +61,11 @@ because it moves work already in progress. Unbound scheduled tasks created over 
 start a worktree with `startFromOrigin` from the primary remote's default branch, falling
 back to `main` or `master`
 ([pingdotgg/t3code#27983](https://github.com/pingdotgg/t3code/pull/27983)); bound ones run
-in their thread. The web and mobile scheduled task forms prefill `main`. Reading the
-project default on those paths would be new behavior the fork never had.
+in their thread. The web and mobile scheduled task forms now leave the base empty and start from
+the repository's default branch, falling back to `main` or `master`
+([pingdotgg/t3code#32841](https://github.com/pingdotgg/t3code/pull/32841)), where they used to
+prefill `main`. Reading the project default on those paths would be new behavior the fork never
+had.
 
 It composes with [existing-branch mode](0008-start-threads-on-existing-branches.md)
 by staying out of it: with **Check out in worktree**, nothing is auto-selected, and
