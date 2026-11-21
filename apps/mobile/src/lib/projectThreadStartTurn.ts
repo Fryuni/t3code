@@ -43,6 +43,8 @@ export interface ProjectThreadStartTurnSpec {
   readonly startFromOrigin: boolean;
   /** False checks out `branch` itself in the new worktree. Absent creates a branch. */
   readonly createNewBranch?: boolean;
+  /** Tracked repositories a new worktree takes, by path; absent leaves the choice to the server. */
+  readonly worktreeRepositories?: ReadonlyArray<string>;
   /** Generated temp branch for worktree mode; unused for local mode and existing branches. */
   readonly worktreeBranchName: string;
 }
@@ -83,13 +85,17 @@ export function buildProjectThreadStartTurnInput(spec: ProjectThreadStartTurnSpe
         ? {
             prepareWorktree: {
               projectCwd: spec.projectCwd,
-              baseBranch: spec.branch!,
+              // The launch needs a base ref; the server ignores it for a plain project folder.
+              baseBranch: spec.branch ?? "HEAD",
               ...(spec.createNewBranch === false
                 ? { createBranch: false }
                 : {
                     branch: spec.worktreeBranchName,
                     ...(spec.startFromOrigin ? { startFromOrigin: true } : {}),
                   }),
+              ...(spec.worktreeRepositories === undefined
+                ? {}
+                : { repositories: spec.worktreeRepositories.map((path) => ({ path })) }),
             },
             runSetupScript: true,
           }

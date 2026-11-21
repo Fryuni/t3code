@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-20
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 The Providers settings panel previously had a top-level "Refresh provider status" button that
 re-probed every provider on the environment, with no way to refresh just the selected provider's

@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -49,7 +49,7 @@ catalog checks, and the commit pins upstream gives the
 actions both files use ([pingdotgg/t3code#33696](https://github.com/pingdotgg/t3code/pull/33696)),
 but not Blacksmith runners
 or upstream's per-change job gating, so its `ci-changes` action is dropped as well, nor
-its Blacksmith apt mirror setup (`setup-apt-mirrors`), its two-shard `Test Web`
+its Blacksmith apt mirror setup (`setup-apt-mirrors`), its two `Test Web` shard jobs
 ([pingdotgg/t3code#34554](https://github.com/pingdotgg/t3code/pull/34554)), or its server
 Vitest module cache, which is keyed to its `changes` job.
 Upstream's shared task cache
@@ -66,7 +66,15 @@ and its follow-ups) render about five times slower on GitHub's runners than on u
 runs in parallel, as upstream's does, because one serial run of every browser file moved
 the heading in upstream's expand-at-bottom timeline test
 ([pingdotgg/t3code#29166](https://github.com/pingdotgg/t3code/pull/29166)) 104 px, though
-the test passes alone and in parallel. Both steps use a 60-second test timeout.
+the test passes alone and in parallel. That parallel run is split into two steps with
+`--shard`, as upstream's two jobs are, because one Chromium for all of its files closed
+its page near the end, apparently out of memory, in two of three runs at upstream `bb0d718b3`.
+Every step uses a 60-second test timeout. Browser test files in one run share
+`localStorage`, so the fork's single run exposed upstream's checkout-removal test
+([pingdotgg/t3code#36276](https://github.com/pingdotgg/t3code/pull/36276)) leaving its draft
+behind for the sidebar's draft-numbering tests
+([pingdotgg/t3code#39968](https://github.com/pingdotgg/t3code/pull/39968)) to count; the fork's
+copy restores the draft store when it ends.
 [AGENTS.md](../../AGENTS.md) notes the raised CI ceiling next to its timeout rule, which
 otherwise stays upstream's.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
@@ -179,10 +187,10 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.10` at
-  upstream `aced664ed`, so builds are `0.1.10-fork.*`. A `-fork.` suffix is a semver
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.11` at
+  upstream `bb0d718b3`, so builds are `0.1.11-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
-  upstream's stable `0.1.10`, while upstream labels newer code `0.1.11-nightly.*`. `cliReleaseChannelOf`
+  upstream's stable `0.1.11`, while upstream labels newer code `0.1.12-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an
