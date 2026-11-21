@@ -434,6 +434,9 @@ describe("project settings permissions", () => {
     const draftId = DraftId.make("draft-handed-off");
     const [primaryProject, remoteProject] = state.projects;
     const drafts = useComposerDraftStore.getState();
+    // Browser test files share localStorage, where this draft would outlive the test.
+    using stack = new DisposableStack();
+    stack.defer(() => useComposerDraftStore.setState(drafts, true));
     drafts.setLogicalProjectDraftThreadId(
       "github.com/example/shared-repo",
       scopeProjectRef(primaryId, primaryProject!.id),

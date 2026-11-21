@@ -66,7 +66,12 @@ and its follow-ups) render about five times slower on GitHub's runners than on u
 runs in parallel, as upstream's does, because one serial run of every browser file moved
 the heading in upstream's expand-at-bottom timeline test
 ([pingdotgg/t3code#29166](https://github.com/pingdotgg/t3code/pull/29166)) 104 px, though
-the test passes alone and in parallel. Both steps use a 60-second test timeout.
+the test passes alone and in parallel. Both steps use a 60-second test timeout. Browser test files in one run share
+`localStorage`, so the unsharded run exposed upstream's checkout-removal test
+([pingdotgg/t3code#36276](https://github.com/pingdotgg/t3code/pull/36276)) leaving its draft
+behind for the sidebar's draft-numbering tests
+([pingdotgg/t3code#39968](https://github.com/pingdotgg/t3code/pull/39968)) to count; the fork's
+copy restores the draft store when it ends.
 [AGENTS.md](../../AGENTS.md) notes the raised CI ceiling next to its timeout rule, which
 otherwise stays upstream's.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
