@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `aced664ed` (2026-11-19)
+- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -84,6 +84,10 @@ leading commands' rows go with it. Upstream's mobile outbox reuses a launched ta
 when it resends after a lost reply
 ([pingdotgg/t3code#32330](https://github.com/pingdotgg/t3code/pull/32330)); the split runs again
 and yields the same commands and ids.
+
+Upstream's launch can ask a run for a typed result with `outputSchema`
+([pingdotgg/t3code#38874](https://github.com/pingdotgg/t3code/pull/38874)). It belongs to the
+prompt's run, so only the prompt carries it, never a setup message.
 
 When updating from upstream, preserve the launch-time dispatch order, the
 preparation-failure queue hold, and the capability gate. Remove this if upstream adds an equivalent way to run setup

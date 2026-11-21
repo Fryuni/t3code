@@ -434,6 +434,9 @@ describe("project settings permissions", () => {
     const draftId = DraftId.make("draft-handed-off");
     const [primaryProject, remoteProject] = state.projects;
     const drafts = useComposerDraftStore.getState();
+    // Browser test files share localStorage, where this draft would outlive the test.
+    using stack = new DisposableStack();
+    stack.defer(() => useComposerDraftStore.setState(drafts, true));
     drafts.setLogicalProjectDraftThreadId(
       "github.com/example/shared-repo",
       scopeProjectRef(primaryId, primaryProject!.id),
@@ -546,13 +549,16 @@ describe("project identity reset", () => {
         input: { projectId: state.projects[0]!.id, title: "No project" },
       }),
     );
-    await userEvent.click(resetButton(screen, "project icon")!);
+    const iconReset = resetButton(screen, "project icon")!;
+    const iconRow = iconReset.closest('[data-slot="settings-row"]');
+    await userEvent.click(iconReset);
     await vi.waitFor(() =>
       expect(state.update).toHaveBeenLastCalledWith({
         environmentId: primaryId,
         input: { projectId: state.projects[0]!.id, faviconPath: null, projectIcon: scratchIcon },
       }),
     );
+    expect(document.activeElement).toBe(iconRow);
   });
 
   it("resets each member of a mixed group to its own default icon", async () => {
