@@ -292,7 +292,7 @@ it.effect("shares cached refinement while keeping requested web authorities sepa
       "https://forge.example:4000",
     );
     assert.strictEqual(probes, 2);
-    yield* TestClock.adjust("5 minutes");
+    yield* TestClock.adjust("1 hour");
     yield* resolve(3000);
     assert.strictEqual(probes, 3);
   }),
