@@ -178,9 +178,14 @@ jobs:
 
       # GitHub-hosted runners render about five times slower than upstream's, so the file
       # preview browser tests need the browser to themselves; the rest run in parallel as
-      # upstream's do. Both get a longer timeout.
-      - name: Test
-        run: vp run --filter @t3tools/web test --testTimeout=60000 --exclude '**/components/files/**/*.browser.test.*'
+      # upstream's do, in two halves like upstream's two shards, because one browser for
+      # every file runs out of memory near the end. All get a longer timeout.
+      - name: Test (1/2)
+        run: vp run --filter @t3tools/web test --testTimeout=60000 --exclude '**/components/files/**/*.browser.test.*' --shard 1/2
+
+      - name: Test (2/2)
+        if: ${{ !cancelled() }}
+        run: vp run --filter @t3tools/web test --testTimeout=60000 --exclude '**/components/files/**/*.browser.test.*' --shard 2/2
 
       - name: Test file previews
         working-directory: apps/web

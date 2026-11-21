@@ -49,7 +49,7 @@ catalog checks, and the commit pins upstream gives the
 actions both files use ([pingdotgg/t3code#33696](https://github.com/pingdotgg/t3code/pull/33696)),
 but not Blacksmith runners
 or upstream's per-change job gating, so its `ci-changes` action is dropped as well, nor
-its Blacksmith apt mirror setup (`setup-apt-mirrors`), its two-shard `Test Web`
+its Blacksmith apt mirror setup (`setup-apt-mirrors`), its two `Test Web` shard jobs
 ([pingdotgg/t3code#34554](https://github.com/pingdotgg/t3code/pull/34554)), or its server
 Vitest module cache, which is keyed to its `changes` job.
 Upstream's shared task cache
@@ -66,8 +66,11 @@ and its follow-ups) render about five times slower on GitHub's runners than on u
 runs in parallel, as upstream's does, because one serial run of every browser file moved
 the heading in upstream's expand-at-bottom timeline test
 ([pingdotgg/t3code#29166](https://github.com/pingdotgg/t3code/pull/29166)) 104 px, though
-the test passes alone and in parallel. Both steps use a 60-second test timeout. Browser test files in one run share
-`localStorage`, so the unsharded run exposed upstream's checkout-removal test
+the test passes alone and in parallel. That parallel run is split into two steps with
+`--shard`, as upstream's two jobs are, because one Chromium for all of its files closed
+its page near the end, apparently out of memory, in two of three runs at upstream `bb0d718b3`.
+Every step uses a 60-second test timeout. Browser test files in one run share
+`localStorage`, so the fork's single run exposed upstream's checkout-removal test
 ([pingdotgg/t3code#36276](https://github.com/pingdotgg/t3code/pull/36276)) leaving its draft
 behind for the sidebar's draft-numbering tests
 ([pingdotgg/t3code#39968](https://github.com/pingdotgg/t3code/pull/39968)) to count; the fork's
