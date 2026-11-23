@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-20
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 OhMyPi (`omp` v19+) enforces a 1 MiB (`maxFrameBytes: 1048576`) single-frame limit on RPC protocol
 v1. Environments with large model catalogs (for example when `OPENROUTER_API_KEY` exposes hundreds

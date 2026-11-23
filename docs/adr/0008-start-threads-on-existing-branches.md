@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -151,6 +151,14 @@ refuses `createBranch: false` whenever the project plans a task folder, and web 
 uninterruptible once it starts committing, leaving only its branch lookup interruptible
 ([pingdotgg/t3code#36499](https://github.com/pingdotgg/t3code/pull/36499)); the fork's
 existing-branch check runs Git before anything commits, so it stays interruptible too.
+
+Upstream now starts naming a temporary branch while the worktree is created
+([pingdotgg/t3code#36904](https://github.com/pingdotgg/t3code/pull/36904)). An existing-branch
+launch never renames its branch, so it skips that early call too, even when the branch it checks
+out looks like a temporary one. Upstream also stopped offering worktree modes for a folder with no
+repository, such as a No project draft
+([pingdotgg/t3code#41269](https://github.com/pingdotgg/t3code/pull/41269)); **Check out in
+worktree** sits in the same workspace menu, so it is hidden there too.
 
 ## Continue on the current branch from the command palette
 

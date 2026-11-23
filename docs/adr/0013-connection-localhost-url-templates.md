@@ -3,7 +3,7 @@
 - Status: superseded by upstream
 - Date: 2026-10-06
 - Tracking: [Fryuni/t3code#54](https://github.com/Fryuni/t3code/pull/54)
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 **Superseded.** Upstream added a preview browser on the environment server
 ([pingdotgg/t3code#15328](https://github.com/pingdotgg/t3code/pull/15328), `ac8e9453c`).

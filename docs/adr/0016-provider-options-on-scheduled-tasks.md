@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -105,7 +105,7 @@ selection a `target` merges over reads the same effective default. Upstream's ed
 a thread-bound task's model picker on the thread's current model, since its runs ignore the
 saved one ([pingdotgg/t3code#36628](https://github.com/pingdotgg/t3code/pull/36628)); the option
 picker follows it, showing that thread's options and locked the same way. The measured tool list
-is upstream's 59,026 bytes plus the fork's 1,005, or 60,031. Upstream's delegation now also
+is upstream's 61,724 bytes plus the fork's 994, or 62,718. Upstream's delegation now also
 accepts models from the project's own provider config, read from the parent's workspace
 ([pingdotgg/t3code#39247](https://github.com/pingdotgg/t3code/pull/39247)); the schedule tools'
 resolver calls pass no workspace, so a `target` there is checked against the environment's
