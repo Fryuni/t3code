@@ -127,8 +127,10 @@ export const definition = defineSourceControl({
       : `${remoteWebOrigin(host, remoteUrl)}/${repository}/pulls/${number}`,
   parseChangeRequestUrl: (url) =>
     onInstance(url, CHANGE_REQUEST_PATH, parseChangeRequestPath(url, CHANGE_REQUEST_PATH)),
-  // `/issues/` is too generic a path to believe from a host not named after Forgejo or Gitea.
-  parseIssueUrl: (url) => (isForgejoHost(url.hostname) ? parseIssuePath(url, ISSUE_PATH) : null),
+  // `/issues/` is too generic a path to believe from a host not named after Forgejo or Gitea,
+  // unless a Forgejo project on that host vouches for it.
+  parseIssueUrl: (url, known) =>
+    known || isForgejoHost(url.hostname) ? parseIssuePath(url, ISSUE_PATH) : null,
   changeRequestUrlFromReferenceAutolink: () => null,
   commitUrl: (input) => buildCommitUrl(input, "commit"),
   parseCommitUrl: (url) => onInstance(url, COMMIT_PATH, parseCommitPath(url, COMMIT_PATH)),

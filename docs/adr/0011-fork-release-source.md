@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -41,7 +41,7 @@ upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`,
 `scripts/generate-release-notes.ts`
 ([pingdotgg/t3code#26893](https://github.com/pingdotgg/t3code/pull/26893)), which only
 upstream's `release.yml` runs: it stays, because
-[release.md](../operations/release.md) describes it and knip reaches it through its test. `ci.yml` itself keeps the fork's
+[release.md](../operations/03_release.md) describes it and knip reaches it through its test. `ci.yml` itself keeps the fork's
 layout for GitHub-hosted runners and the check names the `main` ruleset requires
 (`Check`, `Test`, `Test Server 1` to `3`, `Rust`). Syncs port the upstream steps new
 code needs, such as Chromium for the web browser tests or the Linear GraphQL and i18n
@@ -75,8 +75,12 @@ Every step uses a 60-second test timeout. Browser test files in one run share
 behind for the sidebar's draft-numbering tests
 ([pingdotgg/t3code#39968](https://github.com/pingdotgg/t3code/pull/39968)) to count; the fork's
 copy restores the draft store when it ends.
-[AGENTS.md](../../AGENTS.md) notes the raised CI ceiling next to its timeout rule, which
-otherwise stays upstream's.
+[Testing](../internals/15_testing.md) notes the raised CI ceiling next to its timeout rule, which
+otherwise stays upstream's; upstream moved those rules there out of `AGENTS.md`
+([pingdotgg/t3code#41330](https://github.com/pingdotgg/t3code/pull/41330)). Upstream's build job
+now also builds the CLI single executable
+([pingdotgg/t3code#41326](https://github.com/pingdotgg/t3code/pull/41326)); the fork has no build
+job, and its release workflow already builds that executable.
 The `ci-changes.cjs` script stays, because upstream's `vp run check:changed`
 ([pingdotgg/t3code#22767](https://github.com/pingdotgg/t3code/pull/22767)) reads the same
 mapping locally. Knip found some kept scripts only through the deleted workflows, so
@@ -173,7 +177,7 @@ Rejected alternatives:
 
 Re-targeting `server.updateServer` is a deliberate reinterpretation of the contract.
 Clients already adopt the result's `targetVersion` and correlate the launcher's update
-ID ([client acknowledgement](../internals/server-updates.md#client-acknowledgement)),
+ID ([client acknowledgement](../internals/07_server-updates.md#client-acknowledgement)),
 so the result and the reconnect check are right. The exception is a socket that drops
 after progress but before the result: clients then assume their requested version
 ([pingdotgg/t3code#23532](https://github.com/pingdotgg/t3code/pull/23532)), so the
@@ -188,7 +192,7 @@ own downgrade check and `--allow-downgrade`.
 ## Known caveats
 
 - **Version scheme.** The core comes from `apps/server/package.json`, `0.1.11` at
-  upstream `bb0d718b3`, so builds are `0.1.11-fork.*`. A `-fork.` suffix is a semver
+  upstream `d63b9c4c7`, so builds are `0.1.11-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
   upstream's stable `0.1.11`, while upstream labels newer code `0.1.12-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
@@ -219,7 +223,7 @@ own downgrade check and `--allow-downgrade`.
 skip while `main` is unchanged. Installs of it follow the fork's `releases/latest`, so
 the first post-reset release crosses the V1 to V2 storage migration. A remote
 self-update crosses through the launcher's trial and SQLite snapshot rollback
-([server updates](../internals/server-updates.md)). `t3 update`, including the
+([server updates](../internals/07_server-updates.md)). `t3 update`, including the
 recommended cron job, has no trial: it writes the new active version and restarts the
 service onto it, so a failed first V2 start stays on the new version, with nothing to
 roll back, until someone runs `t3 update 0.0.44-fork.20261004.1 --allow-downgrade`. V1 data survives either way,

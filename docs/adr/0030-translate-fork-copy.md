@@ -2,14 +2,14 @@
 
 - Status: accepted
 - Date: 2026-11-19
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 Upstream translated the whole web, desktop, and mobile interface into every supported
 language ([pingdotgg/t3code#37893](https://github.com/pingdotgg/t3code/pull/37893)).
 `t3code/no-untranslated-copy` fails lint on unwrapped copy, and `vp run i18n:check` fails
 when a catalog drifts from the source, so the fork's own copy must be translated too.
 
-The fork wraps its copy the way [Translating the UI](../internals/i18n.md) describes and
+The fork wraps its copy the way [Translating the UI](../internals/14_i18n.md) describes and
 translates its keys by hand in every locale catalog, using the terms upstream's translations
 already use for the same concept (worktree, checkout, base branch, pull request). This covers
 the copy added by [ADR 0008](0008-start-threads-on-existing-branches.md),

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-18
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 Upstream [pingdotgg/t3code#37104](https://github.com/pingdotgg/t3code/pull/37104) changed
 Codex **Full access** from `approvalPolicy: "never"` to a `granular` policy, so MCP
@@ -19,4 +19,15 @@ showing them, unless the runtime policy carries an explicit approval policy. Dan
 and Full access that still asks for dangerous commands would be a new selector entry, not a
 change to Full access.
 
-Drop this if upstream answers these approvals itself in Full access, or returns to `never`.
+**Implemented upstream for command approvals.** Upstream now accepts a v2 command approval in
+Full access itself ([pingdotgg/t3code#40773](https://github.com/pingdotgg/t3code/pull/40773)),
+unless the runtime policy carries an explicit approval or sandbox policy. Its version still shows
+an approval that asks for network access Codex's managed network settings do not allow, because
+that ask enforces the user's allowlist. The fork dropped its own command branch when it synced onto
+upstream `d63b9c4c7` and keeps upstream's, network asks included. The fork still answers
+file-change, permissions, and legacy (`execCommandApproval`, `applyPatchApproval`) approvals in
+Full access, which upstream shows, and its check now also steps aside for an explicit sandbox
+policy, as upstream's does.
+
+Drop the rest of this if upstream answers those approvals itself in Full access, or returns to
+`never`.

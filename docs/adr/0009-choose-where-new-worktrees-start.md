@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -31,7 +31,12 @@ toolbar now reads the repository default and the checked-out branch from the lis
 a project still cloning gets no base until its refs load
 ([pingdotgg/t3code#36379](https://github.com/pingdotgg/t3code/pull/36379)); the fork's
 `resolveWorktreeBaseBranchCandidate` puts this branch ahead of upstream's
-`resolveDefaultWorktreeBaseBranch`.
+`resolveDefaultWorktreeBaseBranch`. Upstream's web new-thread handler now opens a draft before the
+project's `t3.json` is read and applies the file's workspace default when it arrives
+([pingdotgg/t3code#41070](https://github.com/pingdotgg/t3code/pull/41070)). The handler seeds this
+branch from the provisional mode, and when the file's default changes the mode it moves the seed
+with it, provided the draft still holds the seed: a draft turned into a worktree gains this
+branch, and one turned local drops it, so a send never switches the checkout to it.
 
 It is a project override, not a server-wide setting. A branch name only means
 something in one repository, so an environment default would send other projects'

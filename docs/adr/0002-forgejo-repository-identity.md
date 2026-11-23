@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `bb0d718b3` (2026-11-21)
+- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -82,7 +82,10 @@ Upstream's Forgejo issue links
 ([pingdotgg/t3code#19261](https://github.com/pingdotgg/t3code/pull/19261)) key an issue by its
 lower-cased repository path, as every tracker does. The fork does not extend this rule to
 issues, so two case-distinct mounts on one host share issue keys. Issue reads go through the
-same Forgejo CLI boundary as pull requests, so they resolve the instance as above.
+same Forgejo CLI boundary as pull requests, so they resolve the instance as above. Upstream now
+also reads an issue link on a self-hosted hostname when a Forgejo project on that host vouches for
+it ([pingdotgg/t3code#40271](https://github.com/pingdotgg/t3code/pull/40271)); the fork keeps that
+beside its own `parseChangeRequestUrl`.
 
 GitManager's PR repository key reads the registry's parsed link. For a link with
 an authority it returns `authority/repository`, keeping the Forgejo port and mount,
