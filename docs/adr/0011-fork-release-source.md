@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#47](https://github.com/Fryuni/t3code/pull/47)
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 **Operational rule.** This feature and any reset or sync onto upstream must land on
 `main` in the same push, and
@@ -31,8 +31,11 @@ Upstream has no reason to support other release sources, and its release pipelin
 workflows need its organization's runners, secrets, and stores, so syncs drop any
 upstream adds, such as `mobile-android-apk.yml`, `agent-context-budget.yml`,
 `mobile-fingerprint-label.yml`, `mobile-eas-preview-fork.yml`, `mobile-dev-client.yml`,
-`pr-limits.yml`, and `issue-vouch.yml`, along with scripts only they use, such as
+`pr-limits.yml`, `issue-vouch.yml`, `mobile-eas-preview-build.yml`, and
+`mobile-eas-production-build.yml`, along with scripts only they use, such as
 `.github/scripts/mirror-play-apk.cjs`, `pr-limits.cjs`, `test-delta.cjs`,
+`set-release-version.cjs`, `set-mobile-version.cjs`, and `workflow-credentials.test.cjs`, which
+only checks upstream's release and preview workflows,
 `mobile-preview-comment.cjs`, and `mobile-ios-preview-record.cjs`, and the composite actions only they use, such as
 `drop-checkout-credentials`, `eas-local-build`, and `record-build-tag`
 ([pingdotgg/t3code#37755](https://github.com/pingdotgg/t3code/pull/37755)), and tests that read them, such as the
@@ -69,7 +72,10 @@ the heading in upstream's expand-at-bottom timeline test
 the test passes alone and in parallel. That parallel run is split into two steps with
 `--shard`, as upstream's two jobs are, because one Chromium for all of its files closed
 its page near the end, apparently out of memory, in two of three runs at upstream `bb0d718b3`.
-Every step uses a 60-second test timeout. Browser test files in one run share
+Every step uses a 60-second test timeout, and so does the `Test` job, whose four parallel
+package suites pushed upstream's megabyte approval-text test
+([pingdotgg/t3code#43049](https://github.com/pingdotgg/t3code/pull/43049)) past client-runtime's
+default 5 seconds on two runs in a row. Browser test files in one run share
 `localStorage`, so the fork's single run exposed upstream's checkout-removal test
 ([pingdotgg/t3code#36276](https://github.com/pingdotgg/t3code/pull/36276)) leaving its draft
 behind for the sidebar's draft-numbering tests
@@ -191,10 +197,10 @@ own downgrade check and `--allow-downgrade`.
 
 ## Known caveats
 
-- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.11` at
-  upstream `d63b9c4c7`, so builds are `0.1.11-fork.*`. A `-fork.` suffix is a semver
+- **Version scheme.** The core comes from `apps/server/package.json`, `0.1.12` at
+  upstream `cc61cdb1e`, so builds are `0.1.12-fork.*`. A `-fork.` suffix is a semver
   prerelease. These builds sort above earlier fork releases with a lower core but below
-  upstream's stable `0.1.11`, while upstream labels newer code `0.1.12-nightly.*`. `cliReleaseChannelOf`
+  upstream's stable `0.1.12`, while upstream labels newer code `0.1.13-nightly.*`. `cliReleaseChannelOf`
   classifies them as stable. The server-side re-target makes the order harmless for
   fork installs, so the scheme stays. The cost is that anything resolving upstream
   stable from a fork build, such as a lost define, would leave the fork for an

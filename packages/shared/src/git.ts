@@ -92,7 +92,14 @@ export function resolveAutoFeatureBranchName(
   return resolved;
 }
 
-export function deriveLocalBranchNameFromRemoteRef(branchName: string): string {
+// A remote name can itself contain slashes; the known remote name beats guessing at the first one.
+export function deriveLocalBranchNameFromRemoteRef(
+  branchName: string,
+  remoteName?: string,
+): string {
+  if (remoteName && branchName.startsWith(`${remoteName}/`)) {
+    return branchName.slice(remoteName.length + 1);
+  }
   const firstSeparatorIndex = branchName.indexOf("/");
   if (firstSeparatorIndex <= 0 || firstSeparatorIndex === branchName.length - 1) {
     return branchName;
@@ -198,7 +205,14 @@ export function parseGitRemoteRepository(
  */
 export function normalizeGitRemoteUrl(value: string): string {
   const repository = parseGitRemoteRepository(value);
-  return repository === null ? lowerCaseRemote(value) : `${repository.host}/${repository.path}`;
+  if (repository !== null) return `${repository.host}/${repository.path}`;
+  // The key is shown to clients and persisted, so a URL it cannot parse keeps only what names the
+  // repository: no password, query or fragment, and a user only over SSH, where it is a login name.
+  const remote = lowerCaseRemote(value);
+  const url = /^([a-z][a-z0-9+.-]*):\/\/(?:([^/?#:@]*)(?::[^/?#]*)?@)?([^?#]*)/.exec(remote);
+  if (url === null) return remote;
+  const [, scheme = "", user = "", rest = ""] = url;
+  return lowerCaseRemote(`${scheme}://${scheme === "ssh" && user ? `${user}@` : ""}${rest}`);
 }
 
 function* gitConfigLines(configText: string) {
@@ -277,31 +291,6 @@ export function isBareGitConfig(configText: string): boolean {
     bare = isTrueGitConfigValue(value);
   }
   return bare;
-}
-
-// The password runs from the user name's colon to the last `@` before the path.
-const URL_PASSWORD = /^([a-z][a-z0-9+.-]*:\/\/[^/:@]*):[^/]*@/i;
-
-/**
- * A remote as another machine should clone it: that machine brings its own credentials.
- * Outside HTTP(S), git passes the path through verbatim (`?` and `..` included)
- * and user names such as `git` are part of the address, so only the password
- * is cut from the original text.
- */
-export function withoutRemoteCredentials(remoteUrl: string): string {
-  try {
-    const url = new URL(remoteUrl);
-    if (url.protocol !== "http:" && url.protocol !== "https:") {
-      return url.password ? remoteUrl.replace(URL_PASSWORD, "$1@") : remoteUrl;
-    }
-    if (!url.username && !url.password && !url.search) return remoteUrl;
-    url.username = "";
-    url.password = "";
-    url.search = "";
-    return url.toString();
-  } catch {
-    return remoteUrl;
-  }
 }
 
 export function parseOriginUrlFromGitConfig(configText: string): string | null {

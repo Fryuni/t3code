@@ -18,7 +18,7 @@ Rules for writing tests, and for asking for them in review.
   - `it.effect` runs on a `TestClock`; `Effect.sleep` only advances through `TestClock.adjust`. `it.live` is wall-clock and only for subprocess or network fixtures.
   - No `yieldNow` or `sleep` polling loops. Await the `Deferred`, take from the `Queue`, or drain the worker.
   - No per-test timeout argument or `retry`. The project timeout is the ceiling, and flaky tests are fixed, not retried.
-    This fork's CI `Test Web` job raises that ceiling to 60 seconds for GitHub-hosted runners ([ADR 0011](../adr/0011-fork-release-source.md)); tests must still pass within the project timeout locally.
+    This fork's CI `Test` and `Test Web` jobs raise that ceiling to 60 seconds for GitHub-hosted runners ([ADR 0011](../adr/0011-fork-release-source.md)); tests must still pass within the project timeout locally.
   - No `performance.now()` or `Date.now()` deltas. Assert on events and counts, not elapsed time.
   - Browser tests assert through `expect.element` or `vi.waitFor`, never `requestAnimationFrame` or `transitionend`.
   - `vi.mock` factories must not spread a real module that pulls in Shiki or the diff workers.
@@ -54,7 +54,7 @@ vp run scenarios:prove scripts/scenarios/<name>.e2e.ts --base main --upload-comm
 ```
 
 - One test per file (`WEB` from `./t3.ts` or `IOS` from `./t3-mobile.ts`). Seed projects and threads via `t3.project` / `t3.thread` before calling `t3.open(...)` so the app does not land on first-run setup.
-- Navigate directly with `t3.open(thread)` or `t3.open("/settings/...")` rather than clicking sidebar text; let `t3.open` complete pairing before other navigation.
+- In web scenarios, navigate directly with `t3.open(thread)` or `t3.open("/settings/...")` unless the scenario exercises sidebar navigation.
 - Put `expect` assertions only on the behavior the bug breaks, and take `app.screenshot("label")` where the bug shows so `scenarios:prove` pairs base and head captures. Never call `agent.act` or `agent.assert` (no model is configured).
 - The app starts with a minimal env (`PATH`, `HOME`, temp dir); pass extra env vars via `T3_SCENARIO_INHERIT_ENV='VAR,PREFIX_*'`. Run one scenario run at a time per checkout.
 - `scenarios:prove` exits `0` only when the test fails on base and passes on head (`1` = did not prove, `2` = app failed to start, `3` = scenario failed before its assertion). iOS scenarios lease a Simlock simulator and require `SIMLOCK_AGENT_DEVICE_URL` and `AGENT_DEVICE_DAEMON_AUTH_TOKEN`.

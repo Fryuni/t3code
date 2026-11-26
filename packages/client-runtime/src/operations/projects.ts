@@ -12,11 +12,15 @@ import type {
   SourceControlRepositoryInfo,
 } from "@t3tools/contracts";
 import { SourceControlProviderKind } from "@t3tools/contracts";
-import { cloneUrlRepositoryPath } from "@t3tools/shared/cloneUrl";
-import { withoutRemoteCredentials } from "@t3tools/shared/git";
+import {
+  cloneUrlRepositoryPath,
+  isScpLikeCloneUrl,
+  withoutRemoteUrlCredentials,
+} from "@t3tools/shared/cloneUrl";
 import {
   isAbsolutePath,
   isExplicitRelativePath,
+  isHostPath,
   newProjectFolderName,
   normalizeProjectPathForComparison,
 } from "@t3tools/shared/path";
@@ -241,7 +245,13 @@ export function getAddProjectInitialQuery(baseDirectory: string | null | undefin
 }
 
 export function getCloneDirectoryName(repositoryOrRemoteUrl: string | null | undefined): string {
-  const withoutQuery = (repositoryOrRemoteUrl ?? "").split(/[?#]/)[0]?.trim() ?? "";
+  const trimmed = (repositoryOrRemoteUrl ?? "").trim();
+  // Local paths keep both delimiters. SCP paths keep a literal # in the repository name.
+  const isLocalPath =
+    !trimmed.includes("://") && (isHostPath(trimmed) || isExplicitRelativePath(trimmed));
+  const withoutQuery = isLocalPath
+    ? trimmed
+    : trimmed.split(isScpLikeCloneUrl(trimmed) ? "?" : /[?#]/, 1)[0]!;
   const schemeIndex = withoutQuery.indexOf("://");
   const hasHost = schemeIndex >= 0 || /^[^/\\:]+@[^/\\:]+:/.test(withoutQuery);
   const pathPart = schemeIndex >= 0 ? withoutQuery.slice(schemeIndex + "://".length) : withoutQuery;
@@ -528,5 +538,5 @@ export function projectCheckoutCloneUrl(project: {
   // Grouping follows a fork's origin, while the locator prefers its upstream.
   const remoteUrl = identity.origin ? identity.origin.remoteUrl : identity.locator.remoteUrl;
   // The locator is the checkout's raw remote; its token must not follow it elsewhere.
-  return remoteUrl && isNetworkRemote(remoteUrl) ? withoutRemoteCredentials(remoteUrl) : null;
+  return remoteUrl && isNetworkRemote(remoteUrl) ? withoutRemoteUrlCredentials(remoteUrl) : null;
 }

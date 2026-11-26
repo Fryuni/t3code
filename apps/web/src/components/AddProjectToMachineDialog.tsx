@@ -18,8 +18,8 @@ import {
   type CloneProtocol,
   cloneUrlForProtocol,
   cloneUrlProtocol,
+  withoutRemoteUrlCredentials,
 } from "@t3tools/shared/cloneUrl";
-import { withoutRemoteCredentials } from "@t3tools/shared/git";
 import { ArrowRightIcon } from "lucide-react";
 import { useId, useState } from "react";
 import { T, useGT, Var } from "gt-react";
@@ -108,8 +108,8 @@ function AddProjectToMachineDialog({ request }: { request: AddProjectToMachineRe
   const [targetId, setTargetId] = useState(request.targetEnvironmentId);
   const target = targets.find((t) => t.environmentId === targetId) ?? targets[0] ?? null;
   const source = environments.find((env) => env.environmentId === request.projectRef.environmentId);
-  // The checkout's raw remote can carry its token; the other machine brings its own credentials.
-  const sourceUrl = withoutRemoteCredentials(
+  // An environment on an older version reports the remote URL as configured, login included.
+  const sourceUrl = withoutRemoteUrlCredentials(
     project?.repositoryIdentity?.origin?.remoteUrl ??
       project?.repositoryIdentity?.locator.remoteUrl ??
       "",

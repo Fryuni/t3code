@@ -3,8 +3,8 @@ import * as NodeHttp from "node:http";
 import * as NodeNet from "node:net";
 import type * as NodeOS from "node:os";
 
-import { describe, expect, it } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
+import { describe, expect, it } from "@effect/vitest";
 import * as DateTime from "effect/DateTime";
 import * as Effect from "effect/Effect";
 import * as Layer from "effect/Layer";
@@ -13,17 +13,16 @@ import { HttpServer } from "effect/http";
 import * as NetAddress from "effect/net/NetAddress";
 import * as TestClock from "effect/testing/TestClock";
 
-import { ServerConfig, layerTest } from "./config.ts";
-import { EnvironmentAuth } from "./auth/EnvironmentAuth.ts";
-
+import * as EnvironmentAuth from "./auth/EnvironmentAuth.ts";
+import * as ServerConfig from "./config.ts";
 import {
   acceptsPrivateNetworkConnection,
   closeNonPrivateNetworkConnections,
-  formatHeadlessServeOutput,
-  issueHeadlessServeAccessInfo,
+  headlessServeOutput,
   loopbackUrlHostForAddress,
   renderTerminalQrCode,
   resolveHeadlessConnectionString,
+  resolveLocalOrigin,
 } from "./startupAccess.ts";
 
 const ipv4 = (address: string, internal = false): NodeOS.NetworkInterfaceInfo => ({
@@ -37,27 +36,28 @@ const ipv4 = (address: string, internal = false): NodeOS.NetworkInterfaceInfo =>
 
 it.effect("prints the public URL and QR at startup with a loopback listener", () =>
   Effect.gen(function* () {
-    const config = yield* ServerConfig;
-    const access = yield* issueHeadlessServeAccessInfo().pipe(
-      Effect.provideService(ServerConfig, {
+    const config = yield* ServerConfig.ServerConfig;
+    const text = yield* headlessServeOutput({ serviceManaged: false }).pipe(
+      Effect.provideService(ServerConfig.ServerConfig, {
         ...config,
         host: "127.0.0.1",
         port: 3773,
         publicUrl: new URL("https://t3.example.com:8443"),
       }),
     );
-    expect(access.connectionString).toBe("https://t3.example.com:8443/");
-    expect(access.pairingUrl).toBe("https://t3.example.com:8443/pair#token=PAIRCODE");
-    expect(formatHeadlessServeOutput(access)).toContain(renderTerminalQrCode(access.pairingUrl));
-    expect(formatHeadlessServeOutput(access)).not.toContain("plain HTTP");
+    const pairingUrl = "https://t3.example.com:8443/pair#token=PAIRCODE";
+    expect(text).toContain("Connection string: https://t3.example.com:8443/\n");
+    expect(text).toContain(`Pairing URL: ${pairingUrl}\n`);
+    expect(text).toContain(renderTerminalQrCode(pairingUrl));
+    expect(text).not.toContain("plain HTTP");
   }).pipe(
     Effect.provide(
       Layer.mergeAll(
-        layerTest(process.cwd(), { prefix: "t3-startup-access-test-" }),
+        ServerConfig.layerTest(process.cwd(), { prefix: "t3-startup-access-test-" }),
         Layer.mock(HttpServer.HttpServer)({
           address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 4123),
         }),
-        Layer.mock(EnvironmentAuth)({
+        Layer.mock(EnvironmentAuth.EnvironmentAuth)({
           issueStartupPairingCredential: () =>
             Effect.map(DateTime.now, (expiresAt) => ({
               id: "startup-pairing",
@@ -103,7 +103,17 @@ it("skips public and container addresses for a private-network listener", () => 
       privateNetworkOnly: true,
       platform: "linux",
     }),
-  ).toBe("http://localhost:3773");
+  ).toBe("http://127.0.0.1:3773");
+});
+
+it("names the bound loopback address instead of localhost", () => {
+  const options = { interfaces: {}, platform: "linux" as const };
+  expect(resolveHeadlessConnectionString(undefined, 3773, options)).toBe("http://127.0.0.1:3773");
+  expect(resolveHeadlessConnectionString("::", 3773, options)).toBe("http://[::1]:3773");
+  expect(resolveLocalOrigin(undefined, 3773)).toBe("http://127.0.0.1:3773");
+  expect(resolveLocalOrigin("0.0.0.0", 3773)).toBe("http://127.0.0.1:3773");
+  expect(resolveLocalOrigin("[::]", 3773)).toBe("http://[::1]:3773");
+  expect(resolveLocalOrigin("192.168.1.42", 3773)).toBe("http://192.168.1.42:3773");
 });
 
 it("prefers a LAN address over a tailnet one for a private-network pairing URL", () => {
@@ -215,6 +225,62 @@ describe("closeNonPrivateNetworkConnections", () => {
       expect(sockets.every((socket) => socket.destroyed)).toBe(true);
       expect(warnings).toHaveLength(2);
       expect(Logger.formatLogFmt.log(warnings[1]!)).toMatch(/closedSinceLastLog\W+999/);
+    }),
+  );
+});
+
+describe("headlessServeOutput", () => {
+  const output = (serviceManaged: boolean) =>
+    Effect.gen(function* () {
+      let issued = 0;
+      const text = yield* headlessServeOutput({ serviceManaged }).pipe(
+        Effect.provide(
+          Layer.mergeAll(
+            Layer.mock(EnvironmentAuth.EnvironmentAuth)({
+              issueStartupPairingCredential: () =>
+                Effect.sync(() => {
+                  issued += 1;
+                  return {
+                    id: "startup",
+                    credential: "FIXTURECODE1",
+                    expiresAt: DateTime.makeUnsafe("2026-01-01T00:05:00Z"),
+                  };
+                }),
+            }),
+            Layer.mock(HttpServer.HttpServer)({
+              address: NetAddress.inetAddressFromIpStringUnsafe("127.0.0.1", 3773),
+            }),
+            ServerConfig.layerTest(process.cwd(), { prefix: "t3code-startup-access-test-" }).pipe(
+              Layer.provide(NodeServices.layer),
+            ),
+          ),
+        ),
+      );
+      return { text, issued };
+    });
+
+  it.effect("prints pairing details for a server run in a terminal", () =>
+    Effect.gen(function* () {
+      const { text, issued } = yield* output(false);
+      expect(issued).toBe(1);
+      expect(text).toContain("Token: FIXTURECODE1");
+      expect(text).toContain("#token=FIXTURECODE1");
+    }),
+  );
+
+  it.effect("prints the address and the pair command for the background service", () =>
+    Effect.gen(function* () {
+      const { text, issued } = yield* output(true);
+      expect(issued).toBe(0);
+      expect(text).not.toContain("oken");
+      expect(text).toBe(
+        [
+          "T3 Code server is ready.",
+          "Connection string: http://127.0.0.1:3773",
+          "Run `t3 pair` on this machine to connect a device.",
+          "",
+        ].join("\n"),
+      );
     }),
   );
 });

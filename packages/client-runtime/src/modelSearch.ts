@@ -1,11 +1,10 @@
-import { getModelProviderLabel } from "@t3tools/shared/model";
 import { normalizeSearchQuery, scoreQueryMatch } from "@t3tools/shared/searchRanking";
 
 export type ModelPickerSearchableModel = {
   driverKind: string;
   providerDisplayName: string;
-  slug: string;
   name: string;
+  slug?: string;
   shortName?: string;
   subProvider?: string;
   isFavorite?: boolean;
@@ -15,7 +14,6 @@ const MODEL_PICKER_FAVORITE_SCORE_BOOST = 24;
 const MODEL_PICKER_EXACT_NAME_SCORE = -1000;
 
 function getModelPickerSearchFields(model: ModelPickerSearchableModel): string[] {
-  const modelProviderLabel = getModelProviderLabel(model);
   return [
     normalizeSearchQuery(model.name),
     ...(model.shortName ? [normalizeSearchQuery(model.shortName)] : []),
@@ -23,7 +21,7 @@ function getModelPickerSearchFields(model: ModelPickerSearchableModel): string[]
     normalizeSearchQuery(model.driverKind),
     normalizeSearchQuery(model.providerDisplayName),
     buildModelPickerSearchText(model),
-    ...(modelProviderLabel ? [normalizeSearchQuery(modelProviderLabel)] : []),
+    ...(model.slug ? [normalizeSearchQuery(model.slug)] : []),
   ];
 }
 

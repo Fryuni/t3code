@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#17](https://github.com/Fryuni/t3code/pull/17)
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream's model pickers show a model's display name, with a secondary label
 naming the provider instance and, when the provider reports one, its
@@ -20,9 +20,9 @@ The fork derives the secondary label from the slug in one
 It adds slash qualifiers that `subProvider` does not already name, and adds a dot
 prefix only when the remainder after that prefix matches the model's display name
 or short name, or when it is the known `openai.` Codex prefix. Version dots such
-as `gpt-5.6` therefore never read as a provider. The web picker row, web picker search,
-and mobile model options all use the helper, so a qualifier the user can see is
-also one they can search for.
+as `gpt-5.6` therefore never read as a provider. The web picker row and mobile model
+options use the helper, and searches match the slug it comes from, so a qualifier the
+user can see is also one they can search for.
 
 Upstream later set `subProvider` for OpenCode Zen and Go models
 ([pingdotgg/t3code#17424](https://github.com/pingdotgg/t3code/pull/17424)). Its combined
@@ -36,6 +36,12 @@ both.
 Upstream's `@` model mentions ([pingdotgg/t3code#31207](https://github.com/pingdotgg/t3code/pull/31207))
 list models outside the picker. The web mention row describes a model with this helper's
 label, and mention matching on web and mobile searches it, so `@azure` finds `azure.bar`.
+
+**Implemented upstream for search.** Upstream's picker search now matches a model's ID
+([pingdotgg/t3code#42041](https://github.com/pingdotgg/t3code/pull/42041)), and every qualifier
+this helper shows comes from the slug, so the fork dropped its label field from `modelSearch.ts`
+and keeps upstream's. The `@` mention filter, which upstream does not give the slug, now matches
+the slug instead of this helper's label. The labels themselves stay a fork change.
 
 Drop this divergence when upstream's pickers distinguish `bar` from `foo/bar`
 without it.

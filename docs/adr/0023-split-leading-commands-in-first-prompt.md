@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-24
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Many provider plugins turn on a mode with a slash command at the start of a
 session. In T3 Code the first prompt starts the session, so a user had to spend
@@ -88,6 +88,10 @@ and yields the same commands and ids.
 Upstream's launch can ask a run for a typed result with `outputSchema`
 ([pingdotgg/t3code#38874](https://github.com/pingdotgg/t3code/pull/38874)). It belongs to the
 prompt's run, so only the prompt carries it, never a setup message.
+
+Upstream's web send now derives the title seed from the send snapshot, terminal context labels
+included, in `deriveComposerSendTitle`. Single and multiple-model sends pass it the snapshot with
+the prompt left after the split, so the title still comes from the prompt.
 
 When updating from upstream, preserve the launch-time dispatch order, the
 preparation-failure queue hold, and the capability gate. Remove this if upstream adds an equivalent way to run setup

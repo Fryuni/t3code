@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-18
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 The **Checkouts** section in a project's settings appeared only when the project
 already had more than one checkout. A project checked out on one machine gave no
@@ -29,10 +29,19 @@ this; upstream later added the same field, filled with the raw origin remote
 ([pingdotgg/t3code#22492](https://github.com/pingdotgg/t3code/pull/22492)), and the
 fork keeps upstream's field and
 [identity resolver](../../apps/server/src/project/RepositoryIdentityResolver.ts).
-Whichever remote is chosen goes through the shared
-[`withoutRemoteCredentials`](../../packages/shared/src/git.ts) on the client before it
-is cloned, because both fields carry the checkout's raw remote and the destination
-machine brings its own credentials.
+Both fields carried the checkout's raw remote, and the destination machine brings its own
+credentials, so the fork stripped them on the client before cloning.
+
+**Implemented upstream.** Upstream now drops an HTTP(S) remote's userinfo and query in the
+identity resolver, and again in the add-to-machine dialog for older servers, with
+`withoutRemoteUrlCredentials` in `@t3tools/shared/cloneUrl`
+([pingdotgg/t3code#41756](https://github.com/pingdotgg/t3code/pull/41756)). The fork dropped its
+`withoutRemoteCredentials` and its one-line dialog change, and mobile's
+[`projectCheckoutCloneUrl`](../../packages/client-runtime/src/operations/projects.ts) calls
+upstream's helper. Upstream's helper left SSH URLs alone, which forwarded a password written
+into an `ssh://` remote, so the fork's one change to it cuts that password and keeps the user, as
+the fork's helper did. The server's identity and PR review guide go through the same helper, so
+their remotes lose it too.
 
 Upstream then added a dialog that clones a project onto another machine from the
 composer's **Run on** picker
@@ -46,10 +55,8 @@ so this decision stands, but web now uses that dialog instead of a flow of its o
   upstream's `openAddProjectToMachine` with a group member that has a remote,
   preferring one whose machine is online. Targets come from upstream's
   `useAddProjectTargets`, so machines without `source-control:write` or clone
-  tracking are not listed, and a project without a remote gets none. The
-  [dialog](../../apps/web/src/components/AddProjectToMachineDialog.tsx) strips
-  credentials from the URL it clones, a one-line fork change that also covers
-  **Run on**. Until this sync, web routed to the command palette's add-project flow
+  tracking are not listed, and a project without a remote gets none. Before it moved to that
+  dialog, web routed to the command palette's add-project flow
   through an `addProjectTarget` on the palette bus, listed machines without the
   needed grants as disabled, and fell back to choosing a folder; all three were
   dropped with that route.
@@ -76,7 +83,6 @@ exports it again for the web's **Keep separate** check. Upstream later restored 
 checkout tests now run in that file's harness.
 
 When updating from upstream, keep offering a second connected machine, keep web on upstream's add-to-machine dialog and mobile on its existing
-add-project screens rather than a second clone flow, and keep credentials out of the
-cloned URL. Remove the web entry point if upstream adds the dialog to project
+add-project screens rather than a second clone flow. Remove the web entry point if upstream adds the dialog to project
 settings, and the mobile rows if upstream adds its own way to check a project out
 on another machine there.
