@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#7](https://github.com/Fryuni/t3code/pull/7)
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream works out whether a server is reachable from other machines by looking
 only at the address it binds. Its remote routes are binding a LAN or tailnet
@@ -108,7 +108,10 @@ Upstream's headless startup output now warns that a non-loopback address uses pl
 ([pingdotgg/t3code#38813](https://github.com/pingdotgg/t3code/pull/38813)). An `https` public
 URL is usually TLS terminated by the operator's proxy, so
 [`formatHeadlessServeOutput`](../../apps/server/src/startupAccess.ts) skips the warning for
-it; an `http` public URL still gets it.
+it; an `http` public URL still gets it. Upstream's background service now prints only its
+address and the `t3 pair` hint instead of pairing details
+([pingdotgg/t3code#43052](https://github.com/pingdotgg/t3code/pull/43052)); both outputs read the
+address from `resolveServeConnectionString`, which prefers the public URL.
 
 There is no settings UI or desktop IPC for it. The public URL is a fact about the
 deployment, owned by whoever runs the proxy, so it is configured where the server

@@ -14,7 +14,6 @@ import {
   resolveAutoFeatureBranchName,
   sanitizeFeatureBranchName,
   WORKTREE_BRANCH_PREFIX,
-  withoutRemoteCredentials,
 } from "./git.ts";
 
 describe("normalizeGitRemoteUrl", () => {
@@ -86,22 +85,27 @@ describe("normalizeGitRemoteUrl", () => {
     expect(normalizeGitRemoteUrl("C:/repos/project")).toBe("c:/repos/project");
     expect(normalizeGitRemoteUrl("git@x:team/project.git")).toBe("x/team/project");
   });
-});
 
-describe("withoutRemoteCredentials", () => {
-  it.each([
-    ["https://julius:ghp_token@github.com/o/r.git", "https://github.com/o/r.git"],
-    ["https://julius@github.com/o/r.git", "https://github.com/o/r.git"],
-    ["https://github.com/o/r.git?access_token=secret", "https://github.com/o/r.git"],
-    [
-      "ssh://git:pw@host.test/team/link/../repo?release.git",
-      "ssh://git@host.test/team/link/../repo?release.git",
-    ],
-    ["git+ssh://git:p@ss@host.test:22/o/r.git", "git+ssh://git@host.test:22/o/r.git"],
-    ["ssh://git@host.test/o/r.git", "ssh://git@host.test/o/r.git"],
-    ["git@github.com:o/r.git", "git@github.com:o/r.git"],
-  ])("clones %s as %s", (remoteUrl, expected) => {
-    expect(withoutRemoteCredentials(remoteUrl)).toBe(expected);
+  it("keys a one-segment URL remote by what names the repository", () => {
+    expect(normalizeGitRemoteUrl("https://deploy:s3cr3ttok@git.example.com/Repo.git")).toBe(
+      "https://git.example.com/repo",
+    );
+    expect(normalizeGitRemoteUrl("https://0123abcd@git.example.com/repo.git?key=0123abcd#x")).toBe(
+      "https://git.example.com/repo",
+    );
+    expect(normalizeGitRemoteUrl("ftp://deploy:s3cr3ttok@git.example.com/team/repo.git")).toBe(
+      "ftp://git.example.com/team/repo",
+    );
+    expect(normalizeGitRemoteUrl("ssh://git:s3cr3ttok@git.example.com:2222/repo.git")).toBe(
+      "ssh://git@git.example.com:2222/repo",
+    );
+    expect(normalizeGitRemoteUrl("ssh://git@git.example.com/repo.git")).toBe(
+      "ssh://git@git.example.com/repo",
+    );
+    expect(normalizeGitRemoteUrl("https://git.example.com/repo.git")).toBe(
+      "https://git.example.com/repo",
+    );
+    expect(normalizeGitRemoteUrl("/srv/git/Repo.git")).toBe("/srv/git/repo");
   });
 });
 

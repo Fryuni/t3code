@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-19
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream translated the whole web, desktop, and mobile interface into every supported
 language ([pingdotgg/t3code#37893](https://github.com/pingdotgg/t3code/pull/37893)).

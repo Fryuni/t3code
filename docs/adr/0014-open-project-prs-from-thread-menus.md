@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Opening the PR page without a project filter can load PRs across hundreds of
 projects, and finding the project in the filter can itself be cumbersome. The
@@ -32,7 +32,10 @@ The same hook backs the sidebar's **Pull requests** button and the command palet
 **Open pull requests**, which open the page scoped to the project the sidebar is
 filtered by. They resolve the filter's logical group to a member whose environment
 supports PRs, and are disabled with a reason while no member can, or while project
-snapshots are still loading and cannot yet show a saved filter is gone. Upstream lets
+snapshots are still loading and cannot yet show a saved filter is gone. Upstream's sidebar
+buttons now share one tooltip ([pingdotgg/t3code#42671](https://github.com/pingdotgg/t3code/pull/42671)),
+which a disabled button never opens, so the disabled **Pull requests** button sits in a focusable
+wrapper that shows the reason. Upstream lets
 the sidebar filter several projects at once
 ([pingdotgg/t3code#25284](https://github.com/pingdotgg/t3code/pull/25284)), but the PR
 page filters by one, so a filter of several opens the page unscoped, as upstream does.

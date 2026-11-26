@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#8](https://github.com/Fryuni/t3code/pull/8), [Fryuni/t3code#14](https://github.com/Fryuni/t3code/pull/14), [Fryuni/t3code#85](https://github.com/Fryuni/t3code/pull/85)
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream's **New worktree** mode always creates a branch: the selected ref is
 only a base, and the thread works on a fresh temporary branch that is renamed
@@ -112,7 +112,10 @@ Upstream later moved the web composer's send and selection logic out of `ChatVie
 [#23069](https://github.com/pingdotgg/t3code/pull/23069)); the choice's state stays in
 `ChatView` as `createNewBranch`, its handler lives in `useComposerSelection`, and the
 send options in `useComposerSend`. `BranchToolbar` maps the workspace choice onto the
-env mode and that flag. Upstream's mobile new task flow now reuses a worktree that already
+env mode and that flag. Upstream's drafts now record an explicit workspace choice, so a
+draft moved to another machine takes that project's default only when the user made none
+([pingdotgg/t3code#43205](https://github.com/pingdotgg/t3code/pull/43205)); choosing **Check out
+in worktree** counts as one. Upstream's mobile new task flow now reuses a worktree that already
 holds the chosen branch in local mode
 ([pingdotgg/t3code#20825](https://github.com/pingdotgg/t3code/pull/20825)); with
 **Check out in worktree**, branches held by another worktree stay disabled as before.

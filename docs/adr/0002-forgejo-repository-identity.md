@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -93,6 +93,9 @@ and it skips `_git` repositories, whose Azure DevOps Server remotes key by hostn
 The MCP link and watch tools'
 [target resolver](../../apps/server/src/pullRequest/pullRequestTarget.ts) builds a Forgejo URL
 from the project's resolved `webUrl` origin when the remote is SSH, so the scheme survives.
+Upstream's resolver now reads an Azure DevOps bare repository name through the project's own
+key ([pingdotgg/t3code#41472](https://github.com/pingdotgg/t3code/pull/41472)) and lower-cases the
+result; the fork folds it with `normalizeSourceControlRepository` instead, so a mount keeps its case.
 
 Keeping the rules consistent matters because project selection, credential
 selection, synchronization, and clients must agree about repository identity.

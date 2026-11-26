@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-09
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream stores a scheduled task's full model selection, including provider
 options such as reasoning effort or fast mode, and passes it unchanged to the
@@ -105,13 +105,28 @@ selection a `target` merges over reads the same effective default. Upstream's ed
 a thread-bound task's model picker on the thread's current model, since its runs ignore the
 saved one ([pingdotgg/t3code#36628](https://github.com/pingdotgg/t3code/pull/36628)); the option
 picker follows it, showing that thread's options and locked the same way. The measured tool list
-is upstream's 61,724 bytes plus the fork's 994, or 62,718. Upstream's delegation now also
+is upstream's 62,140 bytes plus the fork's 994, or 63,134. Upstream's delegation now also
 accepts models from the project's own provider config, read from the parent's workspace
 ([pingdotgg/t3code#39247](https://github.com/pingdotgg/t3code/pull/39247)); the schedule tools'
 resolver calls pass no workspace, so a `target` there is checked against the environment's
 providers, as before.
 
-When updating from upstream, preserve the draft holding a selection rather than a
-key string, the resolver's inherited-selection input, and the omitted-target
-short circuit. Retire this fork addition when upstream's scheduled task editor
-exposes provider options and its schedule tools accept a target.
+**Implemented upstream for the web dialog.** Upstream's editor now keeps the full selection in
+its draft and renders the option picker beside the model picker
+([pingdotgg/t3code#30253](https://github.com/pingdotgg/t3code/pull/30253)), so the fork dropped
+its dialog changes when it synced onto upstream `cc61cdb1e` and keeps upstream's. Upstream hides
+the option picker for a thread-bound task, where the fork showed the thread's options locked;
+the fork's `taskToDraft` test still covers the stored options. The rest of this record's web
+paragraphs describe the fork's dialog as it stood before.
+
+Upstream then refused a target that picks the agent's own mode, such as a plan agent, unless
+the caller runs in Full access or already holds that mode
+([pingdotgg/t3code#39489](https://github.com/pingdotgg/t3code/pull/39489)). Its resolver reads
+both from the parent thread. The fork's resolver takes the caller's runtime mode instead:
+delegation passes the parent thread's, as upstream does, and the schedule tools pass the caller's
+limits, which a task's runs use. A mode counts as held when the inherited selection, the caller
+thread's or the stored task's, already has it on the same instance.
+
+When updating from upstream, preserve the resolver's inherited-selection and caller runtime
+mode inputs and the omitted-target short circuit. Retire this fork addition when upstream's
+schedule tools accept a target.

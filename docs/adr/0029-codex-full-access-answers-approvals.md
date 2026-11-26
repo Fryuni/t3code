@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-18
-- Compared with upstream: `pingdotgg/t3code` at `d63b9c4c7` (2026-11-23)
+- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
 
 Upstream [pingdotgg/t3code#37104](https://github.com/pingdotgg/t3code/pull/37104) changed
 Codex **Full access** from `approvalPolicy: "never"` to a `granular` policy, so MCP

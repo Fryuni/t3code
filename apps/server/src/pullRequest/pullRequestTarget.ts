@@ -8,6 +8,7 @@ import * as Schema from "effect/Schema";
 
 import { sourceControlDefinitions } from "../sourceControl/sourceControlDefinitions.ts";
 import { normalizeThreadPullRequestKey } from "../sourceControl/threadPullRequests.ts";
+import { pullRequestSyncKey } from "./pullRequestSyncKey.ts";
 
 export interface PullRequestTarget {
   readonly url?: string | undefined;
@@ -52,11 +53,21 @@ export class PullRequestUrlUnavailableError extends Schema.TaggedError<PullReque
   }
 }
 
+export class PullRequestRepositoryInvalidError extends Schema.TaggedError<PullRequestRepositoryInvalidError>()(
+  "PullRequestRepositoryInvalidError",
+  {},
+) {
+  override get message(): string {
+    return "Pass repository as owner/repo, without the host.";
+  }
+}
+
 export type PullRequestTargetError =
   | PullRequestUrlInvalidError
   | PullRequestTargetIncompleteError
   | PullRequestHostRequiredError
-  | PullRequestUrlUnavailableError;
+  | PullRequestUrlUnavailableError
+  | PullRequestRepositoryInvalidError;
 
 export interface ResolvedTarget {
   readonly host: string;
@@ -133,13 +144,27 @@ export const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(func
   if (reference.repository === undefined || number === undefined) {
     return yield* new PullRequestTargetIncompleteError({});
   }
+  // Azure DevOps tools name the project's repository by its bare name, which no URL can be built
+  // from, so it is read as the project's full repository path.
+  const own =
+    project?.repositoryIdentity == null || reference.repository.includes("/")
+      ? null
+      : pullRequestSyncKey(
+          {
+            projectId: project.id,
+            host: reference.host,
+            repository: reference.repository,
+            number,
+          },
+          project.repositoryIdentity,
+        );
   const projectHost = projectHostAndProvider(project);
-  const host = (reference.host ?? projectHost.host)?.toLowerCase();
+  const host = (own?.host ?? reference.host ?? projectHost.host)?.toLowerCase();
   if (host === undefined) {
     return yield* new PullRequestHostRequiredError({});
   }
   const repository = normalizeSourceControlRepository(
-    reference.repository,
+    own?.repository ?? reference.repository,
     host === projectHost.host ? projectHost.kind : undefined,
   );
   // Without a URL, a public forge host says what shape its change request URLs take;
@@ -149,19 +174,21 @@ export const resolveTarget = Effect.fn("PullRequestsToolkit.resolveTarget")(func
     sourceControlDefinitions.findByPublicHost(host)?.kind ??
     (recognizedKind === "gitcafe" ? recognizedKind : projectHost.kind);
   const identity = project?.repositoryIdentity;
+  const definition = kind === null ? null : sourceControlDefinitions.get(kind);
   const url =
-    kind === null
-      ? null
-      : sourceControlDefinitions.get(kind).changeRequestUrl({
-          host,
-          repository,
-          number,
-          // Only the web URL's origin applies, as `repository` need not be the project's; it
-          // knows the scheme an SSH remote cannot say.
-          remoteUrl: identity?.webUrl ?? identity?.locator.remoteUrl,
-        });
+    definition?.changeRequestUrl({
+      host,
+      repository,
+      number,
+      // Only the web URL's origin applies, as `repository` need not be the project's; it
+      // knows the scheme an SSH remote cannot say.
+      remoteUrl: identity?.webUrl ?? identity?.locator.remoteUrl,
+    }) ?? null;
   if (url === null) {
-    return yield* new PullRequestUrlUnavailableError({});
+    // A known forge returns no URL when the repository is not in its shape.
+    return yield* definition === null || definition.kind === "unknown"
+      ? new PullRequestUrlUnavailableError({})
+      : new PullRequestRepositoryInvalidError({});
   }
   return {
     ...normalizeThreadPullRequestKey({ host, repository, number, url }),
