@@ -72,7 +72,10 @@ the heading in upstream's expand-at-bottom timeline test
 the test passes alone and in parallel. That parallel run is split into two steps with
 `--shard`, as upstream's two jobs are, because one Chromium for all of its files closed
 its page near the end, apparently out of memory, in two of three runs at upstream `bb0d718b3`.
-Every step uses a 60-second test timeout. Browser test files in one run share
+Every step uses a 60-second test timeout, and so does the `Test` job, whose four parallel
+package suites pushed upstream's megabyte approval-text test
+([pingdotgg/t3code#43049](https://github.com/pingdotgg/t3code/pull/43049)) past client-runtime's
+default 5 seconds on two runs in a row. Browser test files in one run share
 `localStorage`, so the fork's single run exposed upstream's checkout-removal test
 ([pingdotgg/t3code#36276](https://github.com/pingdotgg/t3code/pull/36276)) leaving its draft
 behind for the sidebar's draft-numbering tests
