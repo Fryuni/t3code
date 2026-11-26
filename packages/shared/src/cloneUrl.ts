@@ -32,12 +32,15 @@ function parseCloneUrl(url: string): {
   return null;
 }
 
+// The password runs from the user name's colon to the last `@` before the path.
+const URL_PASSWORD = /^([a-z][a-z0-9+.-]*:\/\/[^/:@]*):[^/]*@/i;
+
 /**
  * Drops what an HTTP(S) remote can carry as a login: userinfo and the query. SSH URLs keep
- * their user, which is part of the address.
+ * their user, which is part of the address, but not a password.
  */
 export function withoutRemoteUrlCredentials(url: string): string {
-  if (!/^https?:\/\//i.test(url)) return url;
+  if (!/^https?:\/\//i.test(url)) return url.replace(URL_PASSWORD, "$1@");
   return url.replace(/^(https?:\/\/)[^/?#]*@/i, "$1").replace(/\?[^#]*/, "");
 }
 

@@ -38,8 +38,10 @@ identity resolver, and again in the add-to-machine dialog for older servers, wit
 ([pingdotgg/t3code#41756](https://github.com/pingdotgg/t3code/pull/41756)). The fork dropped its
 `withoutRemoteCredentials` and its one-line dialog change, and mobile's
 [`projectCheckoutCloneUrl`](../../packages/client-runtime/src/operations/projects.ts) calls
-upstream's helper. Unlike the fork's, it leaves SSH URLs alone, so a password written into an
-`ssh://` remote is no longer cut; Git's SSH transport does not use one.
+upstream's helper. Upstream's helper left SSH URLs alone, which forwarded a password written
+into an `ssh://` remote, so the fork's one change to it cuts that password and keeps the user, as
+the fork's helper did. The server's identity and PR review guide go through the same helper, so
+their remotes lose it too.
 
 Upstream then added a dialog that clones a project onto another machine from the
 composer's **Run on** picker

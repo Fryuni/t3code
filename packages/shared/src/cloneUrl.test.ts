@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { cloneUrlForProtocol, cloneUrlProtocol, cloneUrlRepositoryPath } from "./cloneUrl.ts";
+import {
+  cloneUrlForProtocol,
+  cloneUrlProtocol,
+  cloneUrlRepositoryPath,
+  withoutRemoteUrlCredentials,
+} from "./cloneUrl.ts";
 
 describe("cloneUrlForProtocol", () => {
   it.each([
@@ -229,5 +234,22 @@ describe("cloneUrlRepositoryPath", () => {
     expect(cloneUrlRepositoryPath("git@host.example:team/repo%20name.git")).toBe(
       "host.example/team/repo%20name",
     );
+  });
+});
+
+describe("withoutRemoteUrlCredentials", () => {
+  it.each([
+    ["https://julius:ghp_token@github.com/o/r.git", "https://github.com/o/r.git"],
+    ["https://github.com/o/r.git?access_token=secret", "https://github.com/o/r.git"],
+    [
+      "ssh://git:pw@host.test/team/link/../repo?release.git",
+      "ssh://git@host.test/team/link/../repo?release.git",
+    ],
+    ["git+ssh://git:p@ss@host.test:22/o/r.git", "git+ssh://git@host.test:22/o/r.git"],
+    ["ssh://git@host.test:22/o/r.git", "ssh://git@host.test:22/o/r.git"],
+    ["ssh://host.test:22/o/r.git", "ssh://host.test:22/o/r.git"],
+    ["git@github.com:o/r.git", "git@github.com:o/r.git"],
+  ])("forwards %s as %s", (remoteUrl, expected) => {
+    expect(withoutRemoteUrlCredentials(remoteUrl)).toBe(expected);
   });
 });
