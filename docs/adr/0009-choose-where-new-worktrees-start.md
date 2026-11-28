@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-10-04
 - Tracking: [Fryuni/t3code#21](https://github.com/Fryuni/t3code/pull/21), [#38](https://github.com/Fryuni/t3code/pull/38), [#49](https://github.com/Fryuni/t3code/pull/49)
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 Upstream bases a new worktree branch on the repository's default branch, or on
 the checked-out branch when no default is known. Repositories that integrate on
@@ -36,7 +36,13 @@ project's `t3.json` is read and applies the file's workspace default when it arr
 ([pingdotgg/t3code#41070](https://github.com/pingdotgg/t3code/pull/41070)). The handler seeds this
 branch from the provisional mode, and when the file's default changes the mode it moves the seed
 with it, provided the draft still holds the seed: a draft turned into a worktree gains this
-branch, and one turned local drops it, so a send never switches the checkout to it.
+branch, and one turned local drops it, so a send never switches the checkout to it. Upstream
+moved that late default into `trackPendingWorkspaceDefault` in
+[`draftWorkspaceDefaults.ts`](../../apps/web/src/lib/draftWorkspaceDefaults.ts), shared with
+draft moves between projects and machines
+([pingdotgg/t3code#43401](https://github.com/pingdotgg/t3code/pull/43401)). Its workspace takes an
+optional `branch` for the seed, which only the new-thread handler passes; a moved draft keeps
+upstream's behavior and is not seeded with the destination's branch.
 
 It is a project override, not a server-wide setting. A branch name only means
 something in one repository, so an environment default would send other projects'

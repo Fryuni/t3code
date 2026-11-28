@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-14
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 The composer's selection-surround shortcut treated every nonempty text-input
 replacement range as selected text. Dead keys also replace provisional text when
@@ -36,7 +36,10 @@ Upstream then formats a selection typed over with `` ` ``, `*`, or `_` as code o
 instead of wrapping it in the literal markers
 ([pingdotgg/t3code#14870](https://github.com/pingdotgg/t3code/pull/14870)); the shared
 handler calls upstream's `surroundSelectionWithMark` after its guards, and the fork's
-regressions expect a mark for those three.
+regressions expect a mark for those three. Upstream later skips its mention-boundary check
+for a selection inside one code block
+([pingdotgg/t3code#43609](https://github.com/pingdotgg/t3code/pull/43609)); the shared handler
+took that guard too.
 
 When updating from upstream, preserve the selection, composing, and transaction
 metadata guards. Keep regressions for both collapsed carets and selected text,

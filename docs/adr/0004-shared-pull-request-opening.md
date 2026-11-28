@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-21
 - Tracking: [Fryuni/t3code#29](https://github.com/Fryuni/t3code/issues/29)
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 Upstream opens PR links through a URL-based
 [shared opener](../../apps/web/src/lib/openPullRequestLink.ts), which selects the

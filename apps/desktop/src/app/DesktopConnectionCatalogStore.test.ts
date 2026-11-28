@@ -3,10 +3,10 @@ import * as NodeServices from "@effect/platform-node/NodeServices";
 import { assert, describe, it } from "@effect/vitest";
 import { ConnectionCatalogDocument } from "@t3tools/client-runtime/platform";
 import { EnvironmentId, type PersistedSavedEnvironmentRecord } from "@t3tools/contracts";
-import * as Effect from "effect/Effect";
 import * as Deferred from "effect/Deferred";
-import * as Fiber from "effect/Fiber";
+import * as Effect from "effect/Effect";
 import * as Base64 from "effect/encoding/Base64";
+import * as Fiber from "effect/Fiber";
 import * as FileSystem from "effect/FileSystem";
 import * as Path from "effect/Path";
 import * as Layer from "effect/Layer";
@@ -31,29 +31,32 @@ const encodeLegacySavedEnvironments = Schema.encodeEffect(
     Schema.Struct({ version: Schema.Literal(1), records: Schema.Array(Schema.Unknown) }),
   ),
 );
+// `key` models Electron's os_crypt key: replacing it orphans everything encrypted before.
 function layerSafeStorageFor(
   available: boolean,
-  failDecrypt: Ref.Ref<boolean> | null = null,
+  key: Ref.Ref<string> | null = null,
   legacyCatalog: Effect.Effect<
     Option.Option<string>,
     ElectronSafeStorage.ElectronSafeStorageDecryptError
   > = Effect.succeedNone,
 ) {
+  const prefix = Effect.gen(function* () {
+    return key === null ? "encrypted:" : `encrypted:${yield* Ref.get(key)}:`;
+  });
   return Layer.succeed(ElectronSafeStorage.ElectronSafeStorage, {
     isEncryptionAvailable: Effect.succeed(available),
-    encryptString: (value) => Effect.succeed(textEncoder.encode(`encrypted:${value}`)),
+    encryptString: (value) =>
+      prefix.pipe(Effect.map((current) => textEncoder.encode(`${current}${value}`))),
     decryptString: (value) => {
       return Effect.gen(function* () {
         const decoded = textDecoder.decode(value);
-        if (
-          !decoded.startsWith("encrypted:") ||
-          (failDecrypt !== null && (yield* Ref.get(failDecrypt)))
-        ) {
+        const current = yield* prefix;
+        if (!decoded.startsWith(current)) {
           return yield* new ElectronSafeStorage.ElectronSafeStorageDecryptError({
             cause: new Error("invalid encrypted catalog"),
           });
         }
-        return decoded.slice("encrypted:".length);
+        return decoded.slice(current.length);
       });
     },
     decryptLegacyString: () => legacyCatalog,
@@ -64,7 +67,7 @@ function layerSafeStorageFor(
 function layerFor(
   baseDir: string,
   encryptionAvailable = true,
-  failDecrypt: Ref.Ref<boolean> | null = null,
+  key: Ref.Ref<string> | null = null,
   fileSystemLayer: Layer.Layer<FileSystem.FileSystem> = NodeServices.layer,
   legacyCatalog: Effect.Effect<
     Option.Option<string>,
@@ -86,7 +89,7 @@ function layerFor(
       Layer.mergeAll(NodeServices.layer, DesktopConfig.layerTest({ T3CODE_HOME: baseDir })),
     ),
   );
-  const layerSafeStorage = layerSafeStorageFor(encryptionAvailable, failDecrypt, legacyCatalog);
+  const layerSafeStorage = layerSafeStorageFor(encryptionAvailable, key, legacyCatalog);
   const layerDependencies = Layer.mergeAll(
     layerEnvironment,
     layerSafeStorage,
@@ -332,25 +335,7 @@ describe("DesktopConnectionCatalogStore", () => {
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
 
-  it.effect.each([
-    {
-      name: "no legacy key matches",
-      legacy: Effect.succeedNone,
-      error: { _tag: "DesktopConnectionCatalogStoreProtectionError", operation: "decode-catalog" },
-    },
-    {
-      name: "the legacy keyring lookup fails",
-      error: {
-        _tag: "DesktopConnectionCatalogStoreMigrationError",
-        operation: "decrypt-legacy-catalog",
-      },
-      legacy: Effect.fail(
-        new ElectronSafeStorage.ElectronSafeStorageDecryptError({
-          cause: new Error("Legacy keyring lookup timed out."),
-        }),
-      ),
-    },
-  ])("preserves invalid current-key plaintext when $name", ({ legacy, error: expected }) =>
+  it.effect("preserves invalid current-key plaintext when the legacy keyring lookup fails", () =>
     Effect.gen(function* () {
       const fileSystem = yield* FileSystem.FileSystem;
       const path = yield* Path.Path;
@@ -365,22 +350,39 @@ describe("DesktopConnectionCatalogStore", () => {
       yield* fileSystem.makeDirectory(path.dirname(catalogPath), { recursive: true });
       yield* fileSystem.writeFileString(catalogPath, original);
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
-        Effect.provide(layerFor(baseDir, true, null, NodeServices.layer, legacy)),
+        Effect.provide(
+          layerFor(
+            baseDir,
+            true,
+            null,
+            NodeServices.layer,
+            Effect.fail(
+              new ElectronSafeStorage.ElectronSafeStorageDecryptError({
+                cause: new Error("Legacy keyring lookup timed out."),
+              }),
+            ),
+          ),
+        ),
       );
 
       const error = yield* store.get.pipe(Effect.flip);
-      assert.equal(error._tag, expected._tag);
-      assert.propertyVal(error, "operation", expected.operation);
+      assert.instanceOf(
+        error,
+        DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreMigrationError,
+      );
+      assert.equal(error.operation, "decrypt-legacy-catalog");
       assert.equal(yield* fileSystem.readFileString(catalogPath), original);
     }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
   );
+
+  const emptyCatalog =
+    '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}';
 
   it.effect("persists and reads an encrypted connection catalog", () =>
     withStore(
       Effect.gen(function* () {
         const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore;
-        const catalog =
-          '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}';
+        const catalog = '{"schemaVersion":1,"targets":[]}';
 
         assert.isTrue(yield* store.set(catalog));
         assert.deepStrictEqual(yield* store.get, Option.some(catalog));
@@ -539,53 +541,162 @@ describe("DesktopConnectionCatalogStore", () => {
     ),
   );
 
-  it.effect("surfaces a catalog that can no longer be decrypted without deleting it", () =>
+  it.effect("preserves a catalog encrypted with a lost key and starts a fresh one", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const fileSystem = yield* FileSystem.FileSystem;
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-desktop-connection-catalog-test-",
       });
-      const failDecrypt = yield* Ref.make(false);
-      const layer = layerFor(baseDir, true, failDecrypt);
+      const key = yield* Ref.make("original-key");
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
-        Effect.provide(layer),
+        Effect.provide(layerFor(baseDir, true, key)),
       );
+      const stateDir = path.join(baseDir, "userdata");
+      const catalogPath = path.join(stateDir, "connection-catalog.json");
+      assert.isTrue(yield* store.set('{"schemaVersion":1,"targets":[]}'));
+      const original = yield* fileSystem.readFileString(catalogPath);
+      yield* Ref.set(key, "regenerated-key");
 
-      assert.isTrue(
-        yield* store.set(
-          '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}',
+      const results = yield* Effect.all([store.get, store.get], { concurrency: "unbounded" });
+      assert.deepStrictEqual(results, [Option.none(), Option.none()]);
+      const findBackups = Effect.gen(function* () {
+        const backups: Array<string> = [];
+        for (const name of yield* fileSystem.readDirectory(stateDir)) {
+          const entryPath = path.join(stateDir, name);
+          if (
+            entryPath !== catalogPath &&
+            (yield* fileSystem.readFileString(entryPath)) === original
+          ) {
+            backups.push(entryPath);
+          }
+        }
+        return backups;
+      });
+      assert.equal((yield* findBackups).length, 1);
+
+      const fresh = '{"schemaVersion":1,"targets":[],"profiles":[]}';
+      assert.isTrue(yield* store.set(fresh));
+      assert.deepStrictEqual(yield* store.get, Option.some(fresh));
+      assert.equal((yield* findBackups).length, 1);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
+  it.effect("preserves the undecryptable catalog even when a save replaces it mid-read", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-connection-catalog-test-",
+      });
+      const key = yield* Ref.make("original-key");
+      const writer = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(layerFor(baseDir, true, key)),
+      );
+      assert.isTrue(yield* writer.set(emptyCatalog));
+      const stateDir = path.join(baseDir, "userdata");
+      const catalogPath = path.join(stateDir, "connection-catalog.json");
+      const original = yield* fileSystem.readFileString(catalogPath);
+      const readerKey = yield* Ref.make("regenerated-key");
+      const preserving = yield* Deferred.make<void>();
+      const saved = yield* Deferred.make<void>();
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(
+          layerFor(
+            baseDir,
+            true,
+            readerKey,
+            Layer.succeed(FileSystem.FileSystem, {
+              ...fileSystem,
+              exists: (entryPath) =>
+                entryPath.endsWith(".undecryptable")
+                  ? Deferred.succeed(preserving, undefined).pipe(
+                      Effect.andThen(Deferred.await(saved)),
+                      Effect.andThen(fileSystem.exists(entryPath)),
+                    )
+                  : fileSystem.exists(entryPath),
+            }),
+          ),
         ),
       );
-      yield* Ref.set(failDecrypt, true);
-      const error = yield* store.get.pipe(Effect.flip);
-      assert.instanceOf(
-        error,
-        DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreProtectionError,
+      const read = yield* Effect.forkChild(store.get);
+      yield* Deferred.await(preserving);
+      assert.isTrue(yield* writer.set(`${emptyCatalog}\n`));
+      yield* Deferred.succeed(saved, undefined);
+      assert.deepStrictEqual(yield* Fiber.join(read), Option.none());
+
+      const backups = (yield* fileSystem.readDirectory(stateDir)).filter((name) =>
+        name.endsWith(".undecryptable"),
       );
-      assert.equal(error.operation, "decrypt-catalog");
-      assert.equal(error.catalogPath, path.join(baseDir, "userdata", "connection-catalog.json"));
-      assert.instanceOf(error.cause, ElectronSafeStorage.ElectronSafeStorageDecryptError);
-      const decryptError = error.cause as ElectronSafeStorage.ElectronSafeStorageDecryptError;
-      assert.instanceOf(decryptError.cause, Error);
-      assert.equal(decryptError.cause.message, "invalid encrypted catalog");
+      assert.equal(backups.length, 1);
       assert.equal(
-        error.message,
-        `Desktop connection catalog protection failed during decrypt-catalog at ${path.join(baseDir, "userdata", "connection-catalog.json")}.`,
-      );
-      assert.notEqual(error.message, decryptError.message);
-      yield* Ref.set(failDecrypt, false);
-      assert.deepStrictEqual(
-        yield* store.get,
-        Option.some(
-          '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}',
-        ),
+        yield* fileSystem.readFileString(path.join(stateDir, backups[0] ?? "")),
+        original,
       );
     }).pipe(Effect.provide(NodeServices.layer)),
   );
 
-  const emptyCatalog =
-    '{"schemaVersion":1,"targets":[],"profiles":[],"credentials":[],"remoteDpopTokens":[],"disabledEnvironmentIds":[]}';
+  it.effect("keeps an undecryptable catalog in place when it cannot be preserved", () =>
+    Effect.gen(function* () {
+      const path = yield* Path.Path;
+      const fileSystem = yield* FileSystem.FileSystem;
+      const baseDir = yield* fileSystem.makeTempDirectoryScoped({
+        prefix: "t3-desktop-connection-catalog-test-",
+      });
+      const key = yield* Ref.make("original-key");
+      const writable = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(layerFor(baseDir, true, key)),
+      );
+      const catalogPath = path.join(baseDir, "userdata", "connection-catalog.json");
+      assert.isTrue(yield* writable.set('{"schemaVersion":1,"targets":[]}'));
+      const original = yield* fileSystem.readFileString(catalogPath);
+      const writeFailure = (method: string) =>
+        Effect.fail(
+          PlatformError.systemError({
+            _tag: "PermissionDenied",
+            module: "FileSystem",
+            method,
+            pathOrDescriptor: catalogPath,
+          }),
+        );
+      const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
+        Effect.provide(
+          layerFor(
+            baseDir,
+            true,
+            key,
+            Layer.succeed(FileSystem.FileSystem, {
+              ...fileSystem,
+              copy: () => writeFailure("copy"),
+              copyFile: () => writeFailure("copyFile"),
+              link: () => writeFailure("link"),
+              remove: () => writeFailure("remove"),
+              rename: () => writeFailure("rename"),
+              writeFile: () => writeFailure("writeFile"),
+              writeFileString: () => writeFailure("writeFileString"),
+            }),
+          ),
+        ),
+      );
+      yield* Ref.set(key, "regenerated-key");
+
+      const error = yield* store.get.pipe(Effect.flip);
+      assert.instanceOf(
+        error,
+        DesktopConnectionCatalogStore.DesktopConnectionCatalogStoreWriteError,
+      );
+      assert.equal(error.operation, "preserve-undecryptable-catalog");
+      const saveError = yield* store.set(emptyCatalog).pipe(Effect.flip);
+      assert.equal(saveError.operation, "preserve-undecryptable-catalog");
+      assert.isFalse(
+        (yield* fileSystem.readDirectory(path.dirname(catalogPath))).some((name) =>
+          name.endsWith(".undecryptable"),
+        ),
+      );
+      assert.equal(yield* fileSystem.readFileString(catalogPath), original);
+    }).pipe(Effect.provide(NodeServices.layer)),
+  );
+
   const savedFilesHolding = Effect.fn(function* (stateDir: string, contents: string) {
     const fileSystem = yield* FileSystem.FileSystem;
     const path = yield* Path.Path;
@@ -613,8 +724,7 @@ describe("DesktopConnectionCatalogStore", () => {
         );
         const original = yield* fileSystem.readFileString(catalogPath);
 
-        // Reading fails rather than hand the web client a catalog it would replace with an empty one.
-        yield* store.get.pipe(Effect.flip);
+        yield* store.get;
         assert.isTrue(yield* store.set(emptyCatalog));
 
         assert.isNotEmpty(yield* savedFilesHolding(environment.stateDir, original));
@@ -622,28 +732,34 @@ describe("DesktopConnectionCatalogStore", () => {
     ),
   );
 
-  it.effect("keeps a catalog that no longer decrypts when the next save replaces it", () =>
+  it.effect("preserves the original catalog when saving after key loss without reading first", () =>
     Effect.gen(function* () {
       const path = yield* Path.Path;
       const fileSystem = yield* FileSystem.FileSystem;
       const baseDir = yield* fileSystem.makeTempDirectoryScoped({
         prefix: "t3-desktop-connection-catalog-test-",
       });
-      const failDecrypt = yield* Ref.make(false);
+      const key = yield* Ref.make("original-key");
       const store = yield* DesktopConnectionCatalogStore.DesktopConnectionCatalogStore.pipe(
-        Effect.provide(layerFor(baseDir, true, failDecrypt)),
+        Effect.provide(layerFor(baseDir, true, key)),
       );
       const stateDir = path.join(baseDir, "userdata");
-      assert.isTrue(yield* store.set('{"schemaVersion":1,"targets":[]}'));
-      const original = yield* fileSystem.readFileString(
-        path.join(stateDir, "connection-catalog.json"),
+      const catalogPath = path.join(stateDir, "connection-catalog.json");
+      assert.isTrue(yield* store.set(emptyCatalog));
+      const original = JSON.stringify(
+        JSON.parse(yield* fileSystem.readFileString(catalogPath)),
+        null,
+        2,
       );
+      yield* fileSystem.writeFileString(catalogPath, original);
 
-      yield* Ref.set(failDecrypt, true);
-      yield* store.get.pipe(Effect.flip);
+      yield* Ref.set(key, "regenerated-key");
       assert.isTrue(yield* store.set(emptyCatalog));
 
-      assert.isNotEmpty(yield* savedFilesHolding(stateDir, original));
-    }).pipe(Effect.provide(NodeServices.layer), Effect.scoped),
+      const backups = yield* savedFilesHolding(stateDir, original);
+      assert.equal(backups.length, 1);
+      assert.isTrue(backups[0]?.endsWith(".undecryptable"));
+      assert.deepStrictEqual(yield* store.get, Option.some(emptyCatalog));
+    }).pipe(Effect.provide(NodeServices.layer)),
   );
 });

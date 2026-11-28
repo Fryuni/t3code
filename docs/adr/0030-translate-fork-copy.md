@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-19
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 Upstream translated the whole web, desktop, and mobile interface into every supported
 language ([pingdotgg/t3code#37893](https://github.com/pingdotgg/t3code/pull/37893)).
@@ -23,6 +23,10 @@ the copy added by [ADR 0008](0008-start-threads-on-existing-branches.md),
 upstream's strings, such as the missing-branch error that also covers **Check out in
 worktree**, the fork's English gets its own key and translations, and upstream's key drops out
 of the catalogs.
+
+Upstream added Polish ([pingdotgg/t3code#41463](https://github.com/pingdotgg/t3code/pull/41463)),
+so the fork's keys are translated in `pl.json` too, using that catalog's terms (`worktree`,
+`checkout`, `gałąź bazowa`, `pull requesty`).
 
 When updating from upstream, resolve conflicts with upstream's wrapping, run
 `vp run i18n:generate` in `apps/web` and `apps/mobile`, and translate every fork key still in

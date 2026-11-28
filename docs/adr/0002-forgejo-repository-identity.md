@@ -3,7 +3,7 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#27](https://github.com/Fryuni/t3code/issues/27)
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 Upstream already records Forgejo web URLs and pull-request authorities, but its
 repository comparisons lower-case the entire path and its canonical identity
@@ -129,6 +129,16 @@ checkout or a public host, so the fork keeps the reference's host in that key.
 Legacy thread links recover theirs from the URL, which keeps the web port. The
 repository folds with `normalizeSourceControlRepository`, so case-distinct mounts
 stay apart.
+
+Upstream's PR service now reads every repository a multi-repository project tracks, and
+matches a reference and its line counts by host and lower-cased repository
+([pingdotgg/t3code#44399](https://github.com/pingdotgg/t3code/pull/44399)). The fork keeps that
+matching and folds the repository with `normalizeSourceControlRepository` instead. The web
+PR panel's legacy-link check, which upstream now lower-cases too, folds the same way. Upstream
+also keeps a mounted Forgejo project's scheme and port in a PR's fallback URL when the
+repository matches its `webUrl` path
+([pingdotgg/t3code#44521](https://github.com/pingdotgg/t3code/pull/44521)), but that path is
+lower-cased, so the fork's rules above still apply.
 
 Upstream's client patches PR readers from the host's reply to an action
 ([pingdotgg/t3code#25761](https://github.com/pingdotgg/t3code/pull/25761)) and matches them

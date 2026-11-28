@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
   pullRequestEnvironments: new Set<string>(),
   projects: [] as Array<{ id: string; environmentId: string }>,
   effects: [] as string[],
+  latestRun: null as { readonly status: string; readonly completedAt: string | null } | null,
   completed: deferred<void>(),
   navigate: vi.fn<(options: { to: string; search?: unknown }) => Promise<void>>(),
   show: vi.fn<
@@ -66,7 +67,7 @@ vi.mock("../state/entities", () => ({
     branch: "main",
     worktreePath: null,
     runtime: null,
-    latestRun: null,
+    latestRun: state.latestRun,
   }),
   readProject: (ref: { environmentId: string; projectId: string }) =>
     state.projects.find(
@@ -185,6 +186,7 @@ beforeEach(() => {
     { id: "project", environmentId: "secondary" },
   ];
   state.effects = [];
+  state.latestRun = null;
   state.completed = deferred<void>();
   state.show.mockReset().mockResolvedValue(null);
   state.navigate.mockReset().mockImplementation(async () => recordEffect("project-pull-requests"));
@@ -300,5 +302,19 @@ it("rechecks connection state while the target project and PR capability remain 
       environmentId: "secondary",
       projectId: "project",
     },
+  });
+});
+
+describe("thread menu mark unread", () => {
+  it.each([
+    ["completed", true],
+    ["interrupted", false],
+    ["cancelled", false],
+  ] as const)("a %s latest run offers Mark unread: %s", (status, offered) => {
+    // A stopped run never shows Done, so marking it unread would change nothing.
+    state.latestRun = { status, completedAt: "2026-01-01T00:00:00.000Z" };
+    createMenu().openMenu(position);
+    const items = state.show.mock.calls[0]![0];
+    expect(items.some((item) => item.id === "mark-unread")).toBe(offered);
   });
 });
