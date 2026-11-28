@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-26
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 Selecting assistant text in a mobile browser (seen on Chrome for Android) never
 showed the **Cite** button. A touch selection starts with a long-press. That

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-10-17
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
 A checkout can set its remote to the Forgejo web URL and let git push over SSH
 through `url.<base>.insteadOf`, for example `https://forge.example/` rewritten to
@@ -48,7 +48,9 @@ mapping moved with it, and the service passes the thread's project too.
 Upstream rewrote the registry's tests around fake drivers
 ([pingdotgg/t3code#24000](https://github.com/pingdotgg/t3code/pull/24000)). The fork's
 configured-remote tests moved onto them, and upstream's tests that count every process
-the registry runs skip the fork's `git config` read. Upstream's fake `tea` runners that read
+the registry runs skip the fork's `git config` read, as does upstream's test that counts the
+`gt config get ssh_host` calls ([pingdotgg/t3code#42428](https://github.com/pingdotgg/t3code/pull/42428)).
+Upstream's fake `gt` runners that read
 every call as an API request, such as the 1 MB list page test
 ([pingdotgg/t3code#38211](https://github.com/pingdotgg/t3code/pull/38211)), answer that read with
 no configured URL. Upstream's Forgejo issue tracker

@@ -3,9 +3,9 @@
 - Status: accepted
 - Date: 2026-09-19
 - Tracking: [Fryuni/t3code#26](https://github.com/Fryuni/t3code/issues/26)
-- Compared with upstream: `pingdotgg/t3code` at `cc61cdb1e` (2026-11-26)
+- Compared with upstream: `pingdotgg/t3code` at `2547fb284` (2026-11-28)
 
-Upstream already discovers Forgejo and Gitea through `fj` and `tea`. The fork
+Upstream already discovers Forgejo and Gitea through `fj` and `gt`. The fork
 extends that discovery for installations whose SSH clone authority differs from
 the configured web authority and has no matching `ssh_host`. Without this
 extension, a valid SSH checkout can remain unrecognized despite an authenticated
@@ -19,6 +19,12 @@ provides evidence of which instance owns the remote, while ambiguous matches
 remain unresolved. This lives in the existing
 [CLI discovery boundary](../../packages/source-control-forgejo/src/server/ForgejoCli.ts), so
 normal discovery and repository resolution use the same fallback.
+
+Upstream replaced the archived `tea` with the Gitea CLI `gt`
+([pingdotgg/t3code#42428](https://github.com/pingdotgg/t3code/pull/42428)). For an SSH remote it
+asks `gt config get ssh_host` for each instance not named after the remote's host, which maps
+an alias only when the user configured one. The fallback still covers `fj` logins only, as it
+covered no `tea` logins before.
 
 The fallback trades authenticated network requests for support of these SSH
 layouts. It runs only after ordinary matching fails, bounds the work, and caches
